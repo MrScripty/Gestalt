@@ -1,0 +1,27 @@
+:root {
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  background: linear-gradient(120deg, #0f1b1d, #1f3036);
+  color: #f1f8fa;
+}
+
+.app-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  gap: 8px;
+}
+
+.app-shell h1,
+.app-shell p {
+  margin: 0;
+}
