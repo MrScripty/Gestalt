@@ -4,7 +4,7 @@ use dioxus::document;
 use dioxus::events::KeyboardEvent;
 use dioxus::prelude::*;
 use dioxus::prelude::{InteractionLocation, Key, ModifiersInteraction};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -30,6 +30,7 @@ if (navigator.clipboard && navigator.clipboard.writeText) {
 }
 return false;
 "#;
+const TERMINAL_RESIZE_POLL_MS: u64 = 180;
 
 #[derive(Clone)]
 struct TerminalPaneData {
@@ -55,6 +56,55 @@ pub fn App() -> Element {
                 tokio::time::sleep(Duration::from_millis(33)).await;
                 let next = *refresh_tick.read() + 1;
                 refresh_tick.set(next);
+            }
+        });
+    }
+
+    {
+        let app_state = app_state;
+        let terminal_manager = terminal_manager.read().clone();
+        use_future(move || {
+            let terminal_manager = terminal_manager.clone();
+            async move {
+                let mut last_sizes: HashMap<SessionId, (u16, u16)> = HashMap::new();
+
+                loop {
+                    tokio::time::sleep(Duration::from_millis(TERMINAL_RESIZE_POLL_MS)).await;
+
+                    let snapshot = app_state.read().clone();
+                    let Some(group_id) = snapshot.active_group_id() else {
+                        last_sizes.clear();
+                        continue;
+                    };
+
+                    let (agents, runner) = snapshot.workspace_sessions_for_group(group_id);
+                    let mut active_session_ids: Vec<SessionId> =
+                        agents.into_iter().map(|session| session.id).collect();
+                    if let Some(runner) = runner {
+                        active_session_ids.push(runner.id);
+                    }
+
+                    let active_session_set: HashSet<SessionId> =
+                        active_session_ids.iter().copied().collect();
+                    last_sizes.retain(|session_id, _| active_session_set.contains(session_id));
+
+                    for session_id in active_session_ids {
+                        let body_id = format!("terminal-body-{session_id}");
+                        let Some((rows, cols)) = measure_terminal_viewport(body_id).await else {
+                            continue;
+                        };
+
+                        if last_sizes.get(&session_id).copied() == Some((rows, cols)) {
+                            continue;
+                        }
+
+                        if let Ok(mut runtime) = terminal_manager.lock() {
+                            if runtime.resize_session(session_id, rows, cols).is_ok() {
+                                last_sizes.insert(session_id, (rows, cols));
+                            }
+                        }
+                    }
+                }
             }
         });
     }
@@ -562,7 +612,10 @@ fn terminal_shell(
     } else {
         "terminal-shell"
     };
-    let body_style = format!("--term-rows: {}; --term-cols: {};", terminal.rows, terminal.cols);
+    let body_style = format!(
+        "--term-rows: {}; --term-cols: {};",
+        terminal.rows, terminal.cols
+    );
     let cursor_row = terminal.cursor_row.min(terminal.rows.saturating_sub(1));
     let cursor_col = terminal.cursor_col.min(terminal.cols.saturating_sub(1));
     let click_rows = terminal.rows;
@@ -919,6 +972,52 @@ return `${{row}},${{Math.max(0, col)}}`;
     Some((clamped_row, clamped_col))
 }
 
+async fn measure_terminal_viewport(terminal_body_id: String) -> Option<(u16, u16)> {
+    let script = format!(
+        r#"
+const root = document.getElementById({terminal_body_id:?});
+if (!root) return "";
+
+const style = window.getComputedStyle(root);
+const parsePx = (value, fallback) => {{
+    const parsed = Number.parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+}};
+
+const paddingX = parsePx(style.paddingLeft, 0) + parsePx(style.paddingRight, 0);
+const paddingY = parsePx(style.paddingTop, 0) + parsePx(style.paddingBottom, 0);
+const lineHeight = Math.max(1, parsePx(style.lineHeight, 17));
+
+let charWidth = parsePx(style.getPropertyValue("--term-char-width"), 8.4);
+const probe = document.createElement("span");
+probe.textContent = "MMMMMMMMMM";
+probe.style.position = "absolute";
+probe.style.visibility = "hidden";
+probe.style.pointerEvents = "none";
+probe.style.whiteSpace = "pre";
+probe.style.font = style.font;
+probe.style.letterSpacing = style.letterSpacing;
+root.appendChild(probe);
+const probeWidth = probe.getBoundingClientRect().width / 10;
+root.removeChild(probe);
+if (Number.isFinite(probeWidth) && probeWidth > 0) {{
+    charWidth = probeWidth;
+}}
+charWidth = Math.max(1, charWidth);
+
+const viewportWidth = Math.max(0, root.clientWidth - paddingX);
+const viewportHeight = Math.max(0, root.clientHeight - paddingY);
+const cols = Math.max(8, Math.floor(viewportWidth / charWidth));
+const rows = Math.max(2, Math.floor(viewportHeight / lineHeight));
+
+return `${{rows}},${{cols}}`;
+"#
+    );
+
+    let measured = document::eval(&script).join::<String>().await.ok()?;
+    parse_row_col(&measured)
+}
+
 fn parse_row_col(input: &str) -> Option<(u16, u16)> {
     let (row, col) = input.trim().split_once(',')?;
     let row = row.trim().parse::<u16>().ok()?;
@@ -926,12 +1025,7 @@ fn parse_row_col(input: &str) -> Option<(u16, u16)> {
     Some((row, col))
 }
 
-fn cursor_move_bytes(
-    from_row: u16,
-    from_col: u16,
-    target_row: u16,
-    target_col: u16,
-) -> Vec<u8> {
+fn cursor_move_bytes(from_row: u16, from_col: u16, target_row: u16, target_col: u16) -> Vec<u8> {
     let mut bytes = Vec::new();
 
     if target_row > from_row {

@@ -9,6 +9,8 @@ use vt100::Parser;
 const DEFAULT_ROWS: u16 = 42;
 const DEFAULT_COLS: u16 = 140;
 const DEFAULT_SCROLLBACK: usize = 12_000;
+const MIN_ROWS: u16 = 2;
+const MIN_COLS: u16 = 8;
 
 #[derive(Debug, Clone)]
 pub struct TerminalSnapshot {
@@ -148,6 +150,37 @@ impl TerminalManager {
             hide_cursor: screen.hide_cursor(),
             bracketed_paste: screen.bracketed_paste(),
         })
+    }
+
+    pub fn resize_session(
+        &mut self,
+        session_id: SessionId,
+        rows: u16,
+        cols: u16,
+    ) -> Result<(), String> {
+        let Some(runtime) = self.sessions.get_mut(&session_id) else {
+            return Err("session does not exist".to_string());
+        };
+
+        let rows = rows.max(MIN_ROWS);
+        let cols = cols.max(MIN_COLS);
+        runtime
+            ._master
+            .resize(PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .map_err(|error| format!("Failed to resize PTY: {error}"))?;
+
+        let mut parser = runtime
+            .parser
+            .lock()
+            .map_err(|_| "terminal parser lock poisoned".to_string())?;
+        parser.set_size(rows, cols);
+
+        Ok(())
     }
 
     pub fn session_cwd(&self, session_id: SessionId) -> Option<&str> {

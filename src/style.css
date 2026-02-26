@@ -438,6 +438,7 @@ body {
   user-select: text;
   min-width: 0;
   position: relative;
+  scrollbar-gutter: stable;
 }
 
 .terminal-card.runner .terminal-body {
