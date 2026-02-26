@@ -1,4 +1,5 @@
 mod state;
+mod terminal;
 mod ui;
 
 fn main() {
