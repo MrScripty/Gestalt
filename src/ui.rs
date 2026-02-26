@@ -853,6 +853,25 @@ fn split_prompt_prefix(line: &str) -> Option<(&str, &str)> {
     }
 
     let leading = line.len().saturating_sub(trimmed.len());
+
+    // When the terminal gets narrow, bash/zsh prompts can wrap and leave the
+    // final "$ " or "# " marker at the start of a new visual line.
+    if trimmed.starts_with("$ ") || trimmed.starts_with("# ") {
+        let end = leading + 2;
+        return Some((&line[..end], &line[end..]));
+    }
+
+    // Wrapped prompts can also leave only "$" or "#" at end/start of row.
+    if trimmed == "$" || trimmed == "#" {
+        return Some((line, ""));
+    }
+
+    if (trimmed.ends_with('$') || trimmed.ends_with('#'))
+        && (trimmed.contains('@') || trimmed.contains(':'))
+    {
+        return Some((line, ""));
+    }
+
     let marker = trimmed.find("$ ").or_else(|| trimmed.find("# "))?;
     let end = leading + marker + 2;
     let prefix = &line[..end];
