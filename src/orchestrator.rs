@@ -1,0 +1,233 @@
+use crate::state::{AppState, GroupId, SessionId, SessionRole, SessionStatus};
+use crate::terminal::TerminalManager;
+
+#[derive(Debug, Clone)]
+pub struct TerminalRound {
+    pub start_row: u16,
+    pub end_row: u16,
+    pub lines: Vec<String>,
+}
+
+impl TerminalRound {
+    pub fn text(&self) -> String {
+        self.lines.join("\n")
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct GroupTerminalState {
+    pub session_id: SessionId,
+    pub title: String,
+    pub role: SessionRole,
+    pub status: SessionStatus,
+    pub cwd: String,
+    pub is_selected: bool,
+    pub is_focused: bool,
+    pub is_runtime_ready: bool,
+    pub latest_round: TerminalRound,
+}
+
+#[derive(Debug, Clone)]
+pub struct GroupOrchestratorSnapshot {
+    pub group_id: GroupId,
+    pub group_path: String,
+    pub terminals: Vec<GroupTerminalState>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SessionWriteResult {
+    pub session_id: SessionId,
+    pub error: Option<String>,
+}
+
+pub fn snapshot_group(
+    app_state: &AppState,
+    terminal_manager: &TerminalManager,
+    group_id: GroupId,
+    focused_session: Option<SessionId>,
+) -> GroupOrchestratorSnapshot {
+    let group_path = app_state.group_path(group_id).unwrap_or(".").to_string();
+    let terminals = app_state
+        .sessions_in_group(group_id)
+        .into_iter()
+        .map(|session| {
+            let runtime_snapshot = terminal_manager.snapshot(session.id);
+            let lines = runtime_snapshot
+                .as_ref()
+                .map(|snapshot| snapshot.lines.clone())
+                .unwrap_or_default();
+
+            GroupTerminalState {
+                session_id: session.id,
+                title: session.title,
+                role: session.role,
+                status: session.status,
+                cwd: terminal_manager
+                    .session_cwd(session.id)
+                    .unwrap_or(group_path.as_str())
+                    .to_string(),
+                is_selected: app_state.selected_session == Some(session.id),
+                is_focused: focused_session == Some(session.id),
+                is_runtime_ready: runtime_snapshot.is_some(),
+                latest_round: latest_round_from_lines(&lines),
+            }
+        })
+        .collect();
+
+    GroupOrchestratorSnapshot {
+        group_id,
+        group_path,
+        terminals,
+    }
+}
+
+pub fn group_session_ids(app_state: &AppState, group_id: GroupId) -> Vec<SessionId> {
+    app_state
+        .sessions
+        .iter()
+        .filter(|session| session.group_id == group_id)
+        .map(|session| session.id)
+        .collect()
+}
+
+pub fn send_line_to_sessions(
+    terminal_manager: &mut TerminalManager,
+    session_ids: &[SessionId],
+    line: &str,
+) -> Vec<SessionWriteResult> {
+    session_ids
+        .iter()
+        .copied()
+        .map(|session_id| SessionWriteResult {
+            session_id,
+            error: terminal_manager.send_line(session_id, line).err(),
+        })
+        .collect()
+}
+
+pub fn interrupt_sessions(
+    terminal_manager: &mut TerminalManager,
+    session_ids: &[SessionId],
+) -> Vec<SessionWriteResult> {
+    session_ids
+        .iter()
+        .copied()
+        .map(|session_id| SessionWriteResult {
+            session_id,
+            error: terminal_manager.send_input(session_id, &[0x03]).err(),
+        })
+        .collect()
+}
+
+fn latest_round_from_lines(lines: &[String]) -> TerminalRound {
+    if lines.is_empty() {
+        return TerminalRound {
+            start_row: 0,
+            end_row: 0,
+            lines: vec![String::new()],
+        };
+    }
+
+    let last_non_empty = lines
+        .iter()
+        .rposition(|line| !line.trim().is_empty())
+        .unwrap_or(0);
+    let start_idx = (0..=last_non_empty)
+        .rev()
+        .find(|idx| {
+            is_prompt_row(
+                lines
+                    .get(*idx)
+                    .map(|line| line.as_str())
+                    .unwrap_or_default(),
+            )
+        })
+        .unwrap_or(0);
+    let end_idx = last_non_empty.max(start_idx);
+
+    let mut round_lines: Vec<String> = lines[start_idx..=end_idx].to_vec();
+    if round_lines.is_empty() {
+        round_lines.push(String::new());
+    }
+
+    let start_row = u16::try_from(start_idx).unwrap_or(u16::MAX);
+    let end_row = u16::try_from(end_idx).unwrap_or(u16::MAX);
+    TerminalRound {
+        start_row,
+        end_row,
+        lines: round_lines,
+    }
+}
+
+fn is_prompt_row(line: &str) -> bool {
+    split_prompt_prefix(line).is_some()
+}
+
+fn split_prompt_prefix(line: &str) -> Option<(&str, &str)> {
+    let trimmed = line.trim_start();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let leading = line.len().saturating_sub(trimmed.len());
+
+    if trimmed.starts_with("$ ") || trimmed.starts_with("# ") {
+        let end = leading + 2;
+        return Some((&line[..end], &line[end..]));
+    }
+
+    if trimmed == "$" || trimmed == "#" {
+        return Some((line, ""));
+    }
+
+    if (trimmed.ends_with('$') || trimmed.ends_with('#'))
+        && (trimmed.contains('@') || trimmed.contains(':'))
+    {
+        return Some((line, ""));
+    }
+
+    let marker = trimmed.find("$ ").or_else(|| trimmed.find("# "))?;
+    let end = leading + marker + 2;
+    let prefix = &line[..end];
+    if !prefix.contains('@') || !prefix.contains(':') {
+        return None;
+    }
+
+    Some((prefix, &line[end..]))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::latest_round_from_lines;
+
+    #[test]
+    fn latest_round_starts_on_last_prompt_row() {
+        let lines = vec![
+            "jeremy@box:~/a$ ls".to_string(),
+            "Cargo.toml".to_string(),
+            "src".to_string(),
+            "jeremy@box:~/a$ pwd".to_string(),
+            "/tmp/a".to_string(),
+        ];
+
+        let round = latest_round_from_lines(&lines);
+        assert_eq!(round.start_row, 3);
+        assert_eq!(round.end_row, 4);
+        assert_eq!(round.lines.len(), 2);
+        assert_eq!(round.lines[0], "jeremy@box:~/a$ pwd");
+    }
+
+    #[test]
+    fn latest_round_handles_wrapped_prompt_marker_rows() {
+        let lines = vec![
+            "jeremy@box:~/very/long/path/that/wrapped".to_string(),
+            "$ cargo check".to_string(),
+            "Finished dev profile".to_string(),
+        ];
+
+        let round = latest_round_from_lines(&lines);
+        assert_eq!(round.start_row, 1);
+        assert_eq!(round.end_row, 2);
+        assert_eq!(round.lines[0], "$ cargo check");
+    }
+}

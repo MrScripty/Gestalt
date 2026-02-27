@@ -336,6 +336,9 @@ body {
 .run-sidebar {
   min-height: 0;
   min-width: 0;
+  display: grid;
+  grid-template-rows: minmax(240px, 1fr) minmax(240px, 1fr);
+  gap: 10px;
 }
 
 .terminal-card {
@@ -494,6 +497,156 @@ body {
   background: #f4f8f9;
 }
 
+.orchestrator-card {
+  background: linear-gradient(180deg, #f7fbf5 0%, #edf8ef 100%);
+  border-radius: 12px;
+  border: 1px solid #b3d2b8;
+  box-shadow: 0 10px 26px #0f1b1d14;
+  min-height: 0;
+  min-width: 0;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+.orchestrator-head {
+  padding: 10px 12px 6px;
+  border-bottom: 1px solid #d8eadb;
+}
+
+.orchestrator-head h3 {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #133a1b;
+}
+
+.orchestrator-head p {
+  margin: 4px 0 0;
+  font-size: 0.72rem;
+  color: #3f6546;
+  line-break: anywhere;
+}
+
+.orchestrator-controls {
+  padding: 10px 12px;
+  border-bottom: 1px solid #d8eadb;
+}
+
+.orchestrator-input {
+  width: 100%;
+  resize: vertical;
+  min-height: 52px;
+  max-height: 110px;
+  border: 1px solid #9ac2a2;
+  border-radius: 8px;
+  padding: 8px;
+  font-family: "JetBrains Mono", "Iosevka", "Consolas", monospace;
+  font-size: 0.72rem;
+  color: #123017;
+  background: #f9fffa;
+}
+
+.orchestrator-actions {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.orchestrator-btn {
+  border: none;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 7px 8px;
+  cursor: pointer;
+}
+
+.orchestrator-btn.send {
+  background: #6cbf74;
+  color: #113315;
+}
+
+.orchestrator-btn.interrupt {
+  background: #f8b4b4;
+  color: #4a1414;
+}
+
+.orchestrator-feedback {
+  margin: 7px 0 0;
+  font-size: 0.7rem;
+  color: #305739;
+}
+
+.orchestrator-list {
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.orchestrator-item {
+  border-radius: 10px;
+  border: 1px solid #c8decb;
+  background: #fbfffc;
+  padding: 7px 8px;
+}
+
+.orchestrator-item.terminal-selected {
+  border-color: #6ea774;
+  box-shadow: inset 0 0 0 1px #6ea77433;
+}
+
+.orchestrator-item.terminal-focused {
+  border-color: #2a9d8f;
+  box-shadow: inset 0 0 0 1px #2a9d8f44;
+}
+
+.orchestrator-item-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.orchestrator-item-head .name {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #17361d;
+}
+
+.orchestrator-item .badge {
+  font-size: 0.62rem;
+  padding: 2px 6px;
+}
+
+.orchestrator-item .badge.role {
+  background: #b6ddb9;
+  color: #16331b;
+}
+
+.orchestrator-item .badge.state {
+  background: #d7e6d9;
+  color: #2b4d31;
+}
+
+.orchestrator-item .meta {
+  margin: 4px 0 0;
+  font-size: 0.66rem;
+  color: #416548;
+  line-break: anywhere;
+}
+
+.orchestrator-item .preview {
+  margin: 5px 0 0;
+  font-family: "JetBrains Mono", "Iosevka", "Consolas", monospace;
+  font-size: 0.66rem;
+  color: #17321b;
+  line-break: anywhere;
+}
+
 .runner-empty h3,
 .workspace-empty h3 {
   margin: 0;
@@ -537,6 +690,7 @@ body {
 
   .run-sidebar {
     min-height: 320px;
+    grid-template-rows: repeat(2, minmax(280px, 1fr));
   }
 }
 
