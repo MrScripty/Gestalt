@@ -1,37 +1,42 @@
 # Gestalt
 
-Rust desktop control surface for large terminal fleets (40+ coding agents).
+Gestalt is a Rust desktop workspace for running and coordinating large terminal fleets (40+ coding agents) in one UI.
 
-## Why Dioxus 0.7.x
-- Rust-first desktop app model with a fast iteration loop.
-- Reactive state + HTML/CSS UI makes dense tabbing/tiling workflows straightforward.
-- Good fit for rapidly iterating on operator UX while terminal backend matures.
+It is built with Dioxus Desktop (`0.7.x`) and uses real PTY sessions + VT100 parsing so each pane behaves like an actual terminal, not a fake log window.
 
-## Current MVP
-- Vertical tab rail with color-coded status indicators (`Idle`, `Busy`, `Error`).
-- Path-based tab groups: each group is a filesystem path.
-- New path groups default to three real PTY-backed shells in that path:
-  - `Agent A` (stacked center/top)
-  - `Agent B` (stacked center/bottom)
-  - `Run / Compile` (dedicated blue right sidebar)
-- Drag tabs to reorder, including moving tabs across path groups.
-- When a tab is moved to another group, it receives `cd <group-path>`.
-- Tabs can be renamed inline from the left rail.
-- Interactive terminal panes: click a pane and type directly; key events are forwarded to PTY.
-- VT100 parsing for terminal output, so cursor movement and ANSI control sequences render properly.
+## What It Does
+
+- Vertical tab rail with color-coded status (`Idle`, `Busy`, `Error`)
+- Path-based groups (`/some/project/path` = one workspace group)
+- Default 3-pane layout per group:
+  - `Agent A` and `Agent B` stacked in the center
+  - `Run / Compile` in a dedicated blue right sidebar pane
+- Drag-and-drop tab organization across groups
+- Real interactive terminals (PTY-backed)
+- Inline tab renaming
+- Round-aware selection helpers (`Ctrl+A` for command/output block selection)
+- Local Agent pane for group orchestration controls
+
+## Architecture
+
+- UI: Dioxus Desktop + CSS layout (`src/ui.rs`, `src/style.css`)
+- Session/Group state: `src/state.rs`
+- Terminal runtime: PTY + VT100 (`src/terminal.rs`)
+- Orchestration scaffolding: `src/orchestrator.rs`
+- Workspace persistence: atomic save/load + schema versioning (`src/persistence/`)
+
+## Documentation
+
+- Orchestration API for local agents: [ORCHESTRATION-API.md](ORCHESTRATION-API.md)
 
 ## Run
+
 ```bash
 cargo run
 ```
 
-## Notes
-- Shell output is live from PTY processes.
-- The UI forwards raw key input for interactive CLI workflows.
-- Busy/idle/error status is still user-driven for now.
+## Current Limitations
 
-## Next Milestones
-1. Full keystroke terminal emulation and cursor handling in each pane.
-2. Busy detection based on process state and prompt detection.
-3. Persist workspace state (paths, sessions, layout, status).
-4. Keyboard-first control for focus, move, and command dispatch.
+- Session status is still operator-updated (not process-derived yet).
+- Orchestration API is currently in-process Rust only (no HTTP/IPC transport yet).
+- Resume restores groups/sessions/selection and saved terminal snapshots, but live shell processes do not survive machine crash/reboot without an external persistent backend (e.g. tmux).
