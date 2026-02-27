@@ -35,6 +35,20 @@ It is built with Dioxus Desktop (`0.7.x`) and uses real PTY sessions + VT100 par
 cargo run
 ```
 
+## Performance Gate
+
+Run the terminal latency regression gate (PTY required):
+
+```bash
+scripts/perf-gate.sh
+```
+
+If PTY access is unavailable in your environment:
+
+```bash
+GESTALT_SKIP_PERF_GATE=1 scripts/perf-gate.sh
+```
+
 ## Current Limitations
 
 - Session status is still operator-updated (not process-derived yet).
