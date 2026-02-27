@@ -1,5 +1,6 @@
 use crate::state::SessionId;
 use portable_pty::{CommandBuilder, MasterPty, NativePtySystem, PtySize, PtySystem};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
@@ -11,6 +12,7 @@ const DEFAULT_COLS: u16 = 140;
 const DEFAULT_SCROLLBACK: usize = 12_000;
 const MIN_ROWS: u16 = 2;
 const MIN_COLS: u16 = 8;
+const MAX_PERSISTED_HISTORY_LINES: usize = 20_000;
 
 #[derive(Debug, Clone)]
 pub struct TerminalSnapshot {
@@ -23,9 +25,23 @@ pub struct TerminalSnapshot {
     pub bracketed_paste: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PersistedTerminalState {
+    pub session_id: SessionId,
+    pub cwd: String,
+    pub rows: u16,
+    pub cols: u16,
+    pub cursor_row: u16,
+    pub cursor_col: u16,
+    pub hide_cursor: bool,
+    pub bracketed_paste: bool,
+    pub lines: Vec<String>,
+}
+
 pub struct TerminalManager {
     shell: String,
     sessions: HashMap<SessionId, TerminalRuntime>,
+    pending_restore: HashMap<SessionId, PersistedTerminalState>,
 }
 
 struct TerminalRuntime {
@@ -41,7 +57,12 @@ impl TerminalManager {
         Self {
             shell: detect_shell(),
             sessions: HashMap::new(),
+            pending_restore: HashMap::new(),
         }
+    }
+
+    pub fn seed_restored_terminal(&mut self, state: PersistedTerminalState) {
+        self.pending_restore.insert(state.session_id, state);
     }
 
     pub fn ensure_session(&mut self, session_id: SessionId, cwd: &str) -> Result<(), String> {
@@ -49,18 +70,31 @@ impl TerminalManager {
             return Ok(());
         }
 
+        let restored = self.pending_restore.remove(&session_id);
+        let session_cwd = restored
+            .as_ref()
+            .map(|state| state.cwd.clone())
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| cwd.to_string());
+        let rows = restored
+            .as_ref()
+            .map_or(DEFAULT_ROWS, |state| state.rows.max(MIN_ROWS));
+        let cols = restored
+            .as_ref()
+            .map_or(DEFAULT_COLS, |state| state.cols.max(MIN_COLS));
+
         let pty_system = NativePtySystem::default();
         let pair = pty_system
             .openpty(PtySize {
-                rows: DEFAULT_ROWS,
-                cols: DEFAULT_COLS,
+                rows,
+                cols,
                 pixel_width: 0,
                 pixel_height: 0,
             })
             .map_err(|error| format!("Failed to create PTY: {error}"))?;
 
         let mut command = CommandBuilder::new(&self.shell);
-        command.cwd(cwd);
+        command.cwd(&session_cwd);
         command.env("TERM", "xterm-256color");
 
         let child = pair
@@ -76,11 +110,15 @@ impl TerminalManager {
             .try_clone_reader()
             .map_err(|error| format!("Failed to open PTY reader: {error}"))?;
 
-        let parser = Arc::new(Mutex::new(Parser::new(
-            DEFAULT_ROWS,
-            DEFAULT_COLS,
-            DEFAULT_SCROLLBACK,
-        )));
+        let mut parser = Parser::new(rows, cols, DEFAULT_SCROLLBACK);
+        if let Some(restored) = restored {
+            for line in normalized_history_lines(&restored.lines) {
+                parser.process(line.as_bytes());
+                parser.process(b"\r\n");
+            }
+        }
+
+        let parser = Arc::new(Mutex::new(parser));
         spawn_reader_thread(reader, Arc::clone(&parser));
 
         self.sessions.insert(
@@ -90,7 +128,7 @@ impl TerminalManager {
                 child,
                 writer: Arc::new(Mutex::new(writer)),
                 parser,
-                cwd: cwd.to_string(),
+                cwd: session_cwd,
             },
         );
 
@@ -150,6 +188,36 @@ impl TerminalManager {
             hide_cursor: screen.hide_cursor(),
             bracketed_paste: screen.bracketed_paste(),
         })
+    }
+
+    pub fn snapshot_for_persist(&self, session_id: SessionId) -> Option<PersistedTerminalState> {
+        if let Some(runtime) = self.sessions.get(&session_id) {
+            let parser = runtime.parser.lock().ok()?;
+            let screen = parser.screen();
+            let (rows, cols) = screen.size();
+            let (cursor_row, cursor_col) = screen.cursor_position();
+            let lines = normalized_history_lines(
+                &screen
+                    .contents()
+                    .lines()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>(),
+            );
+
+            return Some(PersistedTerminalState {
+                session_id,
+                cwd: runtime.cwd.clone(),
+                rows,
+                cols,
+                cursor_row,
+                cursor_col,
+                hide_cursor: screen.hide_cursor(),
+                bracketed_paste: screen.bracketed_paste(),
+                lines,
+            });
+        }
+
+        self.pending_restore.get(&session_id).cloned()
     }
 
     pub fn resize_session(
@@ -227,4 +295,13 @@ fn detect_shell() -> String {
 fn shell_quote(input: &str) -> String {
     let escaped = input.replace('\'', "'\\''");
     format!("'{}'", escaped)
+}
+
+fn normalized_history_lines(lines: &[String]) -> Vec<String> {
+    let start = lines.len().saturating_sub(MAX_PERSISTED_HISTORY_LINES);
+    lines
+        .iter()
+        .skip(start)
+        .map(|line| line.trim_end_matches('\r').to_string())
+        .collect()
 }

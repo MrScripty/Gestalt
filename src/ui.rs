@@ -1,5 +1,7 @@
+use crate::orchestrator::{self, GroupOrchestratorSnapshot, SessionWriteResult};
+use crate::persistence;
 use crate::state::{AppState, SessionId, SessionStatus};
-use crate::terminal::{TerminalManager, TerminalSnapshot};
+use crate::terminal::{PersistedTerminalState, TerminalManager, TerminalSnapshot};
 use dioxus::document;
 use dioxus::events::KeyboardEvent;
 use dioxus::prelude::*;
@@ -31,6 +33,7 @@ if (navigator.clipboard && navigator.clipboard.writeText) {
 return false;
 "#;
 const TERMINAL_RESIZE_POLL_MS: u64 = 180;
+const AUTOSAVE_POLL_MS: u64 = 1_200;
 
 #[derive(Clone)]
 struct TerminalPaneData {
@@ -40,13 +43,41 @@ struct TerminalPaneData {
 
 #[component]
 pub fn App() -> Element {
-    let mut app_state = use_signal(AppState::default);
+    let initial_workspace = use_signal(|| persistence::load_workspace().ok().flatten());
+    let mut app_state = {
+        let loaded = initial_workspace.read().clone();
+        use_signal(move || {
+            loaded
+                .as_ref()
+                .map(|workspace| workspace.app_state.clone().into_restored())
+                .unwrap_or_default()
+        })
+    };
+    let mut restored_terminals = {
+        let loaded = initial_workspace.read().clone();
+        use_signal(move || {
+            loaded
+                .as_ref()
+                .map(|workspace| {
+                    workspace
+                        .terminals
+                        .iter()
+                        .cloned()
+                        .map(|terminal| (terminal.session_id, terminal))
+                        .collect::<HashMap<SessionId, PersistedTerminalState>>()
+                })
+                .unwrap_or_default()
+        })
+    };
     let mut dragging_tab = use_signal(|| None::<SessionId>);
     let terminal_manager = use_signal(|| Arc::new(Mutex::new(TerminalManager::new())));
     let mut new_group_path = use_signal(String::new);
+    let persistence_feedback = use_signal(String::new);
     let refresh_tick = use_signal(|| 0_u64);
     let focused_terminal = use_signal(|| None::<SessionId>);
     let round_anchor = use_signal(|| None::<(SessionId, u16)>);
+    let mut local_agent_command = use_signal(String::new);
+    let mut local_agent_feedback = use_signal(String::new);
     let mut renaming_tab = use_signal(|| None::<SessionId>);
     let mut rename_draft = use_signal(String::new);
 
@@ -110,6 +141,70 @@ pub fn App() -> Element {
         });
     }
 
+    {
+        let app_state = app_state;
+        let terminal_manager = terminal_manager.read().clone();
+        let mut persistence_feedback = persistence_feedback;
+        let loaded = initial_workspace.read().clone();
+        use_future(move || {
+            let terminal_manager = terminal_manager.clone();
+            let initial_fingerprint = loaded
+                .as_ref()
+                .and_then(|workspace| workspace.stable_fingerprint().ok());
+            async move {
+                let mut last_saved_fingerprint = initial_fingerprint;
+
+                loop {
+                    tokio::time::sleep(Duration::from_millis(AUTOSAVE_POLL_MS)).await;
+
+                    let state = app_state.read().clone();
+                    let _state_revision = state.revision();
+                    let workspace = {
+                        let Ok(runtime) = terminal_manager.lock() else {
+                            persistence_feedback
+                                .set("Autosave paused: terminal runtime lock failed.".to_string());
+                            continue;
+                        };
+                        persistence::build_workspace_snapshot(&state, &runtime)
+                    };
+
+                    let Ok(fingerprint) = workspace.stable_fingerprint() else {
+                        persistence_feedback
+                            .set("Autosave paused: failed to fingerprint workspace.".to_string());
+                        continue;
+                    };
+
+                    if last_saved_fingerprint == Some(fingerprint) {
+                        continue;
+                    }
+
+                    match persistence::save_workspace(&workspace) {
+                        Ok(()) => {
+                            last_saved_fingerprint = Some(fingerprint);
+                            persistence_feedback.set(String::new());
+                        }
+                        Err(error) => {
+                            persistence_feedback.set(format!("Autosave failed: {error}"));
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    use_drop({
+        let app_state = app_state;
+        let terminal_manager = terminal_manager.read().clone();
+        move || {
+            let state = app_state.read().clone();
+            let Ok(runtime) = terminal_manager.lock() else {
+                return;
+            };
+            let workspace = persistence::build_workspace_snapshot(&state, &runtime);
+            let _ = persistence::save_workspace(&workspace);
+        }
+    });
+
     let _ = *refresh_tick.read();
 
     let snapshot = app_state.read().clone();
@@ -117,7 +212,11 @@ pub fn App() -> Element {
     let failed_starts = {
         let mut failures = Vec::new();
         if let Ok(mut runtime) = terminal_manager.read().lock() {
+            let mut restored = restored_terminals.write();
             for session in &snapshot.sessions {
+                if let Some(restored_terminal) = restored.remove(&session.id) {
+                    runtime.seed_restored_terminal(restored_terminal);
+                }
                 if let Some(path) = snapshot.group_path(session.group_id) {
                     if runtime.ensure_session(session.id, path).is_err() {
                         failures.push(session.id);
@@ -173,7 +272,24 @@ pub fn App() -> Element {
         panes
     };
 
+    let orchestrator_snapshot: Option<GroupOrchestratorSnapshot> =
+        active_group_id.and_then(|group_id| {
+            if let Ok(runtime) = terminal_manager.read().lock() {
+                Some(orchestrator::snapshot_group(
+                    &snapshot,
+                    &runtime,
+                    group_id,
+                    focused_terminal_id,
+                ))
+            } else {
+                None
+            }
+        });
+
     let new_group_path_value = new_group_path.read().clone();
+    let local_agent_command_value = local_agent_command.read().clone();
+    let local_agent_feedback_value = local_agent_feedback.read().clone();
+    let persistence_feedback_value = persistence_feedback.read().clone();
 
     rsx! {
         style { "{STYLE}" }
@@ -435,6 +551,9 @@ pub fn App() -> Element {
                             }
                         }
                         p { class: "meta-tip", "Each group defaults to Agent A + Agent B + blue Run/Compile pane." }
+                        if !persistence_feedback_value.is_empty() {
+                            p { class: "meta-tip", "{persistence_feedback_value}" }
+                        }
                     }
 
                     div { class: "status-summary",
@@ -585,6 +704,155 @@ pub fn App() -> Element {
                                         div { class: "runner-empty",
                                             h3 { "No Run Pane" }
                                             p { "Create or move a RUN tab into this group." }
+                                        }
+                                    }
+
+                                    if let Some(group_orchestrator) = orchestrator_snapshot.clone() {
+                                        {
+                                            let terminal_manager_for_agent = terminal_manager.read().clone();
+                                            let group_session_ids = orchestrator::group_session_ids(&snapshot, group_id);
+                                            let group_session_ids_for_send = group_session_ids.clone();
+                                            let group_session_ids_for_interrupt = group_session_ids.clone();
+                                            let terminal_manager_for_send = terminal_manager_for_agent.clone();
+                                            let terminal_manager_for_interrupt = terminal_manager_for_agent.clone();
+                                            let tracked_count = group_orchestrator.terminals.len();
+
+                                            rsx! {
+                                                article { class: "orchestrator-card",
+                                                    div { class: "orchestrator-head",
+                                                        h3 { "Local Agent" }
+                                                        p { "Group path: {group_orchestrator.group_path}" }
+                                                        p { "Group id: {group_orchestrator.group_id} | terminals: {tracked_count}" }
+                                                    }
+
+                                                    div { class: "orchestrator-controls",
+                                                        textarea {
+                                                            class: "orchestrator-input",
+                                                            rows: "3",
+                                                            placeholder: "Broadcast command to every terminal in this group",
+                                                            value: "{local_agent_command_value}",
+                                                            oninput: move |event| local_agent_command.set(event.value()),
+                                                        }
+
+                                                        div { class: "orchestrator-actions",
+                                                            button {
+                                                                class: "orchestrator-btn send",
+                                                                onclick: move |_| {
+                                                                    let command = local_agent_command.read().trim().to_string();
+                                                                    if command.is_empty() {
+                                                                        local_agent_feedback.set("Enter a command to send.".to_string());
+                                                                        return;
+                                                                    }
+
+                                                                    let results = if let Ok(mut runtime) = terminal_manager_for_send.lock() {
+                                                                        orchestrator::send_line_to_sessions(
+                                                                            &mut runtime,
+                                                                            &group_session_ids_for_send,
+                                                                            &command,
+                                                                        )
+                                                                    } else {
+                                                                        group_session_ids_for_send
+                                                                            .iter()
+                                                                            .copied()
+                                                                            .map(|session_id| SessionWriteResult {
+                                                                                session_id,
+                                                                                error: Some("terminal manager lock failed".to_string()),
+                                                                            })
+                                                                            .collect()
+                                                                    };
+
+                                                                    let mut state = app_state.write();
+                                                                    apply_orchestrator_results(&mut state, &results);
+                                                                    drop(state);
+
+                                                                    let ok_count = results.iter().filter(|result| result.error.is_none()).count();
+                                                                    let fail_count = results.len().saturating_sub(ok_count);
+                                                                    if ok_count > 0 {
+                                                                        local_agent_command.set(String::new());
+                                                                    }
+                                                                    local_agent_feedback.set(format!(
+                                                                        "Broadcast complete: {ok_count} success, {fail_count} failed."
+                                                                    ));
+                                                                },
+                                                                "Send To Group"
+                                                            }
+
+                                                            button {
+                                                                class: "orchestrator-btn interrupt",
+                                                                onclick: move |_| {
+                                                                    let results = if let Ok(mut runtime) = terminal_manager_for_interrupt.lock() {
+                                                                        orchestrator::interrupt_sessions(&mut runtime, &group_session_ids_for_interrupt)
+                                                                    } else {
+                                                                        group_session_ids_for_interrupt
+                                                                            .iter()
+                                                                            .copied()
+                                                                            .map(|session_id| SessionWriteResult {
+                                                                                session_id,
+                                                                                error: Some("terminal manager lock failed".to_string()),
+                                                                            })
+                                                                            .collect()
+                                                                    };
+
+                                                                    let mut state = app_state.write();
+                                                                    apply_orchestrator_results(&mut state, &results);
+                                                                    drop(state);
+
+                                                                    let ok_count = results.iter().filter(|result| result.error.is_none()).count();
+                                                                    let fail_count = results.len().saturating_sub(ok_count);
+                                                                    local_agent_feedback.set(format!(
+                                                                        "Interrupt complete: {ok_count} success, {fail_count} failed."
+                                                                    ));
+                                                                },
+                                                                "Interrupt Group"
+                                                            }
+                                                        }
+
+                                                        if !local_agent_feedback_value.is_empty() {
+                                                            p { class: "orchestrator-feedback", "{local_agent_feedback_value}" }
+                                                        }
+                                                    }
+
+                                                    div { class: "orchestrator-list",
+                                                        for terminal in group_orchestrator.terminals {
+                                                            {
+                                                                let activity_class = if terminal.is_focused {
+                                                                    "terminal-focused"
+                                                                } else if terminal.is_selected {
+                                                                    "terminal-selected"
+                                                                } else {
+                                                                    "terminal-inactive"
+                                                                };
+                                                                let runtime_state = if terminal.is_runtime_ready {
+                                                                    "online"
+                                                                } else {
+                                                                    "pending"
+                                                                };
+                                                                let round_range = format!(
+                                                                    "rows {}-{}",
+                                                                    terminal.latest_round.start_row,
+                                                                    terminal.latest_round.end_row,
+                                                                );
+                                                                let preview = summarize_round_preview(&terminal.latest_round.text());
+
+                                                                rsx! {
+                                                                    div {
+                                                                        class: "orchestrator-item {activity_class}",
+                                                                        key: "orchestrator-{terminal.session_id}",
+                                                                        div { class: "orchestrator-item-head",
+                                                                            span { class: "name", "{terminal.title}" }
+                                                                            span { class: "badge role", "{terminal.role.badge()}" }
+                                                                            span { class: "badge state", "{terminal.status.label()}" }
+                                                                        }
+                                                                        p { class: "meta", "cwd: {terminal.cwd}" }
+                                                                        p { class: "meta", "runtime: {runtime_state} | {round_range}" }
+                                                                        p { class: "preview", "{preview}" }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -1003,6 +1271,45 @@ fn send_input_to_session(
             .write()
             .set_session_status(session_id, SessionStatus::Error);
     }
+}
+
+fn apply_orchestrator_results(app_state: &mut AppState, results: &[SessionWriteResult]) {
+    for result in results {
+        if result.error.is_none() {
+            app_state.set_session_status(result.session_id, SessionStatus::Busy);
+        } else {
+            app_state.set_session_status(result.session_id, SessionStatus::Error);
+        }
+    }
+}
+
+fn summarize_round_preview(text: &str) -> String {
+    let normalized = text
+        .lines()
+        .map(str::trim_end)
+        .filter(|line| !line.is_empty())
+        .take(2)
+        .collect::<Vec<_>>()
+        .join(" | ");
+
+    if normalized.is_empty() {
+        return "(no output yet)".to_string();
+    }
+
+    let mut preview = String::new();
+    let mut chars = normalized.chars();
+    for _ in 0..180 {
+        let Some(ch) = chars.next() else {
+            return normalized;
+        };
+        preview.push(ch);
+    }
+
+    if chars.next().is_some() {
+        preview.push_str("...");
+    }
+
+    preview
 }
 
 async fn map_click_to_terminal_cell(
