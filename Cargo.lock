@@ -1376,6 +1376,7 @@ name = "gestalt"
 version = "0.1.0"
 dependencies = [
  "dioxus",
+ "parking_lot",
  "portable-pty",
  "serde",
  "serde_json",

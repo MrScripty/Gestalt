@@ -1,5 +1,6 @@
 use crate::state::{AppState, GroupId, SessionId, SessionRole, SessionStatus};
 use crate::terminal::TerminalManager;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct TerminalRound {
@@ -40,6 +41,13 @@ pub struct SessionWriteResult {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct SessionRuntimeView {
+    pub lines: Vec<String>,
+    pub cwd: String,
+    pub is_runtime_ready: bool,
+}
+
 pub fn snapshot_group(
     app_state: &AppState,
     terminal_manager: &TerminalManager,
@@ -64,11 +72,54 @@ pub fn snapshot_group(
                 status: session.status,
                 cwd: terminal_manager
                     .session_cwd(session.id)
-                    .unwrap_or(group_path.as_str())
-                    .to_string(),
+                    .unwrap_or_else(|| group_path.clone()),
                 is_selected: app_state.selected_session == Some(session.id),
                 is_focused: focused_session == Some(session.id),
                 is_runtime_ready: runtime_snapshot.is_some(),
+                latest_round: latest_round_from_lines(&lines),
+            }
+        })
+        .collect();
+
+    GroupOrchestratorSnapshot {
+        group_id,
+        group_path,
+        terminals,
+    }
+}
+
+pub fn snapshot_group_from_runtime(
+    app_state: &AppState,
+    group_id: GroupId,
+    focused_session: Option<SessionId>,
+    runtime_by_session: &HashMap<SessionId, SessionRuntimeView>,
+) -> GroupOrchestratorSnapshot {
+    let group_path = app_state.group_path(group_id).unwrap_or(".").to_string();
+    let terminals = app_state
+        .sessions_in_group(group_id)
+        .into_iter()
+        .map(|session| {
+            let runtime = runtime_by_session.get(&session.id);
+            let lines = runtime
+                .as_ref()
+                .map(|runtime| runtime.lines.clone())
+                .unwrap_or_default();
+
+            GroupTerminalState {
+                session_id: session.id,
+                title: session.title,
+                role: session.role,
+                status: session.status,
+                cwd: runtime
+                    .as_ref()
+                    .map(|runtime| runtime.cwd.clone())
+                    .unwrap_or_else(|| group_path.clone()),
+                is_selected: app_state.selected_session == Some(session.id),
+                is_focused: focused_session == Some(session.id),
+                is_runtime_ready: runtime
+                    .as_ref()
+                    .map(|runtime| runtime.is_runtime_ready)
+                    .unwrap_or(false),
                 latest_round: latest_round_from_lines(&lines),
             }
         })
@@ -91,7 +142,7 @@ pub fn group_session_ids(app_state: &AppState, group_id: GroupId) -> Vec<Session
 }
 
 pub fn send_line_to_sessions(
-    terminal_manager: &mut TerminalManager,
+    terminal_manager: &TerminalManager,
     session_ids: &[SessionId],
     line: &str,
 ) -> Vec<SessionWriteResult> {
@@ -106,7 +157,7 @@ pub fn send_line_to_sessions(
 }
 
 pub fn interrupt_sessions(
-    terminal_manager: &mut TerminalManager,
+    terminal_manager: &TerminalManager,
     session_ids: &[SessionId],
 ) -> Vec<SessionWriteResult> {
     session_ids

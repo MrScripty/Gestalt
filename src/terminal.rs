@@ -1,9 +1,11 @@
 use crate::state::SessionId;
+use parking_lot::{Mutex, RwLock};
 use portable_pty::{CommandBuilder, MasterPty, NativePtySystem, PtySize, PtySystem};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use vt100::Parser;
 
@@ -40,37 +42,39 @@ pub struct PersistedTerminalState {
 
 pub struct TerminalManager {
     shell: String,
-    sessions: HashMap<SessionId, TerminalRuntime>,
-    pending_restore: HashMap<SessionId, PersistedTerminalState>,
+    sessions: RwLock<HashMap<SessionId, Arc<TerminalRuntime>>>,
+    pending_restore: Mutex<HashMap<SessionId, PersistedTerminalState>>,
 }
 
 struct TerminalRuntime {
-    _master: Box<dyn MasterPty + Send>,
-    child: Box<dyn portable_pty::Child + Send>,
-    writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    master: Mutex<Box<dyn MasterPty + Send>>,
+    child: Mutex<Box<dyn portable_pty::Child + Send>>,
+    writer: Mutex<Box<dyn Write + Send>>,
     parser: Arc<Mutex<Parser>>,
-    cwd: String,
+    cwd: RwLock<String>,
+    snapshot_cache: Arc<RwLock<TerminalSnapshot>>,
+    snapshot_revision: Arc<AtomicU64>,
 }
 
 impl TerminalManager {
     pub fn new() -> Self {
         Self {
             shell: detect_shell(),
-            sessions: HashMap::new(),
-            pending_restore: HashMap::new(),
+            sessions: RwLock::new(HashMap::new()),
+            pending_restore: Mutex::new(HashMap::new()),
         }
     }
 
-    pub fn seed_restored_terminal(&mut self, state: PersistedTerminalState) {
-        self.pending_restore.insert(state.session_id, state);
+    pub fn seed_restored_terminal(&self, state: PersistedTerminalState) {
+        self.pending_restore.lock().insert(state.session_id, state);
     }
 
-    pub fn ensure_session(&mut self, session_id: SessionId, cwd: &str) -> Result<(), String> {
-        if self.sessions.contains_key(&session_id) {
+    pub fn ensure_session(&self, session_id: SessionId, cwd: &str) -> Result<(), String> {
+        if self.sessions.read().contains_key(&session_id) {
             return Ok(());
         }
 
-        let restored = self.pending_restore.remove(&session_id);
+        let restored = self.pending_restore.lock().remove(&session_id);
         let session_cwd = restored
             .as_ref()
             .map(|state| state.cwd.clone())
@@ -119,31 +123,43 @@ impl TerminalManager {
         }
 
         let parser = Arc::new(Mutex::new(parser));
-        spawn_reader_thread(reader, Arc::clone(&parser));
-
-        self.sessions.insert(
-            session_id,
-            TerminalRuntime {
-                _master: master,
-                child,
-                writer: Arc::new(Mutex::new(writer)),
-                parser,
-                cwd: session_cwd,
-            },
+        let initial_snapshot = terminal_snapshot_from_parser(&parser.lock());
+        let snapshot_cache = Arc::new(RwLock::new(initial_snapshot));
+        let snapshot_revision = Arc::new(AtomicU64::new(1));
+        spawn_reader_thread(
+            reader,
+            Arc::clone(&parser),
+            Arc::clone(&snapshot_cache),
+            Arc::clone(&snapshot_revision),
         );
+
+        let runtime = Arc::new(TerminalRuntime {
+            master: Mutex::new(master),
+            child: Mutex::new(child),
+            writer: Mutex::new(writer),
+            parser,
+            cwd: RwLock::new(session_cwd),
+            snapshot_cache,
+            snapshot_revision,
+        });
+
+        let mut sessions = self.sessions.write();
+        if sessions.contains_key(&session_id) {
+            let mut child = runtime.child.lock();
+            let _ = child.kill();
+            let _ = child.wait();
+            return Ok(());
+        }
+        sessions.insert(session_id, runtime);
 
         Ok(())
     }
 
-    pub fn send_input(&mut self, session_id: SessionId, input: &[u8]) -> Result<(), String> {
-        let Some(runtime) = self.sessions.get(&session_id) else {
-            return Err("session does not exist".to_string());
-        };
-
-        let mut writer = runtime
-            .writer
-            .lock()
-            .map_err(|_| "terminal writer lock poisoned".to_string())?;
+    pub fn send_input(&self, session_id: SessionId, input: &[u8]) -> Result<(), String> {
+        let runtime = self
+            .session_runtime(session_id)
+            .ok_or_else(|| "session does not exist".to_string())?;
+        let mut writer = runtime.writer.lock();
 
         writer
             .write_all(input)
@@ -155,44 +171,30 @@ impl TerminalManager {
         Ok(())
     }
 
-    pub fn send_line(&mut self, session_id: SessionId, line: &str) -> Result<(), String> {
+    pub fn send_line(&self, session_id: SessionId, line: &str) -> Result<(), String> {
         let mut bytes = line.as_bytes().to_vec();
         bytes.push(b'\r');
         self.send_input(session_id, &bytes)
     }
 
-    pub fn set_cwd(&mut self, session_id: SessionId, cwd: &str) -> Result<(), String> {
+    pub fn set_cwd(&self, session_id: SessionId, cwd: &str) -> Result<(), String> {
         self.send_line(session_id, &format!("cd {}", shell_quote(cwd)))?;
 
-        if let Some(runtime) = self.sessions.get_mut(&session_id) {
-            runtime.cwd = cwd.to_string();
+        if let Some(runtime) = self.session_runtime(session_id) {
+            *runtime.cwd.write() = cwd.to_string();
         }
 
         Ok(())
     }
 
     pub fn snapshot(&self, session_id: SessionId) -> Option<TerminalSnapshot> {
-        let runtime = self.sessions.get(&session_id)?;
-        let parser = runtime.parser.lock().ok()?;
-        let screen = parser.screen();
-        let (rows, cols) = screen.size();
-        let (cursor_row, cursor_col) = screen.cursor_position();
-        let lines = screen.rows(0, cols).collect();
-
-        Some(TerminalSnapshot {
-            lines,
-            rows,
-            cols,
-            cursor_row,
-            cursor_col,
-            hide_cursor: screen.hide_cursor(),
-            bracketed_paste: screen.bracketed_paste(),
-        })
+        let runtime = self.session_runtime(session_id)?;
+        Some(runtime.snapshot_cache.read().clone())
     }
 
     pub fn snapshot_for_persist(&self, session_id: SessionId) -> Option<PersistedTerminalState> {
-        if let Some(runtime) = self.sessions.get(&session_id) {
-            let parser = runtime.parser.lock().ok()?;
+        if let Some(runtime) = self.session_runtime(session_id) {
+            let parser = runtime.parser.lock();
             let screen = parser.screen();
             let (rows, cols) = screen.size();
             let (cursor_row, cursor_col) = screen.cursor_position();
@@ -206,7 +208,7 @@ impl TerminalManager {
 
             return Some(PersistedTerminalState {
                 session_id,
-                cwd: runtime.cwd.clone(),
+                cwd: runtime.cwd.read().clone(),
                 rows,
                 cols,
                 cursor_row,
@@ -217,23 +219,24 @@ impl TerminalManager {
             });
         }
 
-        self.pending_restore.get(&session_id).cloned()
+        self.pending_restore.lock().get(&session_id).cloned()
     }
 
     pub fn resize_session(
-        &mut self,
+        &self,
         session_id: SessionId,
         rows: u16,
         cols: u16,
     ) -> Result<(), String> {
-        let Some(runtime) = self.sessions.get_mut(&session_id) else {
-            return Err("session does not exist".to_string());
-        };
+        let runtime = self
+            .session_runtime(session_id)
+            .ok_or_else(|| "session does not exist".to_string())?;
 
         let rows = rows.max(MIN_ROWS);
         let cols = cols.max(MIN_COLS);
         runtime
-            ._master
+            .master
+            .lock()
             .resize(PtySize {
                 rows,
                 cols,
@@ -242,32 +245,58 @@ impl TerminalManager {
             })
             .map_err(|error| format!("Failed to resize PTY: {error}"))?;
 
-        let mut parser = runtime
-            .parser
-            .lock()
-            .map_err(|_| "terminal parser lock poisoned".to_string())?;
+        let mut parser = runtime.parser.lock();
         parser.set_size(rows, cols);
+        let snapshot = terminal_snapshot_from_parser(&parser);
+        *runtime.snapshot_cache.write() = snapshot;
+        runtime.snapshot_revision.fetch_add(1, Ordering::Relaxed);
 
         Ok(())
     }
 
-    pub fn session_cwd(&self, session_id: SessionId) -> Option<&str> {
-        self.sessions
-            .get(&session_id)
-            .map(|runtime| runtime.cwd.as_str())
+    pub fn session_cwd(&self, session_id: SessionId) -> Option<String> {
+        self.session_runtime(session_id)
+            .map(|runtime| runtime.cwd.read().clone())
+    }
+
+    pub fn session_snapshot_revision(&self, session_id: SessionId) -> Option<u64> {
+        self.session_runtime(session_id)
+            .map(|runtime| runtime.snapshot_revision.load(Ordering::Relaxed))
+    }
+
+    fn session_runtime(&self, session_id: SessionId) -> Option<Arc<TerminalRuntime>> {
+        self.sessions.read().get(&session_id).cloned()
+    }
+}
+
+impl Default for TerminalManager {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
 impl Drop for TerminalManager {
     fn drop(&mut self) {
-        for runtime in self.sessions.values_mut() {
-            let _ = runtime.child.kill();
-            let _ = runtime.child.wait();
+        let runtimes = self
+            .sessions
+            .get_mut()
+            .drain()
+            .map(|(_, runtime)| runtime)
+            .collect::<Vec<_>>();
+        for runtime in runtimes {
+            let mut child = runtime.child.lock();
+            let _ = child.kill();
+            let _ = child.wait();
         }
     }
 }
 
-fn spawn_reader_thread(mut reader: Box<dyn Read + Send>, parser: Arc<Mutex<Parser>>) {
+fn spawn_reader_thread(
+    mut reader: Box<dyn Read + Send>,
+    parser: Arc<Mutex<Parser>>,
+    snapshot_cache: Arc<RwLock<TerminalSnapshot>>,
+    snapshot_revision: Arc<AtomicU64>,
+) {
     thread::spawn(move || {
         let mut buffer = [0_u8; 4096];
 
@@ -275,14 +304,35 @@ fn spawn_reader_thread(mut reader: Box<dyn Read + Send>, parser: Arc<Mutex<Parse
             match reader.read(&mut buffer) {
                 Ok(0) => break,
                 Ok(read) => {
-                    if let Ok(mut parser) = parser.lock() {
+                    let snapshot = {
+                        let mut parser = parser.lock();
                         parser.process(&buffer[..read]);
-                    }
+                        terminal_snapshot_from_parser(&parser)
+                    };
+                    *snapshot_cache.write() = snapshot;
+                    snapshot_revision.fetch_add(1, Ordering::Relaxed);
                 }
                 Err(_) => break,
             }
         }
     });
+}
+
+fn terminal_snapshot_from_parser(parser: &Parser) -> TerminalSnapshot {
+    let screen = parser.screen();
+    let (rows, cols) = screen.size();
+    let (cursor_row, cursor_col) = screen.cursor_position();
+    let lines = screen.rows(0, cols).collect();
+
+    TerminalSnapshot {
+        lines,
+        rows,
+        cols,
+        cursor_row,
+        cursor_col,
+        hide_cursor: screen.hide_cursor(),
+        bracketed_paste: screen.bracketed_paste(),
+    }
 }
 
 fn detect_shell() -> String {

@@ -156,7 +156,7 @@ impl AppState {
 
         if self.sessions.is_empty() {
             let fallback_group = self.groups[0].id;
-            let ids = vec![
+            let ids = [
                 self.add_session_with_title_and_role(
                     fallback_group,
                     "Agent A".to_string(),
@@ -314,11 +314,10 @@ impl AppState {
             .sessions
             .iter_mut()
             .find(|session| session.id == session_id)
+            && session.status != status
         {
-            if session.status != status {
-                session.status = status;
-                self.mark_dirty();
-            }
+            session.status = status;
+            self.mark_dirty();
         }
     }
 
@@ -374,10 +373,10 @@ impl AppState {
     }
 
     pub fn active_group_id(&self) -> Option<GroupId> {
-        if let Some(selected) = self.selected_session {
-            if let Some(session) = self.sessions.iter().find(|session| session.id == selected) {
-                return Some(session.group_id);
-            }
+        if let Some(selected) = self.selected_session
+            && let Some(session) = self.sessions.iter().find(|session| session.id == selected)
+        {
+            return Some(session.group_id);
         }
 
         self.groups.first().map(|group| group.id)
@@ -545,8 +544,10 @@ mod tests {
 
     #[test]
     fn test_into_restored_with_invalid_selection_selects_first_valid_session() {
-        let mut state = AppState::default();
-        state.selected_session = Some(u32::MAX);
+        let state = AppState {
+            selected_session: Some(u32::MAX),
+            ..AppState::default()
+        };
 
         let restored = state.into_restored();
 

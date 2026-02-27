@@ -37,7 +37,7 @@ fn test_resume_startup_restores_groups_sessions_and_terminal_history() {
         assert_eq!(restored_state.groups.len(), state.groups.len());
         assert_eq!(restored_state.sessions.len(), state.sessions.len());
 
-        let mut terminal_manager = TerminalManager::new();
+        let terminal_manager = TerminalManager::new();
         for restored in loaded.terminals {
             terminal_manager.seed_restored_terminal(restored);
         }

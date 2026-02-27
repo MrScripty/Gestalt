@@ -6,8 +6,11 @@ use dioxus::document;
 use dioxus::events::KeyboardEvent;
 use dioxus::prelude::*;
 use dioxus::prelude::{InteractionLocation, Key, ModifiersInteraction};
+use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
+use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 const STYLE: &str = include_str!("style.css");
@@ -32,13 +35,121 @@ if (navigator.clipboard && navigator.clipboard.writeText) {
 }
 return false;
 "#;
+const TERMINAL_REFRESH_POLL_MS: u64 = 33;
 const TERMINAL_RESIZE_POLL_MS: u64 = 180;
 const AUTOSAVE_POLL_MS: u64 = 1_200;
+const AUTOSAVE_QUEUE_CAPACITY: usize = 1;
 
 #[derive(Clone)]
 struct TerminalPaneData {
     terminal: TerminalSnapshot,
     cwd: String,
+    is_runtime_ready: bool,
+}
+
+type AutosaveSignature = (u64, Vec<(SessionId, u64)>);
+
+#[derive(Clone)]
+struct AutosaveRequest {
+    workspace: persistence::PersistedWorkspaceV1,
+    fingerprint: u64,
+    signature: AutosaveSignature,
+}
+
+#[derive(Clone)]
+struct AutosaveResult {
+    fingerprint: u64,
+    signature: AutosaveSignature,
+    error: Option<String>,
+}
+
+enum AutosaveCommand {
+    Save(AutosaveRequest),
+    Shutdown,
+}
+
+struct AutosaveWorker {
+    command_tx: Mutex<Option<SyncSender<AutosaveCommand>>>,
+    result_rx: Mutex<Receiver<AutosaveResult>>,
+    join_handle: Mutex<Option<JoinHandle<()>>>,
+}
+
+impl AutosaveWorker {
+    fn spawn() -> Self {
+        let (command_tx, command_rx) =
+            mpsc::sync_channel::<AutosaveCommand>(AUTOSAVE_QUEUE_CAPACITY);
+        let (result_tx, result_rx) = mpsc::channel::<AutosaveResult>();
+        let join_handle = thread::spawn(move || autosave_worker_loop(command_rx, result_tx));
+
+        Self {
+            command_tx: Mutex::new(Some(command_tx)),
+            result_rx: Mutex::new(result_rx),
+            join_handle: Mutex::new(Some(join_handle)),
+        }
+    }
+
+    fn try_enqueue(&self, request: AutosaveRequest) -> Result<(), String> {
+        let command_tx = self
+            .command_tx
+            .lock()
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| "autosave worker offline".to_string())?;
+
+        match command_tx.try_send(AutosaveCommand::Save(request)) {
+            Ok(()) => Ok(()),
+            Err(TrySendError::Full(_)) => Err("autosave queue full; retrying".to_string()),
+            Err(TrySendError::Disconnected(_)) => Err("autosave worker offline".to_string()),
+        }
+    }
+
+    fn drain_results(&self) -> Vec<AutosaveResult> {
+        let mut drained = Vec::new();
+        let result_rx = self.result_rx.lock();
+        while let Ok(result) = result_rx.try_recv() {
+            drained.push(result);
+        }
+
+        drained
+    }
+
+    fn shutdown(&self) {
+        let command_tx = self.command_tx.lock().take();
+        if let Some(command_tx) = command_tx {
+            let _ = command_tx.try_send(AutosaveCommand::Shutdown);
+            drop(command_tx);
+        }
+
+        if let Some(join_handle) = self.join_handle.lock().take() {
+            let _ = join_handle.join();
+        }
+    }
+}
+
+fn autosave_worker_loop(
+    command_rx: Receiver<AutosaveCommand>,
+    result_tx: mpsc::Sender<AutosaveResult>,
+) {
+    while let Ok(command) = command_rx.recv() {
+        match command {
+            AutosaveCommand::Save(request) => {
+                let result = match persistence::save_workspace(&request.workspace) {
+                    Ok(()) => AutosaveResult {
+                        fingerprint: request.fingerprint,
+                        signature: request.signature,
+                        error: None,
+                    },
+                    Err(error) => AutosaveResult {
+                        fingerprint: request.fingerprint,
+                        signature: request.signature,
+                        error: Some(format!("Autosave failed: {error}")),
+                    },
+                };
+                let _ = result_tx.send(result);
+            }
+            AutosaveCommand::Shutdown => break,
+        }
+    }
 }
 
 #[component]
@@ -70,24 +181,59 @@ pub fn App() -> Element {
         })
     };
     let mut dragging_tab = use_signal(|| None::<SessionId>);
-    let terminal_manager = use_signal(|| Arc::new(Mutex::new(TerminalManager::new())));
+    let terminal_manager = use_signal(|| Arc::new(TerminalManager::new()));
+    let autosave_worker = use_signal(|| Arc::new(AutosaveWorker::spawn()));
     let mut new_group_path = use_signal(String::new);
     let persistence_feedback = use_signal(String::new);
     let refresh_tick = use_signal(|| 0_u64);
     let focused_terminal = use_signal(|| None::<SessionId>);
     let round_anchor = use_signal(|| None::<(SessionId, u16)>);
-    let mut local_agent_command = use_signal(String::new);
-    let mut local_agent_feedback = use_signal(String::new);
+    let local_agent_command = use_signal(String::new);
+    let local_agent_feedback = use_signal(String::new);
     let mut renaming_tab = use_signal(|| None::<SessionId>);
     let mut rename_draft = use_signal(String::new);
 
     {
         let mut refresh_tick = refresh_tick;
-        use_future(move || async move {
-            loop {
-                tokio::time::sleep(Duration::from_millis(33)).await;
-                let next = *refresh_tick.read() + 1;
-                refresh_tick.set(next);
+        let app_state = app_state;
+        let terminal_manager = terminal_manager.read().clone();
+        use_future(move || {
+            let terminal_manager = terminal_manager.clone();
+            async move {
+                let mut last_revisions = Vec::<(SessionId, u64)>::new();
+                loop {
+                    tokio::time::sleep(Duration::from_millis(TERMINAL_REFRESH_POLL_MS)).await;
+
+                    let snapshot = app_state.read().clone();
+                    let Some(group_id) = snapshot.active_group_id() else {
+                        if !last_revisions.is_empty() {
+                            last_revisions.clear();
+                            let next = *refresh_tick.read() + 1;
+                            refresh_tick.set(next);
+                        }
+                        continue;
+                    };
+
+                    let mut revisions = snapshot
+                        .sessions_in_group(group_id)
+                        .into_iter()
+                        .map(|session| {
+                            (
+                                session.id,
+                                terminal_manager
+                                    .session_snapshot_revision(session.id)
+                                    .unwrap_or(0),
+                            )
+                        })
+                        .collect::<Vec<_>>();
+                    revisions.sort_unstable_by_key(|(session_id, _)| *session_id);
+
+                    if revisions != last_revisions {
+                        last_revisions = revisions;
+                        let next = *refresh_tick.read() + 1;
+                        refresh_tick.set(next);
+                    }
+                }
             }
         });
     }
@@ -130,10 +276,11 @@ pub fn App() -> Element {
                             continue;
                         }
 
-                        if let Ok(mut runtime) = terminal_manager.lock() {
-                            if runtime.resize_session(session_id, rows, cols).is_ok() {
-                                last_sizes.insert(session_id, (rows, cols));
-                            }
+                        if terminal_manager
+                            .resize_session(session_id, rows, cols)
+                            .is_ok()
+                        {
+                            last_sizes.insert(session_id, (rows, cols));
                         }
                     }
                 }
@@ -144,29 +291,82 @@ pub fn App() -> Element {
     {
         let app_state = app_state;
         let terminal_manager = terminal_manager.read().clone();
+        let autosave_worker = autosave_worker.read().clone();
         let mut persistence_feedback = persistence_feedback;
         let loaded = initial_workspace.read().clone();
         use_future(move || {
             let terminal_manager = terminal_manager.clone();
+            let autosave_worker = autosave_worker.clone();
             let initial_fingerprint = loaded
                 .as_ref()
                 .and_then(|workspace| workspace.stable_fingerprint().ok());
             async move {
                 let mut last_saved_fingerprint = initial_fingerprint;
+                let mut last_saved_signature = None::<AutosaveSignature>;
+                let mut inflight_signature = None::<AutosaveSignature>;
+                let mut deferred_request = None::<AutosaveRequest>;
 
                 loop {
                     tokio::time::sleep(Duration::from_millis(AUTOSAVE_POLL_MS)).await;
 
+                    for result in autosave_worker.drain_results() {
+                        if result.error.is_none() {
+                            last_saved_fingerprint = Some(result.fingerprint);
+                            last_saved_signature = Some(result.signature.clone());
+                            persistence_feedback.set(String::new());
+                        } else if let Some(error) = result.error {
+                            persistence_feedback.set(error);
+                        }
+
+                        if inflight_signature.as_ref() == Some(&result.signature) {
+                            inflight_signature = None;
+                        }
+                    }
+
+                    if inflight_signature.is_none()
+                        && let Some(request) = deferred_request.take()
+                    {
+                        match autosave_worker.try_enqueue(request.clone()) {
+                            Ok(()) => {
+                                inflight_signature = Some(request.signature);
+                            }
+                            Err(error) => {
+                                deferred_request = Some(request);
+                                persistence_feedback.set(error);
+                            }
+                        }
+                    }
+
                     let state = app_state.read().clone();
-                    let _state_revision = state.revision();
-                    let workspace = {
-                        let Ok(runtime) = terminal_manager.lock() else {
-                            persistence_feedback
-                                .set("Autosave paused: terminal runtime lock failed.".to_string());
-                            continue;
-                        };
-                        persistence::build_workspace_snapshot(&state, &runtime)
-                    };
+                    let mut terminal_revisions = state
+                        .sessions
+                        .iter()
+                        .map(|session| {
+                            (
+                                session.id,
+                                terminal_manager
+                                    .session_snapshot_revision(session.id)
+                                    .unwrap_or(0),
+                            )
+                        })
+                        .collect::<Vec<_>>();
+                    terminal_revisions.sort_unstable_by_key(|(session_id, _)| *session_id);
+                    let save_signature = (state.revision(), terminal_revisions);
+
+                    if last_saved_signature.as_ref() == Some(&save_signature) {
+                        continue;
+                    }
+                    if inflight_signature.as_ref() == Some(&save_signature) {
+                        continue;
+                    }
+                    if deferred_request.as_ref().map(|request| &request.signature)
+                        == Some(&save_signature)
+                    {
+                        continue;
+                    }
+
+                    let workspace =
+                        persistence::build_workspace_snapshot(&state, &terminal_manager);
 
                     let Ok(fingerprint) = workspace.stable_fingerprint() else {
                         persistence_feedback
@@ -175,17 +375,29 @@ pub fn App() -> Element {
                     };
 
                     if last_saved_fingerprint == Some(fingerprint) {
+                        last_saved_signature = Some(save_signature);
                         continue;
                     }
 
-                    match persistence::save_workspace(&workspace) {
-                        Ok(()) => {
-                            last_saved_fingerprint = Some(fingerprint);
-                            persistence_feedback.set(String::new());
+                    let request = AutosaveRequest {
+                        workspace,
+                        fingerprint,
+                        signature: save_signature.clone(),
+                    };
+
+                    if inflight_signature.is_none() {
+                        match autosave_worker.try_enqueue(request.clone()) {
+                            Ok(()) => {
+                                inflight_signature = Some(save_signature);
+                            }
+                            Err(error) => {
+                                deferred_request = Some(request);
+                                persistence_feedback.set(error);
+                            }
                         }
-                        Err(error) => {
-                            persistence_feedback.set(format!("Autosave failed: {error}"));
-                        }
+                    } else {
+                        // Keep only the latest pending request while a save is in-flight.
+                        deferred_request = Some(request);
                     }
                 }
             }
@@ -195,33 +407,29 @@ pub fn App() -> Element {
     use_drop({
         let app_state = app_state;
         let terminal_manager = terminal_manager.read().clone();
+        let autosave_worker = autosave_worker.read().clone();
         move || {
+            autosave_worker.shutdown();
             let state = app_state.read().clone();
-            let Ok(runtime) = terminal_manager.lock() else {
-                return;
-            };
-            let workspace = persistence::build_workspace_snapshot(&state, &runtime);
+            let workspace = persistence::build_workspace_snapshot(&state, &terminal_manager);
             let _ = persistence::save_workspace(&workspace);
         }
     });
-
-    let _ = *refresh_tick.read();
 
     let snapshot = app_state.read().clone();
 
     let failed_starts = {
         let mut failures = Vec::new();
-        if let Ok(mut runtime) = terminal_manager.read().lock() {
-            let mut restored = restored_terminals.write();
-            for session in &snapshot.sessions {
-                if let Some(restored_terminal) = restored.remove(&session.id) {
-                    runtime.seed_restored_terminal(restored_terminal);
-                }
-                if let Some(path) = snapshot.group_path(session.group_id) {
-                    if runtime.ensure_session(session.id, path).is_err() {
-                        failures.push(session.id);
-                    }
-                }
+        let runtime = terminal_manager.read().clone();
+        let mut restored = restored_terminals.write();
+        for session in &snapshot.sessions {
+            if let Some(restored_terminal) = restored.remove(&session.id) {
+                runtime.seed_restored_terminal(restored_terminal);
+            }
+            if let Some(path) = snapshot.group_path(session.group_id)
+                && runtime.ensure_session(session.id, path).is_err()
+            {
+                failures.push(session.id);
             }
         }
         failures
@@ -234,62 +442,10 @@ pub fn App() -> Element {
         }
     }
 
-    let busy_count = snapshot.session_count_by_status(SessionStatus::Busy);
-    let error_count = snapshot.session_count_by_status(SessionStatus::Error);
-    let idle_count = snapshot.session_count_by_status(SessionStatus::Idle);
-    let focused_terminal_id = *focused_terminal.read();
     let renaming_tab_id = *renaming_tab.read();
     let rename_draft_value = rename_draft.read().clone();
 
-    let active_group_id = snapshot.active_group_id();
-    let (active_agents, active_runner) = active_group_id
-        .map(|group_id| snapshot.workspace_sessions_for_group(group_id))
-        .unwrap_or_default();
-    let active_path = active_group_id
-        .and_then(|group_id| snapshot.group_path(group_id))
-        .unwrap_or(".")
-        .to_string();
-
-    let mut workspace_sessions = active_agents.clone();
-    if let Some(runner) = active_runner.clone() {
-        workspace_sessions.push(runner);
-    }
-
-    let terminal_snapshot_by_id: HashMap<SessionId, TerminalPaneData> = {
-        let mut panes = HashMap::new();
-        if let Ok(runtime) = terminal_manager.read().lock() {
-            for session in &workspace_sessions {
-                let terminal = runtime
-                    .snapshot(session.id)
-                    .unwrap_or_else(pending_terminal_snapshot);
-                let cwd = runtime
-                    .session_cwd(session.id)
-                    .unwrap_or_else(|| snapshot.group_path(session.group_id).unwrap_or("."))
-                    .to_string();
-                panes.insert(session.id, TerminalPaneData { terminal, cwd });
-            }
-        }
-        panes
-    };
-
-    let orchestrator_snapshot: Option<GroupOrchestratorSnapshot> =
-        active_group_id.and_then(|group_id| {
-            if let Ok(runtime) = terminal_manager.read().lock() {
-                Some(orchestrator::snapshot_group(
-                    &snapshot,
-                    &runtime,
-                    group_id,
-                    focused_terminal_id,
-                ))
-            } else {
-                None
-            }
-        });
-
     let new_group_path_value = new_group_path.read().clone();
-    let local_agent_command_value = local_agent_command.read().clone();
-    let local_agent_feedback_value = local_agent_feedback.read().clone();
-    let persistence_feedback_value = persistence_feedback.read().clone();
 
     rsx! {
         style { "{STYLE}" }
@@ -341,11 +497,9 @@ pub fn App() -> Element {
                                                     (id, path)
                                                 };
 
-                                                let start_error = if let Ok(mut runtime) = terminal_manager_for_add.lock() {
-                                                    runtime.ensure_session(session_id, &path).err()
-                                                } else {
-                                                    Some("terminal manager lock failed".to_string())
-                                                };
+                                                let start_error = terminal_manager_for_add
+                                                    .ensure_session(session_id, &path)
+                                                    .err();
 
                                                 if start_error.is_some() {
                                                     app_state.write().set_session_status(session_id, SessionStatus::Error);
@@ -392,9 +546,7 @@ pub fn App() -> Element {
                                                             event.prevent_default();
                                                             if let Some(source_id) = *dragging_tab.read() {
                                                                 app_state.write().move_session_before(source_id, session_id);
-                                                                if let Ok(mut runtime) = terminal_manager_for_reorder.lock() {
-                                                                    let _ = runtime.set_cwd(source_id, &target_path);
-                                                                }
+                                                                let _ = terminal_manager_for_reorder.set_cwd(source_id, &target_path);
                                                             }
                                                             dragging_tab.set(None);
                                                         },
@@ -473,9 +625,7 @@ pub fn App() -> Element {
                                             event.prevent_default();
                                             if let Some(source_id) = *dragging_tab.read() {
                                                 app_state.write().move_session_to_group_end(source_id, group_id);
-                                                if let Ok(mut runtime) = terminal_manager_for_drop.lock() {
-                                                    let _ = runtime.set_cwd(source_id, &group_path);
-                                                }
+                                                let _ = terminal_manager_for_drop.set_cwd(source_id, &group_path);
                                             }
                                             dragging_tab.set(None);
                                         },
@@ -514,19 +664,16 @@ pub fn App() -> Element {
 
                             new_group_path.set(String::new());
 
-                            let failed = if let Ok(mut runtime) = terminal_manager.read().lock() {
-                                default_sessions
-                                    .iter()
-                                    .filter_map(|session_id| {
-                                        runtime
-                                            .ensure_session(*session_id, &path)
-                                            .err()
-                                            .map(|_| *session_id)
-                                    })
-                                    .collect::<Vec<_>>()
-                            } else {
-                                default_sessions
-                            };
+                            let runtime = terminal_manager.read().clone();
+                            let failed = default_sessions
+                                .iter()
+                                .filter_map(|session_id| {
+                                    runtime
+                                        .ensure_session(*session_id, &path)
+                                        .err()
+                                        .map(|_| *session_id)
+                                })
+                                .collect::<Vec<_>>();
 
                             if !failed.is_empty() {
                                 let mut state = app_state.write();
@@ -540,313 +687,394 @@ pub fn App() -> Element {
                 }
             }
 
-            main { class: "workspace",
-                header { class: "workspace-head",
-                    div {
-                        h2 { "Workspace" }
-                        if active_group_id.is_some() {
-                            p {
-                                "Active path: "
-                                b { "{active_path}" }
-                            }
-                        }
-                        p { class: "meta-tip", "Each group defaults to Agent A + Agent B + blue Run/Compile pane." }
-                        if !persistence_feedback_value.is_empty() {
-                            p { class: "meta-tip", "{persistence_feedback_value}" }
+            WorkspaceMain {
+                app_state: app_state,
+                terminal_manager: terminal_manager,
+                focused_terminal: focused_terminal,
+                round_anchor: round_anchor,
+                local_agent_command: local_agent_command,
+                local_agent_feedback: local_agent_feedback,
+                persistence_feedback: persistence_feedback,
+                refresh_tick: refresh_tick,
+            }
+        }
+    }
+}
+
+#[component]
+fn WorkspaceMain(
+    app_state: Signal<AppState>,
+    terminal_manager: Signal<Arc<TerminalManager>>,
+    focused_terminal: Signal<Option<SessionId>>,
+    round_anchor: Signal<Option<(SessionId, u16)>>,
+    local_agent_command: Signal<String>,
+    local_agent_feedback: Signal<String>,
+    persistence_feedback: Signal<String>,
+    refresh_tick: Signal<u64>,
+) -> Element {
+    let _ = *refresh_tick.read();
+    let snapshot = app_state.read().clone();
+    let busy_count = snapshot.session_count_by_status(SessionStatus::Busy);
+    let error_count = snapshot.session_count_by_status(SessionStatus::Error);
+    let idle_count = snapshot.session_count_by_status(SessionStatus::Idle);
+    let focused_terminal_id = *focused_terminal.read();
+
+    let active_group_id = snapshot.active_group_id();
+    let (active_agents, active_runner) = active_group_id
+        .map(|group_id| snapshot.workspace_sessions_for_group(group_id))
+        .unwrap_or_default();
+    let active_group_sessions = active_group_id
+        .map(|group_id| snapshot.sessions_in_group(group_id))
+        .unwrap_or_default();
+    let active_path = active_group_id
+        .and_then(|group_id| snapshot.group_path(group_id))
+        .unwrap_or(".")
+        .to_string();
+
+    let terminal_snapshot_by_id: HashMap<SessionId, TerminalPaneData> = {
+        let mut panes = HashMap::new();
+        let runtime = terminal_manager.read().clone();
+        for session in &active_group_sessions {
+            let runtime_snapshot = runtime.snapshot(session.id);
+            let is_runtime_ready = runtime_snapshot.is_some();
+            let terminal = runtime_snapshot.unwrap_or_else(pending_terminal_snapshot);
+            let cwd = runtime.session_cwd(session.id).unwrap_or_else(|| {
+                snapshot
+                    .group_path(session.group_id)
+                    .unwrap_or(".")
+                    .to_string()
+            });
+            panes.insert(
+                session.id,
+                TerminalPaneData {
+                    terminal,
+                    cwd,
+                    is_runtime_ready,
+                },
+            );
+        }
+        panes
+    };
+
+    let orchestrator_runtime_by_id = terminal_snapshot_by_id
+        .iter()
+        .map(|(session_id, pane)| {
+            (
+                *session_id,
+                orchestrator::SessionRuntimeView {
+                    lines: pane.terminal.lines.clone(),
+                    cwd: pane.cwd.clone(),
+                    is_runtime_ready: pane.is_runtime_ready,
+                },
+            )
+        })
+        .collect::<HashMap<SessionId, orchestrator::SessionRuntimeView>>();
+    let orchestrator_snapshot: Option<GroupOrchestratorSnapshot> =
+        active_group_id.map(|group_id| {
+            orchestrator::snapshot_group_from_runtime(
+                &snapshot,
+                group_id,
+                focused_terminal_id,
+                &orchestrator_runtime_by_id,
+            )
+        });
+
+    let mut local_agent_command = local_agent_command;
+    let mut local_agent_feedback = local_agent_feedback;
+    let local_agent_command_value = local_agent_command.read().clone();
+    let local_agent_feedback_value = local_agent_feedback.read().clone();
+    let persistence_feedback_value = persistence_feedback.read().clone();
+
+    rsx! {
+        main { class: "workspace",
+            header { class: "workspace-head",
+                div {
+                    h2 { "Workspace" }
+                    if active_group_id.is_some() {
+                        p {
+                            "Active path: "
+                            b { "{active_path}" }
                         }
                     }
-
-                    div { class: "status-summary",
-                        span { class: "badge idle", "Idle {idle_count}" }
-                        span { class: "badge busy", "Busy {busy_count}" }
-                        span { class: "badge error", "Error {error_count}" }
+                    p { class: "meta-tip", "Each group defaults to Agent A + Agent B + blue Run/Compile pane." }
+                    if !persistence_feedback_value.is_empty() {
+                        p { class: "meta-tip", "{persistence_feedback_value}" }
                     }
                 }
 
-                if let Some(group_id) = active_group_id {
-                    {
-                        let group_name = snapshot.group_label(group_id);
+                div { class: "status-summary",
+                    span { class: "badge idle", "Idle {idle_count}" }
+                    span { class: "badge busy", "Busy {busy_count}" }
+                    span { class: "badge error", "Error {error_count}" }
+                }
+            }
 
-                        rsx! {
-                            div { class: "workspace-layout",
-                                div { class: "agent-stack",
-                                    for session in active_agents {
-                                        {
-                                            let session_id = session.id;
-                                            let selected = snapshot.selected_session == Some(session_id);
-                                            let terminal_is_focused = focused_terminal_id == Some(session_id);
-                                            let pane_class = if selected {
-                                                "terminal-card agent selected"
-                                            } else {
-                                                "terminal-card agent"
-                                            };
-                                            let card_style = format!("border-top-color: var({});", session.status.css_var());
-                                            let badge_style = format!("background: var({});", session.status.css_var());
-                                            let pane = terminal_snapshot_by_id
-                                                .get(&session_id)
-                                                .cloned()
-                                                .unwrap_or_else(|| TerminalPaneData {
-                                                    terminal: pending_terminal_snapshot(),
-                                                    cwd: snapshot
-                                                        .group_path(session.group_id)
-                                                        .unwrap_or(".")
-                                                        .to_string(),
-                                                });
-                                            let terminal = pane.terminal;
-                                            let cwd = pane.cwd;
-                                            let terminal_manager_for_input = terminal_manager.read().clone();
+            if let Some(group_id) = active_group_id {
+                {
+                    let group_name = snapshot.group_label(group_id);
 
-                                            rsx! {
-                                                article {
-                                                    class: "{pane_class}",
-                                                    key: "agent-card-{session_id}",
-                                                    style: "{card_style}",
-                                                    onclick: move |_| app_state.write().select_session(session_id),
+                    rsx! {
+                        div { class: "workspace-layout",
+                            div { class: "agent-stack",
+                                for session in active_agents {
+                                    {
+                                        let session_id = session.id;
+                                        let selected = snapshot.selected_session == Some(session_id);
+                                        let terminal_is_focused = focused_terminal_id == Some(session_id);
+                                        let pane_class = if selected {
+                                            "terminal-card agent selected"
+                                        } else {
+                                            "terminal-card agent"
+                                        };
+                                        let card_style = format!("border-top-color: var({});", session.status.css_var());
+                                        let badge_style = format!("background: var({});", session.status.css_var());
+                                        let pane = terminal_snapshot_by_id
+                                            .get(&session_id)
+                                            .cloned()
+                                            .unwrap_or_else(|| TerminalPaneData {
+                                                terminal: pending_terminal_snapshot(),
+                                                cwd: snapshot
+                                                    .group_path(session.group_id)
+                                                    .unwrap_or(".")
+                                                    .to_string(),
+                                                is_runtime_ready: false,
+                                            });
+                                        let terminal = pane.terminal;
+                                        let cwd = pane.cwd;
+                                        let terminal_manager_for_input = terminal_manager.read().clone();
 
-                                                    div { class: "terminal-head",
-                                                        div {
-                                                            h4 { "{session.title}" }
-                                                            p { class: "sub", "{group_name}" }
-                                                            p { class: "terminal-meta", "cwd: {cwd}" }
-                                                        }
+                                        rsx! {
+                                            article {
+                                                class: "{pane_class}",
+                                                key: "agent-card-{session_id}",
+                                                style: "{card_style}",
+                                                onclick: move |_| app_state.write().select_session(session_id),
 
-                                                        button {
-                                                            class: "status-cycle",
-                                                            style: "{badge_style}",
-                                                            onclick: move |event| {
-                                                                event.stop_propagation();
-                                                                app_state.write().cycle_session_status(session_id);
-                                                            },
-                                                            "{session.status.label()}"
-                                                        }
+                                                div { class: "terminal-head",
+                                                    div {
+                                                        h4 { "{session.title}" }
+                                                        p { class: "sub", "{group_name}" }
+                                                        p { class: "terminal-meta", "cwd: {cwd}" }
                                                     }
 
-                                                    {terminal_shell(
-                                                        session_id,
-                                                        terminal_is_focused,
-                                                        terminal,
-                                                        terminal_manager_for_input,
-                                                        app_state,
-                                                        focused_terminal,
-                                                        round_anchor,
-                                                    )}
+                                                    button {
+                                                        class: "status-cycle",
+                                                        style: "{badge_style}",
+                                                        onclick: move |event| {
+                                                            event.stop_propagation();
+                                                            app_state.write().cycle_session_status(session_id);
+                                                        },
+                                                        "{session.status.label()}"
+                                                    }
                                                 }
+
+                                                {terminal_shell(
+                                                    session_id,
+                                                    terminal_is_focused,
+                                                    terminal,
+                                                    terminal_manager_for_input,
+                                                    app_state,
+                                                    focused_terminal,
+                                                    round_anchor,
+                                                )}
                                             }
                                         }
                                     }
                                 }
+                            }
 
-                                aside { class: "run-sidebar",
-                                    if let Some(session) = active_runner {
-                                        {
-                                            let session_id = session.id;
-                                            let selected = snapshot.selected_session == Some(session_id);
-                                            let terminal_is_focused = focused_terminal_id == Some(session_id);
-                                            let pane_class = if selected {
-                                                "terminal-card runner selected"
-                                            } else {
-                                                "terminal-card runner"
-                                            };
-                                            let card_style = format!("border-top-color: var({});", session.status.css_var());
-                                            let badge_style = format!("background: var({});", session.status.css_var());
-                                            let pane = terminal_snapshot_by_id
-                                                .get(&session_id)
-                                                .cloned()
-                                                .unwrap_or_else(|| TerminalPaneData {
-                                                    terminal: pending_terminal_snapshot(),
-                                                    cwd: snapshot
-                                                        .group_path(session.group_id)
-                                                        .unwrap_or(".")
-                                                        .to_string(),
-                                                });
-                                            let terminal = pane.terminal;
-                                            let cwd = pane.cwd;
-                                            let terminal_manager_for_input = terminal_manager.read().clone();
+                            aside { class: "run-sidebar",
+                                if let Some(session) = active_runner {
+                                    {
+                                        let session_id = session.id;
+                                        let selected = snapshot.selected_session == Some(session_id);
+                                        let terminal_is_focused = focused_terminal_id == Some(session_id);
+                                        let pane_class = if selected {
+                                            "terminal-card runner selected"
+                                        } else {
+                                            "terminal-card runner"
+                                        };
+                                        let card_style = format!("border-top-color: var({});", session.status.css_var());
+                                        let badge_style = format!("background: var({});", session.status.css_var());
+                                        let pane = terminal_snapshot_by_id
+                                            .get(&session_id)
+                                            .cloned()
+                                            .unwrap_or_else(|| TerminalPaneData {
+                                                terminal: pending_terminal_snapshot(),
+                                                cwd: snapshot
+                                                    .group_path(session.group_id)
+                                                    .unwrap_or(".")
+                                                    .to_string(),
+                                                is_runtime_ready: false,
+                                            });
+                                        let terminal = pane.terminal;
+                                        let cwd = pane.cwd;
+                                        let terminal_manager_for_input = terminal_manager.read().clone();
 
-                                            rsx! {
-                                                article {
-                                                    class: "{pane_class}",
-                                                    key: "runner-card-{session_id}",
-                                                    style: "{card_style}",
-                                                    onclick: move |_| app_state.write().select_session(session_id),
+                                        rsx! {
+                                            article {
+                                                class: "{pane_class}",
+                                                key: "runner-card-{session_id}",
+                                                style: "{card_style}",
+                                                onclick: move |_| app_state.write().select_session(session_id),
 
-                                                    div { class: "terminal-head",
-                                                        div {
-                                                            h4 { "{session.title}" }
-                                                            p { class: "sub", "{group_name}" }
-                                                            p { class: "terminal-meta", "cwd: {cwd}" }
+                                                div { class: "terminal-head",
+                                                    div {
+                                                        h4 { "{session.title}" }
+                                                        p { class: "sub", "{group_name}" }
+                                                        p { class: "terminal-meta", "cwd: {cwd}" }
+                                                    }
+
+                                                    button {
+                                                        class: "status-cycle",
+                                                        style: "{badge_style}",
+                                                        onclick: move |event| {
+                                                            event.stop_propagation();
+                                                            app_state.write().cycle_session_status(session_id);
+                                                        },
+                                                        "{session.status.label()}"
+                                                    }
+                                                }
+
+                                                {terminal_shell(
+                                                    session_id,
+                                                    terminal_is_focused,
+                                                    terminal,
+                                                    terminal_manager_for_input,
+                                                    app_state,
+                                                    focused_terminal,
+                                                    round_anchor,
+                                                )}
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    div { class: "runner-empty",
+                                        h3 { "No Run Pane" }
+                                        p { "Create or move a RUN tab into this group." }
+                                    }
+                                }
+
+                                if let Some(group_orchestrator) = orchestrator_snapshot.clone() {
+                                    {
+                                        let terminal_manager_for_agent = terminal_manager.read().clone();
+                                        let group_session_ids = orchestrator::group_session_ids(&snapshot, group_id);
+                                        let group_session_ids_for_send = group_session_ids.clone();
+                                        let group_session_ids_for_interrupt = group_session_ids.clone();
+                                        let terminal_manager_for_send = terminal_manager_for_agent.clone();
+                                        let terminal_manager_for_interrupt = terminal_manager_for_agent.clone();
+                                        let tracked_count = group_orchestrator.terminals.len();
+
+                                        rsx! {
+                                            article { class: "orchestrator-card",
+                                                div { class: "orchestrator-head",
+                                                    h3 { "Local Agent" }
+                                                    p { "Group path: {group_orchestrator.group_path}" }
+                                                    p { "Group id: {group_orchestrator.group_id} | terminals: {tracked_count}" }
+                                                }
+
+                                                div { class: "orchestrator-controls",
+                                                    textarea {
+                                                        class: "orchestrator-input",
+                                                        rows: "3",
+                                                        placeholder: "Broadcast command to every terminal in this group",
+                                                        value: "{local_agent_command_value}",
+                                                        oninput: move |event| local_agent_command.set(event.value()),
+                                                    }
+
+                                                    div { class: "orchestrator-actions",
+                                                        button {
+                                                            class: "orchestrator-btn send",
+                                                            onclick: move |_| {
+                                                                let command = local_agent_command.read().trim().to_string();
+                                                                if command.is_empty() {
+                                                                    local_agent_feedback.set("Enter a command to send.".to_string());
+                                                                    return;
+                                                                }
+
+                                                                let results = orchestrator::send_line_to_sessions(
+                                                                    &terminal_manager_for_send,
+                                                                    &group_session_ids_for_send,
+                                                                    &command,
+                                                                );
+
+                                                                let mut state = app_state.write();
+                                                                apply_orchestrator_results(&mut state, &results);
+                                                                drop(state);
+
+                                                                let ok_count = results.iter().filter(|result| result.error.is_none()).count();
+                                                                let fail_count = results.len().saturating_sub(ok_count);
+                                                                if ok_count > 0 {
+                                                                    local_agent_command.set(String::new());
+                                                                }
+                                                                local_agent_feedback.set(format!(
+                                                                    "Broadcast complete: {ok_count} success, {fail_count} failed."
+                                                                ));
+                                                            },
+                                                            "Send To Group"
                                                         }
 
                                                         button {
-                                                            class: "status-cycle",
-                                                            style: "{badge_style}",
-                                                            onclick: move |event| {
-                                                                event.stop_propagation();
-                                                                app_state.write().cycle_session_status(session_id);
-                                                            },
-                                                            "{session.status.label()}"
-                                                        }
-                                                    }
-
-                                                    {terminal_shell(
-                                                        session_id,
-                                                        terminal_is_focused,
-                                                        terminal,
-                                                        terminal_manager_for_input,
-                                                        app_state,
-                                                        focused_terminal,
-                                                        round_anchor,
-                                                    )}
-                                                }
-                                            }
-                                        }
-                                    } else {
-                                        div { class: "runner-empty",
-                                            h3 { "No Run Pane" }
-                                            p { "Create or move a RUN tab into this group." }
-                                        }
-                                    }
-
-                                    if let Some(group_orchestrator) = orchestrator_snapshot.clone() {
-                                        {
-                                            let terminal_manager_for_agent = terminal_manager.read().clone();
-                                            let group_session_ids = orchestrator::group_session_ids(&snapshot, group_id);
-                                            let group_session_ids_for_send = group_session_ids.clone();
-                                            let group_session_ids_for_interrupt = group_session_ids.clone();
-                                            let terminal_manager_for_send = terminal_manager_for_agent.clone();
-                                            let terminal_manager_for_interrupt = terminal_manager_for_agent.clone();
-                                            let tracked_count = group_orchestrator.terminals.len();
-
-                                            rsx! {
-                                                article { class: "orchestrator-card",
-                                                    div { class: "orchestrator-head",
-                                                        h3 { "Local Agent" }
-                                                        p { "Group path: {group_orchestrator.group_path}" }
-                                                        p { "Group id: {group_orchestrator.group_id} | terminals: {tracked_count}" }
-                                                    }
-
-                                                    div { class: "orchestrator-controls",
-                                                        textarea {
-                                                            class: "orchestrator-input",
-                                                            rows: "3",
-                                                            placeholder: "Broadcast command to every terminal in this group",
-                                                            value: "{local_agent_command_value}",
-                                                            oninput: move |event| local_agent_command.set(event.value()),
-                                                        }
-
-                                                        div { class: "orchestrator-actions",
-                                                            button {
-                                                                class: "orchestrator-btn send",
-                                                                onclick: move |_| {
-                                                                    let command = local_agent_command.read().trim().to_string();
-                                                                    if command.is_empty() {
-                                                                        local_agent_feedback.set("Enter a command to send.".to_string());
-                                                                        return;
-                                                                    }
-
-                                                                    let results = if let Ok(mut runtime) = terminal_manager_for_send.lock() {
-                                                                        orchestrator::send_line_to_sessions(
-                                                                            &mut runtime,
-                                                                            &group_session_ids_for_send,
-                                                                            &command,
-                                                                        )
-                                                                    } else {
-                                                                        group_session_ids_for_send
-                                                                            .iter()
-                                                                            .copied()
-                                                                            .map(|session_id| SessionWriteResult {
-                                                                                session_id,
-                                                                                error: Some("terminal manager lock failed".to_string()),
-                                                                            })
-                                                                            .collect()
-                                                                    };
-
-                                                                    let mut state = app_state.write();
-                                                                    apply_orchestrator_results(&mut state, &results);
-                                                                    drop(state);
-
-                                                                    let ok_count = results.iter().filter(|result| result.error.is_none()).count();
-                                                                    let fail_count = results.len().saturating_sub(ok_count);
-                                                                    if ok_count > 0 {
-                                                                        local_agent_command.set(String::new());
-                                                                    }
-                                                                    local_agent_feedback.set(format!(
-                                                                        "Broadcast complete: {ok_count} success, {fail_count} failed."
-                                                                    ));
-                                                                },
-                                                                "Send To Group"
-                                                            }
-
-                                                            button {
-                                                                class: "orchestrator-btn interrupt",
-                                                                onclick: move |_| {
-                                                                    let results = if let Ok(mut runtime) = terminal_manager_for_interrupt.lock() {
-                                                                        orchestrator::interrupt_sessions(&mut runtime, &group_session_ids_for_interrupt)
-                                                                    } else {
-                                                                        group_session_ids_for_interrupt
-                                                                            .iter()
-                                                                            .copied()
-                                                                            .map(|session_id| SessionWriteResult {
-                                                                                session_id,
-                                                                                error: Some("terminal manager lock failed".to_string()),
-                                                                            })
-                                                                            .collect()
-                                                                    };
-
-                                                                    let mut state = app_state.write();
-                                                                    apply_orchestrator_results(&mut state, &results);
-                                                                    drop(state);
-
-                                                                    let ok_count = results.iter().filter(|result| result.error.is_none()).count();
-                                                                    let fail_count = results.len().saturating_sub(ok_count);
-                                                                    local_agent_feedback.set(format!(
-                                                                        "Interrupt complete: {ok_count} success, {fail_count} failed."
-                                                                    ));
-                                                                },
-                                                                "Interrupt Group"
-                                                            }
-                                                        }
-
-                                                        if !local_agent_feedback_value.is_empty() {
-                                                            p { class: "orchestrator-feedback", "{local_agent_feedback_value}" }
-                                                        }
-                                                    }
-
-                                                    div { class: "orchestrator-list",
-                                                        for terminal in group_orchestrator.terminals {
-                                                            {
-                                                                let activity_class = if terminal.is_focused {
-                                                                    "terminal-focused"
-                                                                } else if terminal.is_selected {
-                                                                    "terminal-selected"
-                                                                } else {
-                                                                    "terminal-inactive"
-                                                                };
-                                                                let runtime_state = if terminal.is_runtime_ready {
-                                                                    "online"
-                                                                } else {
-                                                                    "pending"
-                                                                };
-                                                                let round_range = format!(
-                                                                    "rows {}-{}",
-                                                                    terminal.latest_round.start_row,
-                                                                    terminal.latest_round.end_row,
+                                                            class: "orchestrator-btn interrupt",
+                                                            onclick: move |_| {
+                                                                let results = orchestrator::interrupt_sessions(
+                                                                    &terminal_manager_for_interrupt,
+                                                                    &group_session_ids_for_interrupt,
                                                                 );
-                                                                let preview = summarize_round_preview(&terminal.latest_round.text());
 
-                                                                rsx! {
-                                                                    div {
-                                                                        class: "orchestrator-item {activity_class}",
-                                                                        key: "orchestrator-{terminal.session_id}",
-                                                                        div { class: "orchestrator-item-head",
-                                                                            span { class: "name", "{terminal.title}" }
-                                                                            span { class: "badge role", "{terminal.role.badge()}" }
-                                                                            span { class: "badge state", "{terminal.status.label()}" }
-                                                                        }
-                                                                        p { class: "meta", "cwd: {terminal.cwd}" }
-                                                                        p { class: "meta", "runtime: {runtime_state} | {round_range}" }
-                                                                        p { class: "preview", "{preview}" }
+                                                                let mut state = app_state.write();
+                                                                apply_orchestrator_results(&mut state, &results);
+                                                                drop(state);
+
+                                                                let ok_count = results.iter().filter(|result| result.error.is_none()).count();
+                                                                let fail_count = results.len().saturating_sub(ok_count);
+                                                                local_agent_feedback.set(format!(
+                                                                    "Interrupt complete: {ok_count} success, {fail_count} failed."
+                                                                ));
+                                                            },
+                                                            "Interrupt Group"
+                                                        }
+                                                    }
+
+                                                    if !local_agent_feedback_value.is_empty() {
+                                                        p { class: "orchestrator-feedback", "{local_agent_feedback_value}" }
+                                                    }
+                                                }
+
+                                                div { class: "orchestrator-list",
+                                                    for terminal in group_orchestrator.terminals {
+                                                        {
+                                                            let activity_class = if terminal.is_focused {
+                                                                "terminal-focused"
+                                                            } else if terminal.is_selected {
+                                                                "terminal-selected"
+                                                            } else {
+                                                                "terminal-inactive"
+                                                            };
+                                                            let runtime_state = if terminal.is_runtime_ready {
+                                                                "online"
+                                                            } else {
+                                                                "pending"
+                                                            };
+                                                            let round_range = format!(
+                                                                "rows {}-{}",
+                                                                terminal.latest_round.start_row,
+                                                                terminal.latest_round.end_row,
+                                                            );
+                                                            let preview = summarize_round_preview(&terminal.latest_round.text());
+
+                                                            rsx! {
+                                                                div {
+                                                                    class: "orchestrator-item {activity_class}",
+                                                                    key: "orchestrator-{terminal.session_id}",
+                                                                    div { class: "orchestrator-item-head",
+                                                                        span { class: "name", "{terminal.title}" }
+                                                                        span { class: "badge role", "{terminal.role.badge()}" }
+                                                                        span { class: "badge state", "{terminal.status.label()}" }
                                                                     }
+                                                                    p { class: "meta", "cwd: {terminal.cwd}" }
+                                                                    p { class: "meta", "runtime: {runtime_state} | {round_range}" }
+                                                                    p { class: "preview", "{preview}" }
                                                                 }
                                                             }
                                                         }
@@ -859,11 +1087,11 @@ pub fn App() -> Element {
                             }
                         }
                     }
-                } else {
-                    div { class: "workspace-empty",
-                        h3 { "No groups yet" }
-                        p { "Create a path group to start your 3-terminal workspace." }
-                    }
+                }
+            } else {
+                div { class: "workspace-empty",
+                    h3 { "No groups yet" }
+                    p { "Create a path group to start your 3-terminal workspace." }
                 }
             }
         }
@@ -874,7 +1102,7 @@ fn terminal_shell(
     session_id: SessionId,
     terminal_is_focused: bool,
     terminal: TerminalSnapshot,
-    terminal_manager: Arc<Mutex<TerminalManager>>,
+    terminal_manager: Arc<TerminalManager>,
     app_state: Signal<AppState>,
     mut focused_terminal: Signal<Option<SessionId>>,
     mut round_anchor: Signal<Option<(SessionId, u16)>>,
@@ -966,68 +1194,66 @@ fn terminal_shell(
                 let data = event.data();
                 let key = data.key();
                 let modifiers = data.modifiers();
-                if modifiers.ctrl() && !modifiers.alt() {
-                    if let Key::Character(text) = &key {
-                        if text.eq_ignore_ascii_case("a") {
-                            event.prevent_default();
-                            event.stop_propagation();
-                            if let Some((start_row, end_row)) = round_bounds {
-                                let body_id = body_id_for_round_select.clone();
-                                spawn(async move {
-                                    let _ = select_terminal_round(body_id, start_row, end_row).await;
-                                });
-                            }
-                            return;
-                        }
-
-                        if text.eq_ignore_ascii_case("v") {
-                            event.prevent_default();
-                            event.stop_propagation();
-                            let terminal_manager = terminal_manager_for_keydown.clone();
+                if modifiers.ctrl() && !modifiers.alt() && let Key::Character(text) = &key {
+                    if text.eq_ignore_ascii_case("a") {
+                        event.prevent_default();
+                        event.stop_propagation();
+                        if let Some((start_row, end_row)) = round_bounds {
+                            let body_id = body_id_for_round_select.clone();
                             spawn(async move {
-                                let clipboard_text = document::eval(READ_CLIPBOARD_JS)
-                                    .join::<String>()
-                                    .await
-                                    .unwrap_or_default();
-                                if clipboard_text.is_empty() {
-                                    return;
-                                }
+                                let _ = select_terminal_round(body_id, start_row, end_row).await;
+                            });
+                        }
+                        return;
+                    }
 
-                                let payload = if bracketed_paste {
-                                    wrap_bracketed_paste(clipboard_text.as_bytes())
-                                } else {
-                                    clipboard_text.into_bytes()
-                                };
+                    if text.eq_ignore_ascii_case("v") {
+                        event.prevent_default();
+                        event.stop_propagation();
+                        let terminal_manager = terminal_manager_for_keydown.clone();
+                        spawn(async move {
+                            let clipboard_text = document::eval(READ_CLIPBOARD_JS)
+                                .join::<String>()
+                                .await
+                                .unwrap_or_default();
+                            if clipboard_text.is_empty() {
+                                return;
+                            }
+
+                            let payload = if bracketed_paste {
+                                wrap_bracketed_paste(clipboard_text.as_bytes())
+                            } else {
+                                clipboard_text.into_bytes()
+                            };
+                            send_input_to_session(
+                                &terminal_manager,
+                                app_state,
+                                session_id,
+                                &payload,
+                            );
+                        });
+                        return;
+                    }
+
+                    if text.eq_ignore_ascii_case("c") {
+                        event.prevent_default();
+                        event.stop_propagation();
+                        let terminal_manager = terminal_manager_for_keydown.clone();
+                        spawn(async move {
+                            let copied = document::eval(COPY_SELECTION_JS)
+                                .join::<bool>()
+                                .await
+                                .unwrap_or(false);
+                            if !copied {
                                 send_input_to_session(
                                     &terminal_manager,
                                     app_state,
                                     session_id,
-                                    &payload,
+                                    &[0x03],
                                 );
-                            });
-                            return;
-                        }
-
-                        if text.eq_ignore_ascii_case("c") {
-                            event.prevent_default();
-                            event.stop_propagation();
-                            let terminal_manager = terminal_manager_for_keydown.clone();
-                            spawn(async move {
-                                let copied = document::eval(COPY_SELECTION_JS)
-                                    .join::<bool>()
-                                    .await
-                                    .unwrap_or(false);
-                                if !copied {
-                                    send_input_to_session(
-                                        &terminal_manager,
-                                        app_state,
-                                        session_id,
-                                        &[0x03],
-                                    );
-                                }
-                            });
-                            return;
-                        }
+                            }
+                        });
+                        return;
                     }
                 }
 
@@ -1251,16 +1477,12 @@ fn wrap_bracketed_paste(payload: &[u8]) -> Vec<u8> {
 }
 
 fn send_input_to_session(
-    terminal_manager: &Arc<Mutex<TerminalManager>>,
+    terminal_manager: &Arc<TerminalManager>,
     mut app_state: Signal<AppState>,
     session_id: SessionId,
     input: &[u8],
 ) {
-    let send_error = if let Ok(mut runtime) = terminal_manager.lock() {
-        runtime.send_input(session_id, input).err()
-    } else {
-        Some("terminal manager lock failed".to_string())
-    };
+    let send_error = terminal_manager.send_input(session_id, input).err();
 
     if send_error.is_none() {
         app_state
