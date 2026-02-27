@@ -46,6 +46,7 @@ pub fn App() -> Element {
     let mut new_group_path = use_signal(String::new);
     let refresh_tick = use_signal(|| 0_u64);
     let focused_terminal = use_signal(|| None::<SessionId>);
+    let round_anchor = use_signal(|| None::<(SessionId, u16)>);
     let mut renaming_tab = use_signal(|| None::<SessionId>);
     let mut rename_draft = use_signal(String::new);
 
@@ -508,6 +509,7 @@ pub fn App() -> Element {
                                                         terminal_manager_for_input,
                                                         app_state,
                                                         focused_terminal,
+                                                        round_anchor,
                                                     )}
                                                 }
                                             }
@@ -574,6 +576,7 @@ pub fn App() -> Element {
                                                         terminal_manager_for_input,
                                                         app_state,
                                                         focused_terminal,
+                                                        round_anchor,
                                                     )}
                                                 }
                                             }
@@ -606,6 +609,7 @@ fn terminal_shell(
     terminal_manager: Arc<Mutex<TerminalManager>>,
     app_state: Signal<AppState>,
     mut focused_terminal: Signal<Option<SessionId>>,
+    mut round_anchor: Signal<Option<(SessionId, u16)>>,
 ) -> Element {
     let shell_class = if terminal_is_focused {
         "terminal-shell focused"
@@ -626,8 +630,14 @@ fn terminal_shell(
     let show_caret = terminal_is_focused && !terminal.hide_cursor;
     let terminal_body_id = format!("terminal-body-{session_id}");
     let body_id_for_click = terminal_body_id.clone();
+    let body_id_for_round_select = terminal_body_id.clone();
     let terminal_manager_for_click = terminal_manager.clone();
     let terminal_manager_for_keydown = terminal_manager;
+    let round_anchor_row = match *round_anchor.read() {
+        Some((anchor_session, row)) if anchor_session == session_id => row,
+        _ => cursor_row,
+    };
+    let round_bounds = terminal_round_bounds(&terminal.lines, round_anchor_row);
 
     rsx! {
         div {
@@ -662,6 +672,11 @@ fn terminal_shell(
                         return;
                     };
 
+                    round_anchor.set(Some((session_id, target_row)));
+                    if target_row != click_cursor_row {
+                        return;
+                    }
+
                     let movement = cursor_move_bytes(
                         click_cursor_row,
                         click_cursor_col,
@@ -685,6 +700,18 @@ fn terminal_shell(
                 let modifiers = data.modifiers();
                 if modifiers.ctrl() && !modifiers.alt() {
                     if let Key::Character(text) = &key {
+                        if text.eq_ignore_ascii_case("a") {
+                            event.prevent_default();
+                            event.stop_propagation();
+                            if let Some((start_row, end_row)) = round_bounds {
+                                let body_id = body_id_for_round_select.clone();
+                                spawn(async move {
+                                    let _ = select_terminal_round(body_id, start_row, end_row).await;
+                                });
+                            }
+                            return;
+                        }
+
                         if text.eq_ignore_ascii_case("v") {
                             event.prevent_default();
                             event.stop_propagation();
@@ -882,6 +909,55 @@ fn split_prompt_prefix(line: &str) -> Option<(&str, &str)> {
     Some((prefix, &line[end..]))
 }
 
+fn terminal_round_bounds(lines: &[String], cursor_row: u16) -> Option<(u16, u16)> {
+    if lines.is_empty() {
+        return None;
+    }
+
+    let cursor_idx = usize::from(cursor_row).min(lines.len().saturating_sub(1));
+
+    let start_idx = (0..=cursor_idx)
+        .rev()
+        .find(|idx| {
+            is_prompt_row(
+                lines
+                    .get(*idx)
+                    .map(|line| line.as_str())
+                    .unwrap_or_default(),
+            )
+        })
+        .unwrap_or(0);
+
+    let next_prompt_idx = (start_idx + 1..lines.len()).find(|idx| {
+        is_prompt_row(
+            lines
+                .get(*idx)
+                .map(|line| line.as_str())
+                .unwrap_or_default(),
+        )
+    });
+
+    let last_non_empty = lines
+        .iter()
+        .rposition(|line| !line.trim().is_empty())
+        .unwrap_or(cursor_idx);
+
+    let mut end_idx = next_prompt_idx
+        .map(|idx| idx.saturating_sub(1))
+        .unwrap_or(last_non_empty.max(cursor_idx));
+    if end_idx < start_idx {
+        end_idx = start_idx;
+    }
+
+    let start = u16::try_from(start_idx).ok()?;
+    let end = u16::try_from(end_idx).ok()?;
+    Some((start, end))
+}
+
+fn is_prompt_row(line: &str) -> bool {
+    split_prompt_prefix(line).is_some()
+}
+
 fn pending_terminal_snapshot() -> TerminalSnapshot {
     let rows = 42_u16;
     let cols = 140_u16;
@@ -989,6 +1065,34 @@ return `${{row}},${{Math.max(0, col)}}`;
     let clamped_row = row.min(rows.saturating_sub(1));
     let clamped_col = col.min(cols.saturating_sub(1));
     Some((clamped_row, clamped_col))
+}
+
+async fn select_terminal_round(terminal_body_id: String, start_row: u16, end_row: u16) -> bool {
+    let script = format!(
+        r#"
+const root = document.getElementById({terminal_body_id:?});
+if (!root) return false;
+
+const start = root.querySelector('.terminal-line[data-row="{start_row}"]');
+const end = root.querySelector('.terminal-line[data-row="{end_row}"]');
+if (!start || !end) return false;
+
+const selection = window.getSelection ? window.getSelection() : null;
+if (!selection) return false;
+
+const range = document.createRange();
+range.setStartBefore(start);
+range.setEndAfter(end);
+selection.removeAllRanges();
+selection.addRange(range);
+return true;
+"#
+    );
+
+    document::eval(&script)
+        .join::<bool>()
+        .await
+        .unwrap_or(false)
 }
 
 async fn measure_terminal_viewport(terminal_body_id: String) -> Option<(u16, u16)> {
