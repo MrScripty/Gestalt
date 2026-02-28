@@ -1,3 +1,7 @@
 fn main() {
-    dioxus::launch(gestalt::ui::App);
+    dioxus::LaunchBuilder::desktop()
+        .with_cfg(dioxus::desktop::Config::new().with_on_window(|window, _| {
+            window.set_always_on_top(false);
+        }))
+        .launch(gestalt::ui::App);
 }

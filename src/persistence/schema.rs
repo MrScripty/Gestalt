@@ -5,6 +5,7 @@ use std::hash::{Hash, Hasher};
 
 pub const WORKSPACE_SCHEMA_VERSION: u32 = 1;
 
+/// Serialized workspace envelope with schema metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersistedWorkspaceV1 {
     pub schema_version: u32,
@@ -14,6 +15,7 @@ pub struct PersistedWorkspaceV1 {
 }
 
 impl PersistedWorkspaceV1 {
+    /// Creates a new schema-v1 workspace payload.
     pub fn new(app_state: AppState, terminals: Vec<PersistedTerminalState>) -> Self {
         Self {
             schema_version: WORKSPACE_SCHEMA_VERSION,
@@ -23,11 +25,13 @@ impl PersistedWorkspaceV1 {
         }
     }
 
+    /// Returns a copy with the save timestamp set.
     pub fn with_saved_at_unix(mut self, unix_seconds: u64) -> Self {
         self.saved_at_utc = unix_seconds.to_string();
         self
     }
 
+    /// Computes a stable hash used to avoid redundant autosaves.
     pub fn stable_fingerprint(&self) -> Result<u64, serde_json::Error> {
         let bytes = serde_json::to_vec(&StablePayloadRef {
             schema_version: self.schema_version,

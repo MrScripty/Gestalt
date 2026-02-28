@@ -6,6 +6,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// Loads workspace state from primary path, then backup as fallback.
 pub fn load_workspace() -> Result<Option<PersistedWorkspaceV1>, PersistenceError> {
     let primary = workspace_path();
     let backup = backup_path(&primary);
@@ -17,6 +18,7 @@ pub fn load_workspace() -> Result<Option<PersistedWorkspaceV1>, PersistenceError
     load_from_path(&backup)
 }
 
+/// Saves workspace state atomically and writes a rolling backup.
 pub fn save_workspace(workspace: &PersistedWorkspaceV1) -> Result<(), PersistenceError> {
     let path = workspace_path();
     let Some(parent_dir) = path.parent() else {

@@ -11,8 +11,8 @@ Application source modules for Gestalt's state model, terminal runtime, orchestr
 | `state.rs` | Core workspace/group/session model and transitions |
 | `terminal.rs` | PTY lifecycle, input/output, and snapshots |
 | `orchestrator.rs` | Group-level terminal orchestration helpers |
-| `ui.rs` | Dioxus desktop presentation and event wiring |
-| `style.css` | UI styling |
+| `ui.rs` + `ui/` | Dioxus desktop presentation, interaction handling, and autosave workflow |
+| `style/` | UI styling split by layout concerns |
 | `persistence/` | Workspace load/save infrastructure |
 
 ## Design Decisions

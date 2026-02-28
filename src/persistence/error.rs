@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+/// Failures surfaced by workspace persistence operations.
 #[derive(Debug, thiserror::Error)]
 pub enum PersistenceError {
     #[error("failed to create workspace directory {path:?}: {source}")]

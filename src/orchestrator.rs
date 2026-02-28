@@ -2,6 +2,7 @@ use crate::state::{AppState, GroupId, SessionId, SessionRole, SessionStatus};
 use crate::terminal::TerminalManager;
 use std::collections::HashMap;
 
+/// Extracted round boundaries and text for a terminal buffer.
 #[derive(Debug, Clone)]
 pub struct TerminalRound {
     pub start_row: u16,
@@ -10,11 +11,13 @@ pub struct TerminalRound {
 }
 
 impl TerminalRound {
+    /// Returns the round as newline-delimited plain text.
     pub fn text(&self) -> String {
         self.lines.join("\n")
     }
 }
 
+/// Snapshot entry for a single terminal in a group orchestrator view.
 #[derive(Debug, Clone)]
 pub struct GroupTerminalState {
     pub session_id: SessionId,
@@ -28,6 +31,7 @@ pub struct GroupTerminalState {
     pub latest_round: TerminalRound,
 }
 
+/// Group-level snapshot consumed by local orchestration controls.
 #[derive(Debug, Clone)]
 pub struct GroupOrchestratorSnapshot {
     pub group_id: GroupId,
@@ -35,12 +39,14 @@ pub struct GroupOrchestratorSnapshot {
     pub terminals: Vec<GroupTerminalState>,
 }
 
+/// Result for a write/broadcast operation against one session.
 #[derive(Debug, Clone)]
 pub struct SessionWriteResult {
     pub session_id: SessionId,
     pub error: Option<String>,
 }
 
+/// Lightweight runtime data used to build orchestrator snapshots.
 #[derive(Debug, Clone)]
 pub struct SessionRuntimeView {
     pub lines: Vec<String>,
@@ -48,6 +54,7 @@ pub struct SessionRuntimeView {
     pub is_runtime_ready: bool,
 }
 
+/// Builds a group snapshot directly from live terminal manager runtime.
 pub fn snapshot_group(
     app_state: &AppState,
     terminal_manager: &TerminalManager,
@@ -88,6 +95,7 @@ pub fn snapshot_group(
     }
 }
 
+/// Builds a group snapshot from caller-provided runtime state.
 pub fn snapshot_group_from_runtime(
     app_state: &AppState,
     group_id: GroupId,
@@ -132,6 +140,7 @@ pub fn snapshot_group_from_runtime(
     }
 }
 
+/// Returns all session IDs currently attached to a group.
 pub fn group_session_ids(app_state: &AppState, group_id: GroupId) -> Vec<SessionId> {
     app_state
         .sessions
@@ -141,6 +150,7 @@ pub fn group_session_ids(app_state: &AppState, group_id: GroupId) -> Vec<Session
         .collect()
 }
 
+/// Sends a line of input to every provided session.
 pub fn send_line_to_sessions(
     terminal_manager: &TerminalManager,
     session_ids: &[SessionId],
@@ -156,6 +166,7 @@ pub fn send_line_to_sessions(
         .collect()
 }
 
+/// Sends Ctrl+C to every provided session.
 pub fn interrupt_sessions(
     terminal_manager: &TerminalManager,
     session_ids: &[SessionId],

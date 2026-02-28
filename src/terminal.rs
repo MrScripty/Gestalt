@@ -16,6 +16,7 @@ const MIN_ROWS: u16 = 2;
 const MIN_COLS: u16 = 8;
 const MAX_PERSISTED_HISTORY_LINES: usize = 20_000;
 
+/// Render-ready terminal frame data extracted from VT state.
 #[derive(Debug, Clone)]
 pub struct TerminalSnapshot {
     pub lines: Vec<String>,
@@ -27,6 +28,7 @@ pub struct TerminalSnapshot {
     pub bracketed_paste: bool,
 }
 
+/// Serializable terminal state used for workspace persistence.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersistedTerminalState {
     pub session_id: SessionId,
@@ -40,6 +42,7 @@ pub struct PersistedTerminalState {
     pub lines: Vec<String>,
 }
 
+/// Manages PTY-backed terminal runtimes indexed by session ID.
 pub struct TerminalManager {
     shell: String,
     sessions: RwLock<HashMap<SessionId, Arc<TerminalRuntime>>>,
@@ -57,6 +60,7 @@ struct TerminalRuntime {
 }
 
 impl TerminalManager {
+    /// Creates a manager configured for the detected user shell.
     pub fn new() -> Self {
         Self {
             shell: detect_shell(),
@@ -65,10 +69,12 @@ impl TerminalManager {
         }
     }
 
+    /// Registers restored terminal history for deferred session startup.
     pub fn seed_restored_terminal(&self, state: PersistedTerminalState) {
         self.pending_restore.lock().insert(state.session_id, state);
     }
 
+    /// Ensures a runtime exists for the requested session.
     pub fn ensure_session(&self, session_id: SessionId, cwd: &str) -> Result<(), String> {
         if self.sessions.read().contains_key(&session_id) {
             return Ok(());
@@ -155,6 +161,7 @@ impl TerminalManager {
         Ok(())
     }
 
+    /// Sends raw bytes to a session PTY.
     pub fn send_input(&self, session_id: SessionId, input: &[u8]) -> Result<(), String> {
         let runtime = self
             .session_runtime(session_id)
@@ -171,12 +178,14 @@ impl TerminalManager {
         Ok(())
     }
 
+    /// Sends a line terminated with carriage return.
     pub fn send_line(&self, session_id: SessionId, line: &str) -> Result<(), String> {
         let mut bytes = line.as_bytes().to_vec();
         bytes.push(b'\r');
         self.send_input(session_id, &bytes)
     }
 
+    /// Updates tracked working directory metadata for a session.
     pub fn set_cwd(&self, session_id: SessionId, cwd: &str) -> Result<(), String> {
         self.send_line(session_id, &format!("cd {}", shell_quote(cwd)))?;
 
@@ -187,11 +196,13 @@ impl TerminalManager {
         Ok(())
     }
 
+    /// Returns the latest cached terminal snapshot for a session.
     pub fn snapshot(&self, session_id: SessionId) -> Option<TerminalSnapshot> {
         let runtime = self.session_runtime(session_id)?;
         Some(runtime.snapshot_cache.read().clone())
     }
 
+    /// Returns a persistence-friendly snapshot for the given session.
     pub fn snapshot_for_persist(&self, session_id: SessionId) -> Option<PersistedTerminalState> {
         if let Some(runtime) = self.session_runtime(session_id) {
             let parser = runtime.parser.lock();
@@ -222,6 +233,7 @@ impl TerminalManager {
         self.pending_restore.lock().get(&session_id).cloned()
     }
 
+    /// Resizes a running PTY and updates parser dimensions.
     pub fn resize_session(
         &self,
         session_id: SessionId,
@@ -254,11 +266,13 @@ impl TerminalManager {
         Ok(())
     }
 
+    /// Returns the tracked session working directory.
     pub fn session_cwd(&self, session_id: SessionId) -> Option<String> {
         self.session_runtime(session_id)
             .map(|runtime| runtime.cwd.read().clone())
     }
 
+    /// Returns the monotonic snapshot revision for change detection.
     pub fn session_snapshot_revision(&self, session_id: SessionId) -> Option<u64> {
         self.session_runtime(session_id)
             .map(|runtime| runtime.snapshot_revision.load(Ordering::Relaxed))

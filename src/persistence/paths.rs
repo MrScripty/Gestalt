@@ -3,6 +3,7 @@ use std::path::PathBuf;
 const APP_DIR_NAME: &str = "gestalt";
 const WORKSPACE_FILE_NAME: &str = "workspace.v1.json";
 
+/// Returns the absolute workspace file path for the current platform.
 pub fn workspace_path() -> PathBuf {
     if let Some(path) = std::env::var_os("GESTALT_WORKSPACE_PATH") {
         return PathBuf::from(path);
@@ -11,6 +12,7 @@ pub fn workspace_path() -> PathBuf {
     workspace_dir().join(WORKSPACE_FILE_NAME)
 }
 
+/// Returns the platform-specific root directory used for workspace state.
 pub fn workspace_dir() -> PathBuf {
     platform_state_home().join(APP_DIR_NAME)
 }
