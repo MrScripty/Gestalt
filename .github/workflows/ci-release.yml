@@ -1,0 +1,181 @@
+name: ci-release
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    tags: ['v*']
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: quality (linux)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Linux desktop build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            libsoup-3.0-dev \
+            libxdo-dev
+          if ! sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev; then
+            sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.0-dev
+          fi
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Format check
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Tests
+        run: cargo test -q
+
+  build_installers:
+    name: build installer (${{ matrix.package_type }})
+    needs: quality
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            package_type: deb
+            artifact_ext: deb
+            target_name: x86_64-unknown-linux-gnu
+          - os: windows-latest
+            package_type: msi
+            artifact_ext: msi
+            target_name: x86_64-pc-windows-msvc
+          - os: macos-latest
+            package_type: dmg
+            artifact_ext: dmg
+            target_name: aarch64-apple-darwin
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Linux bundling dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            dpkg-dev \
+            fakeroot \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            libsoup-3.0-dev \
+            libxdo-dev
+          if ! sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev; then
+            sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.0-dev
+          fi
+
+      - name: Install Windows MSI toolchain
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install wixtoolset --no-progress -y
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install Dioxus CLI
+        run: cargo install dioxus-cli --locked --version 0.7.3
+
+      - name: Build native installer (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: dx bundle --desktop --release --package-types ${{ matrix.package_type }}
+
+      - name: Build native installer (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: dx bundle --desktop --release --package-types ${{ matrix.package_type }}
+
+      - name: Stage installer artifact (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          ARTIFACT_PATH="$(find target/dx -type f -name '*.${{ matrix.artifact_ext }}' | head -n 1)"
+          if [[ -z "$ARTIFACT_PATH" ]]; then
+            echo "No .${{ matrix.artifact_ext }} installer found under target/dx"
+            exit 1
+          fi
+          mkdir -p dist
+          cp "$ARTIFACT_PATH" "dist/Gestalt-Setup-${VERSION}-${{ matrix.target_name }}.${{ matrix.artifact_ext }}"
+
+      - name: Stage installer artifact (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME.Substring(1)
+
+          $artifact = Get-ChildItem -Path target/dx -Recurse -File -Filter "*.${{ matrix.artifact_ext }}" | Select-Object -First 1
+          if ($null -eq $artifact) { throw "No .${{ matrix.artifact_ext }} installer found under target/dx" }
+
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item -Path $artifact.FullName -Destination "dist/Gestalt-Setup-$version-${{ matrix.target_name }}.${{ matrix.artifact_ext }}" -Force
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ matrix.target_name }}
+          path: dist/*-${{ matrix.target_name }}.${{ matrix.artifact_ext }}
+          if-no-files-found: error
+
+  release:
+    name: publish release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build_installers
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download installer artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: installer-*
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Generate SBOM
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+          syft release-artifacts -o cyclonedx-json=release-artifacts/Gestalt-${{ steps.version.outputs.version }}-sbom.cdx.json
+
+      - name: Generate SHA256 checksums
+        run: |
+          cd release-artifacts
+          sha256sum * > checksums-sha256.txt
+
+      - name: Create draft GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-artifacts/*
+          draft: true
+          generate_release_notes: true
+          prerelease: ${{ startsWith(github.ref_name, 'v0.') }}

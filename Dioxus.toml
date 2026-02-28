@@ -1,0 +1,14 @@
+[application]
+name = "Gestalt"
+default_platform = "desktop"
+out_dir = "dist"
+
+[bundle]
+identifier = "dev.gestalt.app"
+publisher = "Gestalt"
+icon = ["assets/Gestalt.png"]
+short_description = "Terminal fleet workspace"
+long_description = """
+Gestalt is a Rust desktop workspace for running and coordinating large terminal fleets in one UI.
+"""
+category = "DeveloperTool"
