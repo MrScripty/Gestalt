@@ -19,7 +19,7 @@ It is built with Dioxus Desktop (`0.7.x`) and uses real PTY sessions + VT100 par
 
 ## Architecture
 
-- UI: Dioxus Desktop + CSS layout (`src/ui.rs`, `src/style.css`)
+- UI: Dioxus Desktop + CSS layout (`src/ui.rs`, `src/ui/`, `src/style/`)
 - Session/Group state: `src/state.rs`
 - Terminal runtime: PTY + VT100 (`src/terminal.rs`)
 - Orchestration scaffolding: `src/orchestrator.rs`
@@ -34,6 +34,24 @@ It is built with Dioxus Desktop (`0.7.x`) and uses real PTY sessions + VT100 par
 ```bash
 cargo run
 ```
+
+## End-User Installers
+
+`launcher.sh` is for local development workflows. End users should use release
+installer artifacts from GitHub Releases (native OS installers):
+
+- `Gestalt-Setup-<version>-x86_64-unknown-linux-gnu.deb`
+- `Gestalt-Setup-<version>-x86_64-pc-windows-msvc.msi`
+- `Gestalt-Setup-<version>-aarch64-apple-darwin.dmg`
+
+Shortcuts/menu entries are created by each OS-native installer:
+
+- Linux (`.deb`): desktop launcher in the system app menu
+- Windows (`.msi`): Start Menu shortcut and standard Add/Remove Programs entry
+- macOS (`.dmg`): drag-install app bundle into Applications
+
+Installer/icon metadata is configured via `Dioxus.toml` using
+`assets/Gestalt.png`.
 
 ## Performance Gate
 
