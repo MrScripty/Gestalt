@@ -23,6 +23,12 @@
   gap: 16px;
 }
 
+.workspace-head-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .workspace-head h2 {
   margin: 0;
 }
@@ -66,6 +72,7 @@
 .workspace-layout {
   --workspace-splitter-size: 8px;
   --runner-width: 340px;
+  --side-panel-width: 380px;
   --agent-top-ratio: 50%;
   --runner-top-ratio: 50%;
   flex: 1;
@@ -74,6 +81,15 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) var(--workspace-splitter-size) minmax(260px, var(--runner-width));
   gap: 10px;
+}
+
+.workspace-layout.with-side-panel {
+  grid-template-columns:
+    minmax(0, 1fr)
+    var(--workspace-splitter-size)
+    minmax(260px, var(--runner-width))
+    var(--workspace-splitter-size)
+    minmax(280px, var(--side-panel-width));
 }
 
 .agent-stack {
@@ -96,37 +112,18 @@
   min-height: 0;
   min-width: 0;
   display: grid;
-  grid-template-rows: auto minmax(240px, 1fr);
-  gap: 10px;
-}
-
-.run-sidebar.split-enabled {
   grid-template-rows:
-    auto
     minmax(220px, var(--runner-top-ratio))
     var(--workspace-splitter-size)
     minmax(220px, 1fr);
   gap: 0;
 }
 
-.run-sidebar.collapsed {
-  grid-template-rows: auto minmax(240px, 1fr);
-  gap: 10px;
-}
-
-.run-sidebar-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding-bottom: 8px;
-}
-
-.run-sidebar-toggle-label {
-  margin: 0;
-  font-size: 0.7rem;
-  color: #3d5d66;
-  font-weight: 700;
+.run-sidebar.split-enabled {
+  grid-template-rows:
+    minmax(220px, var(--runner-top-ratio))
+    var(--workspace-splitter-size)
+    minmax(220px, 1fr);
 }
 
 .side-panel-toggle {
@@ -146,10 +143,22 @@
   outline-offset: 2px;
 }
 
-.run-sidebar-panels {
+.workspace-side-panel {
   min-height: 0;
   min-width: 0;
+  display: flex;
   overflow: hidden;
+}
+
+.workspace-side-panel > .side-panel-host {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.workspace-divider-static {
+  background: #c9d7dc;
+  border-radius: 999px;
 }
 
 .workspace-divider {
@@ -508,18 +517,24 @@
     grid-template-columns: 1fr;
   }
 
+  .workspace-layout.with-side-panel {
+    grid-template-columns: 1fr;
+  }
+
   .workspace-divider {
     display: none;
   }
 
   .run-sidebar {
     min-height: 320px;
-    grid-template-rows: auto minmax(280px, 1fr);
+    grid-template-rows:
+      minmax(280px, var(--runner-top-ratio))
+      var(--workspace-splitter-size)
+      minmax(280px, 1fr);
   }
 
   .run-sidebar.split-enabled {
     grid-template-rows:
-      auto
       minmax(280px, var(--runner-top-ratio))
       var(--workspace-splitter-size)
       minmax(280px, 1fr);

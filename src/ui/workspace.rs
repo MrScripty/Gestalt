@@ -2,6 +2,7 @@ use crate::orchestrator::{self, GroupOrchestratorSnapshot};
 use crate::state::{AppState, SessionId, SessionStatus};
 use crate::terminal::{TerminalManager, TerminalSnapshot};
 use crate::ui::insert_command_mode::InsertModeState;
+use crate::ui::local_agent_panel::LocalAgentPanel;
 use crate::ui::sidebar_panel_host::{SidebarPanelHost, SidebarPanelKind};
 use crate::ui::terminal_view::{
     TerminalInteractionSignals, pending_terminal_snapshot, terminal_shell,
@@ -20,6 +21,7 @@ struct TerminalPaneData {
 const RUNNER_WIDTH_MIN_PX: i32 = 260;
 const RUNNER_WIDTH_MAX_PX: i32 = 760;
 const RUNNER_WIDTH_STEP_PX: i32 = 16;
+const SIDE_PANEL_WIDTH_PX: i32 = 380;
 const STACK_SPLIT_STEP_RATIO: f64 = 0.03;
 const STACK_SPLIT_MIN_RATIO: f64 = 0.28;
 const STACK_SPLIT_MAX_RATIO: f64 = 0.72;
@@ -129,15 +131,16 @@ pub(crate) fn WorkspaceMain(
     let agent_ratio = (*agent_top_ratio.read()).clamp(STACK_SPLIT_MIN_RATIO, STACK_SPLIT_MAX_RATIO);
     let sidebar_ratio =
         (*runner_top_ratio.read()).clamp(STACK_SPLIT_MIN_RATIO, STACK_SPLIT_MAX_RATIO);
-    let workspace_layout_style = format!("--runner-width: {runner_width}px;");
+    let workspace_layout_style =
+        format!("--runner-width: {runner_width}px; --side-panel-width: {SIDE_PANEL_WIDTH_PX}px;");
+    let sidebar_open_value = *sidebar_open.read();
+    let workspace_layout_class = if sidebar_open_value {
+        "workspace-layout with-side-panel"
+    } else {
+        "workspace-layout"
+    };
     let agent_stack_style = format!("--agent-top-ratio: {:.2}%;", agent_ratio * 100.0);
     let run_sidebar_style = run_sidebar_style_for_panel(*sidebar_panel.read(), sidebar_ratio);
-    let sidebar_open_value = *sidebar_open.read();
-    let run_sidebar_class = if sidebar_open_value {
-        "run-sidebar split-enabled"
-    } else {
-        "run-sidebar collapsed"
-    };
     let interaction = TerminalInteractionSignals {
         app_state,
         focused_terminal,
@@ -204,10 +207,23 @@ pub(crate) fn WorkspaceMain(
                     }
                 }
 
-                div { class: "status-summary",
-                    span { class: "badge idle", "Idle {idle_count}" }
-                    span { class: "badge busy", "Busy {busy_count}" }
-                    span { class: "badge error", "Error {error_count}" }
+                div { class: "workspace-head-controls",
+                    div { class: "status-summary",
+                        span { class: "badge idle", "Idle {idle_count}" }
+                        span { class: "badge busy", "Busy {busy_count}" }
+                        span { class: "badge error", "Error {error_count}" }
+                    }
+                    button {
+                        class: "side-panel-toggle",
+                        r#type: "button",
+                        aria_controls: "workspace-right-panel",
+                        aria_expanded: sidebar_open_value,
+                        onclick: move |_| {
+                            let next = !*sidebar_open.read();
+                            sidebar_open.set(next);
+                        },
+                        if sidebar_open_value { "Hide Panels" } else { "Show Panels" }
+                    }
                 }
             }
 
@@ -222,7 +238,7 @@ pub(crate) fn WorkspaceMain(
                     };
 
                     rsx! {
-                        div { class: "workspace-layout", style: "{workspace_layout_style}",
+                        div { class: "{workspace_layout_class}", style: "{workspace_layout_style}",
                             div { class: "{agent_stack_class}", style: "{agent_stack_style}",
                                 for (index, session) in active_agents.into_iter().enumerate() {
                                     {
@@ -349,22 +365,7 @@ pub(crate) fn WorkspaceMain(
                                 },
                             }
 
-                            aside { class: "{run_sidebar_class}", style: "{run_sidebar_style}",
-                                div { class: "run-sidebar-toggle",
-                                    p { class: "run-sidebar-toggle-label", "Panels" }
-                                    button {
-                                        class: "side-panel-toggle",
-                                        r#type: "button",
-                                        aria_controls: "workspace-right-panel",
-                                        aria_expanded: sidebar_open_value,
-                                        onclick: move |_| {
-                                            let next = !*sidebar_open.read();
-                                            sidebar_open.set(next);
-                                        },
-                                        if sidebar_open_value { "Hide" } else { "Show" }
-                                    }
-                                }
-
+                            aside { class: "run-sidebar split-enabled", style: "{run_sidebar_style}",
                                 if let Some(session) = active_runner {
                                     {
                                         let session_id = session.id;
@@ -434,51 +435,68 @@ pub(crate) fn WorkspaceMain(
                                     }
                                 }
 
-                                if sidebar_open_value {
-                                    button {
-                                        class: "panel-splitter panel-splitter-horizontal terminal-row-splitter",
-                                        r#type: "button",
-                                        aria_label: "Resize run and sidebar panes",
-                                        onmousedown: move |event| {
-                                            event.prevent_default();
-                                            let start_y = event.data().client_coordinates().y;
-                                            sidebar_drag_start.set(Some((start_y, *runner_top_ratio.read())));
-                                        },
-                                        onkeydown: move |event| {
-                                            match event.key() {
-                                                Key::ArrowUp => {
-                                                    event.prevent_default();
-                                                    let next = *runner_top_ratio.read() - STACK_SPLIT_STEP_RATIO;
-                                                    runner_top_ratio.set(
-                                                        next.clamp(STACK_SPLIT_MIN_RATIO, STACK_SPLIT_MAX_RATIO),
-                                                    );
-                                                }
-                                                Key::ArrowDown => {
-                                                    event.prevent_default();
-                                                    let next = *runner_top_ratio.read() + STACK_SPLIT_STEP_RATIO;
-                                                    runner_top_ratio.set(
-                                                        next.clamp(STACK_SPLIT_MIN_RATIO, STACK_SPLIT_MAX_RATIO),
-                                                    );
-                                                }
-                                                _ => {}
+                                button {
+                                    class: "panel-splitter panel-splitter-horizontal terminal-row-splitter",
+                                    r#type: "button",
+                                    aria_label: "Resize run and local agent panes",
+                                    onmousedown: move |event| {
+                                        event.prevent_default();
+                                        let start_y = event.data().client_coordinates().y;
+                                        sidebar_drag_start.set(Some((start_y, *runner_top_ratio.read())));
+                                    },
+                                    onkeydown: move |event| {
+                                        match event.key() {
+                                            Key::ArrowUp => {
+                                                event.prevent_default();
+                                                let next = *runner_top_ratio.read() - STACK_SPLIT_STEP_RATIO;
+                                                runner_top_ratio.set(
+                                                    next.clamp(STACK_SPLIT_MIN_RATIO, STACK_SPLIT_MAX_RATIO),
+                                                );
                                             }
-                                        },
-                                    }
-
-                                    div { id: "workspace-right-panel", class: "run-sidebar-panels",
-                                        SidebarPanelHost {
-                                            app_state: app_state,
-                                            terminal_manager: terminal_manager,
-                                            group_id: group_id,
-                                            group_orchestrator: orchestrator_snapshot.clone(),
-                                            local_agent_command: local_agent_command,
-                                            local_agent_feedback: local_agent_feedback,
-                                            active_group_path: active_path.clone(),
-                                            repo_context: git_context,
-                                            repo_loading: git_context_loading,
-                                            git_refresh_nonce: git_refresh_nonce,
-                                            sidebar_panel: sidebar_panel,
+                                            Key::ArrowDown => {
+                                                event.prevent_default();
+                                                let next = *runner_top_ratio.read() + STACK_SPLIT_STEP_RATIO;
+                                                runner_top_ratio.set(
+                                                    next.clamp(STACK_SPLIT_MIN_RATIO, STACK_SPLIT_MAX_RATIO),
+                                                );
+                                            }
+                                            _ => {}
                                         }
+                                    },
+                                }
+
+                                if let Some(group_orchestrator) = orchestrator_snapshot.clone() {
+                                    LocalAgentPanel {
+                                        app_state: app_state,
+                                        terminal_manager: terminal_manager,
+                                        group_id: group_id,
+                                        group_orchestrator: group_orchestrator,
+                                        local_agent_command: local_agent_command,
+                                        local_agent_feedback: local_agent_feedback,
+                                    }
+                                } else {
+                                    div { class: "sidebar-panel-empty",
+                                        p { "Local agent context is not available." }
+                                    }
+                                }
+                            }
+
+                            if sidebar_open_value {
+                                div { class: "workspace-divider workspace-divider-static", aria_hidden: "true" }
+
+                                aside { id: "workspace-right-panel", class: "workspace-side-panel",
+                                    SidebarPanelHost {
+                                        app_state: app_state,
+                                        terminal_manager: terminal_manager,
+                                        group_id: group_id,
+                                        group_orchestrator: orchestrator_snapshot.clone(),
+                                        local_agent_command: local_agent_command,
+                                        local_agent_feedback: local_agent_feedback,
+                                        active_group_path: active_path.clone(),
+                                        repo_context: git_context,
+                                        repo_loading: git_context_loading,
+                                        git_refresh_nonce: git_refresh_nonce,
+                                        sidebar_panel: sidebar_panel,
                                     }
                                 }
                             }
