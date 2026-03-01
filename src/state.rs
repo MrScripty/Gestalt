@@ -60,6 +60,13 @@ impl SessionRole {
     }
 }
 
+/// Selects which center-stack agent pane should receive a swapped tab.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VisibleAgentSlot {
+    Top,
+    Bottom,
+}
+
 /// Opaque identifier for an individual terminal session.
 pub type SessionId = u32;
 /// Opaque identifier for a workspace path group.
@@ -386,6 +393,81 @@ impl AppState {
 
         self.sessions.insert(insert_idx, source);
         self.mark_dirty();
+    }
+
+    /// Swaps a session with one of the currently visible center-stack agent panes.
+    pub fn swap_session_with_visible_agent_slot(
+        &mut self,
+        source_id: SessionId,
+        slot: VisibleAgentSlot,
+    ) {
+        let Some(source_idx) = self
+            .sessions
+            .iter()
+            .position(|session| session.id == source_id)
+        else {
+            return;
+        };
+
+        let source_group_id = self.sessions[source_idx].group_id;
+        let Some(target_id) = self.visible_agent_slot_session_id(source_group_id, slot) else {
+            return;
+        };
+        let Some(target_idx) = self
+            .sessions
+            .iter()
+            .position(|session| session.id == target_id)
+        else {
+            return;
+        };
+
+        let mut changed = false;
+        if source_idx != target_idx {
+            self.sessions.swap(source_idx, target_idx);
+            changed = true;
+        }
+
+        if self.selected_session != Some(source_id) {
+            self.selected_session = Some(source_id);
+            changed = true;
+        }
+
+        if changed {
+            self.mark_dirty();
+        }
+    }
+
+    fn visible_agent_slot_session_id(
+        &self,
+        group_id: GroupId,
+        slot: VisibleAgentSlot,
+    ) -> Option<SessionId> {
+        let mut runner_seen = false;
+        let mut visible_agents = Vec::with_capacity(2);
+
+        for session in self
+            .sessions
+            .iter()
+            .filter(|session| session.group_id == group_id)
+        {
+            if session.role.is_runner() && !runner_seen {
+                runner_seen = true;
+                continue;
+            }
+
+            visible_agents.push(session.id);
+            if visible_agents.len() == 2 {
+                break;
+            }
+        }
+
+        match slot {
+            VisibleAgentSlot::Top => visible_agents.first().copied(),
+            VisibleAgentSlot::Bottom => visible_agents
+                .get(1)
+                .copied()
+                .or_else(|| visible_agents.first().copied()),
+        }
     }
 
     /// Returns the active group based on selected session fallback.

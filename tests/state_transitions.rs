@@ -1,4 +1,4 @@
-use gestalt::state::{AppState, SessionRole, SessionStatus};
+use gestalt::state::{AppState, SessionRole, SessionStatus, VisibleAgentSlot};
 
 fn seeded_state() -> AppState {
     let mut state = AppState::default();
@@ -116,4 +116,38 @@ fn test_revision_after_mutation_increments() {
     let group_id = state.groups[0].id;
     state.add_session(group_id);
     assert!(state.revision() > before);
+}
+
+#[test]
+fn swap_session_with_top_slot_brings_hidden_tab_into_top_pane() {
+    let mut state = AppState::default();
+    let group_id = state.groups[0].id;
+    let hidden_id =
+        state.add_session_with_title_and_role(group_id, "Hidden".to_string(), SessionRole::Agent);
+
+    state.swap_session_with_visible_agent_slot(hidden_id, VisibleAgentSlot::Top);
+
+    let (agents, runner) = state.workspace_sessions_for_group(group_id);
+    assert_eq!(agents.len(), 2);
+    assert_eq!(agents[0].id, hidden_id);
+    assert_eq!(state.selected_session, Some(hidden_id));
+    assert_eq!(
+        runner.map(|session| session.role),
+        Some(SessionRole::Runner)
+    );
+}
+
+#[test]
+fn swap_session_with_bottom_slot_brings_hidden_tab_into_bottom_pane() {
+    let mut state = AppState::default();
+    let group_id = state.groups[0].id;
+    let hidden_id =
+        state.add_session_with_title_and_role(group_id, "Hidden".to_string(), SessionRole::Agent);
+
+    state.swap_session_with_visible_agent_slot(hidden_id, VisibleAgentSlot::Bottom);
+
+    let (agents, _) = state.workspace_sessions_for_group(group_id);
+    assert_eq!(agents.len(), 2);
+    assert_eq!(agents[1].id, hidden_id);
+    assert_eq!(state.selected_session, Some(hidden_id));
 }

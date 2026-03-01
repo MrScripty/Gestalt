@@ -1,5 +1,5 @@
 use crate::path_validation;
-use crate::state::{AppState, SessionId, SessionStatus};
+use crate::state::{AppState, SessionId, SessionStatus, VisibleAgentSlot};
 use crate::terminal::TerminalManager;
 use dioxus::prelude::*;
 use std::sync::Arc;
@@ -120,7 +120,27 @@ pub(crate) fn TabRail(
                                                         }
                                                         dragging_tab.set(None);
                                                     },
-                                                    onclick: move |_| app_state.write().select_session(session_id),
+                                                    onclick: move |_| {
+                                                        if is_runner {
+                                                            app_state.write().select_session(session_id);
+                                                            return;
+                                                        }
+                                                        app_state.write().swap_session_with_visible_agent_slot(
+                                                            session_id,
+                                                            VisibleAgentSlot::Top,
+                                                        );
+                                                    },
+                                                    oncontextmenu: move |event| {
+                                                        event.prevent_default();
+                                                        if is_runner {
+                                                            app_state.write().select_session(session_id);
+                                                            return;
+                                                        }
+                                                        app_state.write().swap_session_with_visible_agent_slot(
+                                                            session_id,
+                                                            VisibleAgentSlot::Bottom,
+                                                        );
+                                                    },
                                                     ondoubleclick: move |_| {
                                                         renaming_tab.set(Some(session_id));
                                                         rename_draft.set(title_for_start.clone());
@@ -159,7 +179,10 @@ pub(crate) fn TabRail(
                                                                     }
                                                                     renaming_tab.set(None);
                                                                 }
-                                                            }
+                                                            },
+                                                            oncontextmenu: move |event| {
+                                                                event.stop_propagation();
+                                                            },
                                                         }
                                                     } else {
                                                         div { class: "tab-main",
@@ -176,6 +199,9 @@ pub(crate) fn TabRail(
                                                                 event.stop_propagation();
                                                                 renaming_tab.set(Some(session_id));
                                                                 rename_draft.set(session.title.clone());
+                                                            },
+                                                            oncontextmenu: move |event| {
+                                                                event.stop_propagation();
                                                             },
                                                             "rename"
                                                         }
