@@ -1,5 +1,3 @@
-pub mod git;
-
 use crate::state::{AppState, GroupId, SessionId, SessionRole, SessionStatus};
 use crate::terminal::TerminalManager;
 use std::collections::HashMap;
