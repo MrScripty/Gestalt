@@ -1,3 +1,5 @@
+/// Git repository query and mutation services.
+pub mod git;
 /// Group orchestration snapshot and broadcast helpers.
 pub mod orchestrator;
 /// Input validation helpers for filesystem path boundaries.

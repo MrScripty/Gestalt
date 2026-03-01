@@ -1,9 +1,11 @@
+pub mod git;
+
 use crate::state::{AppState, GroupId, SessionId, SessionRole, SessionStatus};
 use crate::terminal::TerminalManager;
 use std::collections::HashMap;
 
 /// Extracted round boundaries and text for a terminal buffer.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TerminalRound {
     pub start_row: u16,
     pub end_row: u16,
@@ -18,7 +20,7 @@ impl TerminalRound {
 }
 
 /// Snapshot entry for a single terminal in a group orchestrator view.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct GroupTerminalState {
     pub session_id: SessionId,
     pub title: String,
@@ -32,7 +34,7 @@ pub struct GroupTerminalState {
 }
 
 /// Group-level snapshot consumed by local orchestration controls.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct GroupOrchestratorSnapshot {
     pub group_id: GroupId,
     pub group_path: String,
