@@ -2,6 +2,7 @@ use gestalt::orchestrator;
 use gestalt::persistence;
 use gestalt::state::{AppState, SessionId};
 use gestalt::terminal::TerminalManager;
+use serde::Serialize;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
@@ -9,14 +10,19 @@ use std::time::{Duration, Instant};
 
 const WARMUP_HISTORY_LINES: usize = 12_000;
 const HISTORY_LINE_WIDTH: usize = 96;
+const WARMUP_READY_TIMEOUT: Duration = Duration::from_secs(30);
 const TYPING_SAMPLES: usize = 320;
 const TYPING_INTERVAL: Duration = Duration::from_millis(8);
 const ASSERT_LOCK_WAIT_P95_US: u128 = 200;
 const ASSERT_RENDER_TOTAL_P95_US: u128 = 1_000;
 const ASSERT_FULL_TOTAL_P95_US: u128 = 1_500;
+const JSON_PREFIX: &str = "GESTALT_PROFILE_JSON:";
 
 fn main() -> Result<(), String> {
-    let assert_mode = std::env::args().any(|arg| arg == "--assert");
+    let args = std::env::args().collect::<Vec<_>>();
+    let assert_mode = args.iter().any(|arg| arg == "--assert");
+    let json_mode = args.iter().any(|arg| arg == "--json");
+
     let app_state = Arc::new(AppState::default());
     let session_ids = app_state
         .sessions
@@ -44,26 +50,29 @@ fn main() -> Result<(), String> {
 
     let render_hold = profile_render_hold(&terminal_manager, &app_state, 180);
     let autosave_hold = profile_autosave_hold(&terminal_manager, &app_state, 36);
+    let render_hold_stats = stats_from_sorted(&render_hold);
+    let autosave_hold_stats = stats_from_sorted(&autosave_hold);
+
     println!();
     println!("Mutex hold timings for heavy operations");
     println!(
         "  render pass us: avg={} p50={} p95={} p99={} max={}",
-        average(&render_hold),
-        percentile(&render_hold, 50),
-        percentile(&render_hold, 95),
-        percentile(&render_hold, 99),
-        render_hold.last().copied().unwrap_or_default()
+        render_hold_stats.avg_us,
+        render_hold_stats.p50_us,
+        render_hold_stats.p95_us,
+        render_hold_stats.p99_us,
+        render_hold_stats.max_us
     );
     println!(
         "  autosave pass us: avg={} p50={} p95={} p99={} max={}",
-        average(&autosave_hold),
-        percentile(&autosave_hold, 50),
-        percentile(&autosave_hold, 95),
-        percentile(&autosave_hold, 99),
-        autosave_hold.last().copied().unwrap_or_default()
+        autosave_hold_stats.avg_us,
+        autosave_hold_stats.p50_us,
+        autosave_hold_stats.p95_us,
+        autosave_hold_stats.p99_us,
+        autosave_hold_stats.max_us
     );
 
-    let baseline = profile_typing_latency(&terminal_manager, session_ids[0], TYPING_SAMPLES);
+    let baseline = profile_typing_latency(&terminal_manager, session_ids[0], TYPING_SAMPLES)?;
     println!();
     println!("Scenario: baseline");
     baseline.print();
@@ -76,7 +85,7 @@ fn main() -> Result<(), String> {
     );
     thread::sleep(Duration::from_millis(250));
     let render_contended =
-        profile_typing_latency(&terminal_manager, session_ids[0], TYPING_SAMPLES);
+        profile_typing_latency(&terminal_manager, session_ids[0], TYPING_SAMPLES)?;
     render_stop.store(true, Ordering::Relaxed);
     let _ = render_worker.join();
 
@@ -97,7 +106,7 @@ fn main() -> Result<(), String> {
         autosave_stop.clone(),
     );
     thread::sleep(Duration::from_millis(250));
-    let full_contended = profile_typing_latency(&terminal_manager, session_ids[0], TYPING_SAMPLES);
+    let full_contended = profile_typing_latency(&terminal_manager, session_ids[0], TYPING_SAMPLES)?;
     render_stop.store(true, Ordering::Relaxed);
     autosave_stop.store(true, Ordering::Relaxed);
     let _ = render_worker.join();
@@ -107,49 +116,79 @@ fn main() -> Result<(), String> {
     println!("Scenario: render + autosave contention");
     full_contended.print();
 
+    let mut assertion_failures = Vec::new();
+    let mut assertions_passed = None;
     if assert_mode {
-        let mut failures = Vec::new();
-
         if render_contended.lock_wait_p95() > ASSERT_LOCK_WAIT_P95_US {
-            failures.push(format!(
+            assertion_failures.push(format!(
                 "render contention lock-wait p95 {}us exceeds {}us",
                 render_contended.lock_wait_p95(),
                 ASSERT_LOCK_WAIT_P95_US
             ));
         }
         if full_contended.lock_wait_p95() > ASSERT_LOCK_WAIT_P95_US {
-            failures.push(format!(
+            assertion_failures.push(format!(
                 "render+autosave lock-wait p95 {}us exceeds {}us",
                 full_contended.lock_wait_p95(),
                 ASSERT_LOCK_WAIT_P95_US
             ));
         }
         if render_contended.total_send_p95() > ASSERT_RENDER_TOTAL_P95_US {
-            failures.push(format!(
+            assertion_failures.push(format!(
                 "render contention total-send p95 {}us exceeds {}us",
                 render_contended.total_send_p95(),
                 ASSERT_RENDER_TOTAL_P95_US
             ));
         }
         if full_contended.total_send_p95() > ASSERT_FULL_TOTAL_P95_US {
-            failures.push(format!(
+            assertion_failures.push(format!(
                 "render+autosave total-send p95 {}us exceeds {}us",
                 full_contended.total_send_p95(),
                 ASSERT_FULL_TOTAL_P95_US
             ));
         }
 
-        if failures.is_empty() {
+        assertions_passed = Some(assertion_failures.is_empty());
+        if assertion_failures.is_empty() {
             println!();
             println!("Perf assertions passed.");
         } else {
             println!();
             println!("Perf assertions failed:");
-            for failure in failures {
+            for failure in &assertion_failures {
                 println!("  - {failure}");
             }
-            return Err("terminal performance assertion failed".to_string());
         }
+    }
+
+    let summary = ProfileSummary {
+        warmup_history_lines: WARMUP_HISTORY_LINES,
+        typing_samples: TYPING_SAMPLES,
+        render_pass: render_hold_stats,
+        autosave_pass: autosave_hold_stats,
+        baseline_lock_wait: baseline.lock_wait_stats(),
+        baseline_total_send: baseline.total_send_stats(),
+        render_lock_wait: render_contended.lock_wait_stats(),
+        render_total_send: render_contended.total_send_stats(),
+        full_lock_wait: full_contended.lock_wait_stats(),
+        full_total_send: full_contended.total_send_stats(),
+        render_pass_p95_us: render_hold_stats.p95_us,
+        autosave_pass_p95_us: autosave_hold_stats.p95_us,
+        baseline_total_send_p95_us: baseline.total_send_p95(),
+        render_total_send_p95_us: render_contended.total_send_p95(),
+        full_total_send_p95_us: full_contended.total_send_p95(),
+        assert_mode,
+        assertions_passed,
+    };
+
+    if json_mode {
+        let payload = serde_json::to_string(&summary)
+            .map_err(|error| format!("failed to serialize profile summary: {error}"))?;
+        println!("{JSON_PREFIX}{payload}");
+    }
+
+    if assert_mode && !assertion_failures.is_empty() {
+        return Err("terminal performance assertion failed".to_string());
     }
 
     Ok(())
@@ -160,30 +199,43 @@ fn seed_terminal_output(
     session_ids: &[SessionId],
 ) -> Result<(), String> {
     let fill = "x".repeat(HISTORY_LINE_WIDTH);
+    let completion_marker = format!("{WARMUP_HISTORY_LINES} {fill}");
     let command = format!("for i in $(seq 1 {WARMUP_HISTORY_LINES}); do echo \"$i {fill}\"; done");
 
     for session_id in session_ids {
         terminal_manager.send_line(*session_id, &command)?;
     }
 
-    let deadline = Instant::now() + Duration::from_secs(8);
+    let deadline = Instant::now() + WARMUP_READY_TIMEOUT;
     loop {
-        let ready = {
-            session_ids.iter().all(|session_id| {
+        let ready_count = session_ids
+            .iter()
+            .filter(|session_id| {
                 terminal_manager
-                    .snapshot(*session_id)
-                    .map(|snapshot| snapshot.lines.iter().any(|line| line.contains(&fill)))
+                    .snapshot(**session_id)
+                    .map(|snapshot| {
+                        snapshot
+                            .lines
+                            .iter()
+                            .any(|line| line.contains(&completion_marker))
+                    })
                     .unwrap_or(false)
             })
-        };
+            .count();
 
-        if ready || Instant::now() >= deadline {
-            break;
+        if ready_count == session_ids.len() {
+            return Ok(());
         }
+        if Instant::now() >= deadline {
+            return Err(format!(
+                "warmup timed out: {ready_count}/{} sessions reached completion marker within {:?}",
+                session_ids.len(),
+                WARMUP_READY_TIMEOUT
+            ));
+        }
+
         thread::sleep(Duration::from_millis(25));
     }
-
-    Ok(())
 }
 
 fn spawn_render_worker(
@@ -249,22 +301,19 @@ fn profile_typing_latency(
     terminal_manager: &Arc<TerminalManager>,
     session_id: SessionId,
     samples: usize,
-) -> LatencyProfile {
+) -> Result<LatencyProfile, String> {
     let mut lock_waits = Vec::with_capacity(samples);
     let mut totals = Vec::with_capacity(samples);
 
     for _ in 0..samples {
-        let started = Instant::now();
-        let lock_acquired = Instant::now();
-        let _ = terminal_manager.send_input(session_id, b"a");
-        let ended = Instant::now();
+        let timings = terminal_manager.send_input_profiled(session_id, b"a")?;
 
-        lock_waits.push(lock_acquired.duration_since(started));
-        totals.push(ended.duration_since(started));
+        lock_waits.push(timings.lock_wait);
+        totals.push(timings.total);
         thread::sleep(TYPING_INTERVAL);
     }
 
-    LatencyProfile::new(lock_waits, totals)
+    Ok(LatencyProfile::new(lock_waits, totals))
 }
 
 fn profile_render_hold(
@@ -301,6 +350,48 @@ fn profile_autosave_hold(
     hold_times
 }
 
+#[derive(Clone, Copy, Serialize)]
+struct DistributionStats {
+    avg_us: u128,
+    p50_us: u128,
+    p95_us: u128,
+    p99_us: u128,
+    max_us: u128,
+}
+
+impl DistributionStats {
+    fn from_sorted(sorted_values: &[u128]) -> Self {
+        Self {
+            avg_us: average(sorted_values),
+            p50_us: percentile(sorted_values, 50),
+            p95_us: percentile(sorted_values, 95),
+            p99_us: percentile(sorted_values, 99),
+            max_us: sorted_values.last().copied().unwrap_or_default(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct ProfileSummary {
+    warmup_history_lines: usize,
+    typing_samples: usize,
+    render_pass: DistributionStats,
+    autosave_pass: DistributionStats,
+    baseline_lock_wait: DistributionStats,
+    baseline_total_send: DistributionStats,
+    render_lock_wait: DistributionStats,
+    render_total_send: DistributionStats,
+    full_lock_wait: DistributionStats,
+    full_total_send: DistributionStats,
+    render_pass_p95_us: u128,
+    autosave_pass_p95_us: u128,
+    baseline_total_send_p95_us: u128,
+    render_total_send_p95_us: u128,
+    full_total_send_p95_us: u128,
+    assert_mode: bool,
+    assertions_passed: Option<bool>,
+}
+
 struct LatencyProfile {
     lock_wait_micros: Vec<u128>,
     total_micros: Vec<u128>,
@@ -315,22 +406,33 @@ impl LatencyProfile {
     }
 
     fn print(&self) {
+        let lock_wait_stats = self.lock_wait_stats();
+        let total_send_stats = self.total_send_stats();
+
         println!(
             "  lock wait us: avg={} p50={} p95={} p99={} max={}",
-            average(&self.lock_wait_micros),
-            percentile(&self.lock_wait_micros, 50),
-            percentile(&self.lock_wait_micros, 95),
-            percentile(&self.lock_wait_micros, 99),
-            self.lock_wait_micros.last().copied().unwrap_or_default()
+            lock_wait_stats.avg_us,
+            lock_wait_stats.p50_us,
+            lock_wait_stats.p95_us,
+            lock_wait_stats.p99_us,
+            lock_wait_stats.max_us
         );
         println!(
             "  total send us: avg={} p50={} p95={} p99={} max={}",
-            average(&self.total_micros),
-            percentile(&self.total_micros, 50),
-            percentile(&self.total_micros, 95),
-            percentile(&self.total_micros, 99),
-            self.total_micros.last().copied().unwrap_or_default()
+            total_send_stats.avg_us,
+            total_send_stats.p50_us,
+            total_send_stats.p95_us,
+            total_send_stats.p99_us,
+            total_send_stats.max_us
         );
+    }
+
+    fn lock_wait_stats(&self) -> DistributionStats {
+        DistributionStats::from_sorted(&self.lock_wait_micros)
+    }
+
+    fn total_send_stats(&self) -> DistributionStats {
+        DistributionStats::from_sorted(&self.total_micros)
     }
 
     fn lock_wait_p95(&self) -> u128 {
@@ -340,6 +442,10 @@ impl LatencyProfile {
     fn total_send_p95(&self) -> u128 {
         percentile(&self.total_micros, 95)
     }
+}
+
+fn stats_from_sorted(values: &[u128]) -> DistributionStats {
+    DistributionStats::from_sorted(values)
 }
 
 fn to_micros_sorted(values: Vec<Duration>) -> Vec<u128> {

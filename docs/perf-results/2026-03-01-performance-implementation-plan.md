@@ -78,7 +78,7 @@ The app feels sluggish. Current profiling indicates low terminal send latency, b
 - 10-run baseline capture with median/p95 summary saved under `docs/perf-results/`
 - Sanity-check that measured values change when synthetic contention is increased
 
-**Status:** Not started
+**Status:** Complete
 
 ### Milestone 2: Render Data-Path De-duplication
 
@@ -154,6 +154,7 @@ The app feels sluggish. Current profiling indicates low terminal send latency, b
 
 Update during implementation:
 - 2026-03-01: Plan created from initial baseline and audit findings.
+- 2026-03-01: Milestone 1 completed. Profiling harness corrected and baseline-v2 captured.
 
 ## Commit Cadence Notes
 
@@ -176,7 +177,7 @@ Update during implementation:
 
 ### Completed
 
-- N/A
+- Milestone 1: Measurement Hardening
 
 ### Deviations
 
@@ -189,6 +190,7 @@ Update during implementation:
 ### Verification Summary
 
 - Baseline captured (10 runs): [`docs/perf-results/2026-03-01-024409-baseline.md`](/media/jeremy/OrangeCream/Linux Software/Gestalt/docs/perf-results/2026-03-01-024409-baseline.md)
+- Corrected baseline-v2 (10 runs): [`docs/perf-results/2026-03-01-025300-baseline-v2.md`](/media/jeremy/OrangeCream/Linux Software/Gestalt/docs/perf-results/2026-03-01-025300-baseline-v2.md)
 
 ### Traceability Links
 

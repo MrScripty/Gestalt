@@ -7,6 +7,7 @@ use std::io::{Read, Write};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
+use std::time::{Duration, Instant};
 use vt100::Parser;
 
 const DEFAULT_ROWS: u16 = 42;
@@ -40,6 +41,13 @@ pub struct PersistedTerminalState {
     pub hide_cursor: bool,
     pub bracketed_paste: bool,
     pub lines: Vec<String>,
+}
+
+/// Timings captured during a terminal input send.
+#[derive(Debug, Clone, Copy)]
+pub struct SendInputProfile {
+    pub lock_wait: Duration,
+    pub total: Duration,
 }
 
 /// Manages PTY-backed terminal runtimes indexed by session ID.
@@ -191,10 +199,22 @@ impl TerminalManager {
 
     /// Sends raw bytes to a session PTY.
     pub fn send_input(&self, session_id: SessionId, input: &[u8]) -> Result<(), String> {
+        self.send_input_profiled(session_id, input).map(|_| ())
+    }
+
+    /// Sends raw bytes to a session PTY and records lock/total timings.
+    pub fn send_input_profiled(
+        &self,
+        session_id: SessionId,
+        input: &[u8],
+    ) -> Result<SendInputProfile, String> {
+        let started = Instant::now();
         let runtime = self
             .session_runtime(session_id)
             .ok_or_else(|| "session does not exist".to_string())?;
+        let lock_started = Instant::now();
         let mut writer = runtime.writer.lock();
+        let lock_wait = lock_started.elapsed();
 
         writer
             .write_all(input)
@@ -203,7 +223,10 @@ impl TerminalManager {
             .flush()
             .map_err(|error| format!("Failed flushing input: {error}"))?;
 
-        Ok(())
+        Ok(SendInputProfile {
+            lock_wait,
+            total: started.elapsed(),
+        })
     }
 
     /// Sends a line terminated with carriage return.
