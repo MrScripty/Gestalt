@@ -129,6 +129,15 @@ body {
   border: 1px solid #32515a;
 }
 
+.group.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px #f7c54a66;
+}
+
+.group.active .group-path {
+  color: #d2eaf0;
+}
+
 .group-header {
   display: flex;
   align-items: flex-start;

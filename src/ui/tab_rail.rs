@@ -14,6 +14,7 @@ pub(crate) fn TabRail(
     mut rename_draft: Signal<String>,
 ) -> Element {
     let snapshot = app_state.read().clone();
+    let active_group_id = snapshot.active_group_id();
     let renaming_tab_id = *renaming_tab.read();
     let rename_draft_value = rename_draft.read().clone();
     let new_group_path_value = new_group_path.read().clone();
@@ -34,6 +35,11 @@ pub(crate) fn TabRail(
                         let group_color = group.color.clone();
                         let group_path = group.path.clone();
                         let group_label = group.label();
+                        let group_class = if active_group_id == Some(group_id) {
+                            "group active"
+                        } else {
+                            "group"
+                        };
                         let terminal_manager_for_add = terminal_manager.read().clone();
                         let terminal_manager_for_drop = terminal_manager.read().clone();
                         let terminal_manager_for_remove = terminal_manager.read().clone();
@@ -47,7 +53,7 @@ pub(crate) fn TabRail(
 
                         rsx! {
                             section {
-                                class: "group",
+                                class: "{group_class}",
                                 key: "group-{group_id}",
 
                                 div {
