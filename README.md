@@ -16,6 +16,7 @@ It is built with Dioxus Desktop (`0.7.x`) and uses real PTY sessions + VT100 par
 - Inline tab renaming
 - Round-aware selection helpers (`Ctrl+A` for command/output block selection)
 - Local Agent pane for group orchestration controls
+- Contextual Git side panel per active path-group (branches, commits, staging, commit/tag/checkout/worktree actions)
 
 ## Architecture
 
