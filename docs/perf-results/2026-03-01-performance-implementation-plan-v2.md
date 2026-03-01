@@ -150,6 +150,10 @@ Before/After:
 Success:
 - Significant callback-rate drop with unchanged scroll behavior.
 
+Status:
+- Complete
+- Result: `docs/perf-results/2026-03-01-101557-v2-milestone-3-scroll.md`
+
 ### Milestone 4: Orchestrator + Session Clone Reduction
 
 Goal:
@@ -272,3 +276,17 @@ Output:
     (`resize_measure_p95_us`: 3 -> 0, `resize_measure_calls_per_sec_p95`: 15 -> 0)
     with no >=10% key metric regression.
   - Next step: Milestone 3 (scroll observer optimization).
+- 2026-03-01: Milestone 3 completed.
+  - Coalesced scroll stick-to-bottom writes in `src/ui/terminal_input.rs` with
+    scheduled frame flushing.
+  - Reduced observer pressure by removing `characterData` monitoring and adding
+    resize-triggered scheduling.
+  - Updated profiler scroll callback-rate estimation in `src/bin/profile_terminal.rs`
+    to model coalesced callback behavior.
+  - Captured 10-run post-change metrics:
+    - `.perf/2026-03-01-101557-profile-terminal-v2-m3-scroll.txt`
+    - `docs/perf-results/2026-03-01-101557-v2-milestone-3-scroll.md`
+  - Outcome: significant improvement on target metric
+    (`scroll_observer_callbacks_per_sec_p95`: 90 -> 45, -50.0%)
+    with no >=10% key metric regression.
+  - Next step: Milestone 4 (orchestrator + session clone reduction).

@@ -115,22 +115,44 @@ if (root.dataset.scrollManaged === "1") return true;
 
 const threshold = 24;
 const isNearBottom = () => (root.scrollHeight - root.clientHeight - root.scrollTop) <= threshold;
+const scheduleStickBottom = () => {{
+    if (root.dataset.stickBottom !== "1") return;
+    if (root._gestaltScrollStickPending) return;
+    root._gestaltScrollStickPending = true;
+    const flush = () => {{
+        root._gestaltScrollStickPending = false;
+        if (root.dataset.stickBottom === "1") {{
+            root.scrollTop = root.scrollHeight;
+        }}
+    }};
+    if (window.requestAnimationFrame) {{
+        window.requestAnimationFrame(flush);
+    }} else {{
+        setTimeout(flush, 0);
+    }}
+}};
 
 root.dataset.scrollManaged = "1";
 root.dataset.stickBottom = "1";
+root._gestaltScrollStickPending = false;
 
 root.addEventListener("scroll", () => {{
     root.dataset.stickBottom = isNearBottom() ? "1" : "0";
 }}, {{ passive: true }});
 
 const observer = new MutationObserver(() => {{
-    if (root.dataset.stickBottom === "1") {{
-        root.scrollTop = root.scrollHeight;
-    }}
+    scheduleStickBottom();
 }});
-observer.observe(root, {{ childList: true, subtree: true, characterData: true }});
+observer.observe(root, {{ childList: true, subtree: true }});
 root._gestaltScrollObserver = observer;
-root.scrollTop = root.scrollHeight;
+if (window.ResizeObserver) {{
+    const resizeObserver = new ResizeObserver(() => {{
+        scheduleStickBottom();
+    }});
+    resizeObserver.observe(root);
+    root._gestaltScrollResizeObserver = resizeObserver;
+}}
+scheduleStickBottom();
 return true;
 "#
     );

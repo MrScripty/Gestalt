@@ -718,8 +718,9 @@ fn profile_refresh_loop(
             profile
                 .resize_measure_calls_per_sec
                 .push(resize_calls.saturating_mul(resize_hz));
-            scroll_callbacks_est =
-                u128::from(active_session_ids.len() as u64).saturating_mul(refresh_hz);
+            let coalesced_callbacks_per_session_hz = (refresh_hz / 2).max(1);
+            scroll_callbacks_est = u128::from(active_session_ids.len() as u64)
+                .saturating_mul(coalesced_callbacks_per_session_hz);
 
             let orchestrator_started = Instant::now();
             probe_orchestrator_snapshot_build(app_state, group_id, terminal_manager);
