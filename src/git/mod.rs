@@ -152,14 +152,16 @@ pub fn create_worktree(group_path: &str, new_path: &str, target: &str) -> Result
     Ok(())
 }
 
-pub fn repo_change_fingerprint(group_path: &str) -> Result<String, GitError> {
-    let root = run_git(group_path, &["rev-parse", "--show-toplevel"])?
+pub fn repo_root(group_path: &str) -> Result<String, GitError> {
+    Ok(run_git(group_path, &["rev-parse", "--show-toplevel"])?
         .stdout
         .trim()
-        .to_string();
-    let head = run_git(&root, &["rev-parse", "HEAD"])?.stdout;
+        .to_string())
+}
+
+pub fn repo_change_fingerprint_from_root(repo_root: &str) -> Result<String, GitError> {
     let status = run_git(
-        &root,
+        repo_root,
         &[
             "status",
             "--porcelain=v2",
@@ -168,19 +170,13 @@ pub fn repo_change_fingerprint(group_path: &str) -> Result<String, GitError> {
         ],
     )?
     .stdout;
-    let refs = run_git(
-        &root,
-        &[
-            "for-each-ref",
-            "--sort=refname",
-            "--format=%(refname)%00%(objectname)",
-            "refs/heads",
-            "refs/tags",
-        ],
-    )?
-    .stdout;
 
-    Ok(format!("{root}\n{head}\n{status}\n{refs}"))
+    Ok(format!("{repo_root}\n{status}"))
+}
+
+pub fn repo_change_fingerprint(group_path: &str) -> Result<String, GitError> {
+    let root = repo_root(group_path)?;
+    repo_change_fingerprint_from_root(&root)
 }
 
 fn validate_non_empty(value: &str, label: &str) -> Result<String, GitError> {

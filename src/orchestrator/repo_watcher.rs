@@ -29,15 +29,17 @@ impl Drop for RepoWatcherHandle {
 
 /// Starts an active-group repository monitor that emits pub/sub events on change.
 pub fn start_active_repo_watcher(group_path: &str) -> Option<RepoWatcherHandle> {
-    crate::git::repo_change_fingerprint(group_path).ok()?;
+    let repo_root = crate::git::repo_root(group_path).ok()?;
+    crate::git::repo_change_fingerprint_from_root(&repo_root).ok()?;
 
     let watched_group_path = group_path.to_string();
+    let watched_repo_root = repo_root;
     let (stop_tx, stop_rx) = channel::<()>();
     let join_handle = thread::Builder::new()
         .name("git-repo-monitor".to_string())
         .spawn(move || {
             let mut last_fingerprint =
-                crate::git::repo_change_fingerprint(&watched_group_path).ok();
+                crate::git::repo_change_fingerprint_from_root(&watched_repo_root).ok();
             loop {
                 match stop_rx.recv_timeout(Duration::from_millis(WATCHER_POLL_MS)) {
                     Ok(_) => break,
@@ -46,7 +48,7 @@ pub fn start_active_repo_watcher(group_path: &str) -> Option<RepoWatcherHandle> 
                 }
 
                 let next_fingerprint =
-                    crate::git::repo_change_fingerprint(&watched_group_path).ok();
+                    crate::git::repo_change_fingerprint_from_root(&watched_repo_root).ok();
                 if next_fingerprint.is_some() && next_fingerprint != last_fingerprint {
                     last_fingerprint = next_fingerprint;
                     event_bus().publish(OrchestratorEvent::RepoFsChanged(RepoFsChanged {

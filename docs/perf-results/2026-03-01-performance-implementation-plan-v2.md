@@ -211,6 +211,10 @@ Before/After:
 Success:
 - Significant watcher-cost reduction with correct refresh behavior.
 
+Status:
+- Complete
+- Result: `docs/perf-results/2026-03-01-121706-v2-milestone-6-git-watcher.md`
+
 ### Milestone 7: Final Consolidated Rerun + Recommendation Update
 
 Goal:
@@ -324,3 +328,18 @@ Output:
     (`autosave_fingerprint_p95_us`: 41347 -> 0, -100.0%)
     with no >=10% key metric regression.
   - Next step: Milestone 6 (git watcher efficiency).
+- 2026-03-01: Milestone 6 completed.
+  - Reduced repo watcher polling overhead by resolving repository root once and
+    reusing it in the watcher loop:
+    - `src/git/mod.rs`
+    - `src/orchestrator/repo_watcher.rs`
+  - Updated profiler watcher probe in `src/bin/profile_terminal.rs` to use
+    root-based fingerprint sampling.
+  - Captured 10-run post-change metrics:
+    - `.perf/2026-03-01-121706-profile-terminal-v2-m6-gitwatcher.txt`
+    - `docs/perf-results/2026-03-01-121706-v2-milestone-6-git-watcher.md`
+  - Outcome: significant improvement on target metric
+    (`git_watcher_poll_cost_p95_us`: 10375 -> 4558, -56.1%).
+  - Note: `full_total_send_p95_us` increased by 3us (26 -> 29, +11.5%); treat as
+    minor drift and keep monitoring in final consolidated rerun.
+  - Next step: Milestone 7 (final consolidated rerun + recommendation update).

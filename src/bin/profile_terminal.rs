@@ -748,9 +748,12 @@ fn profile_refresh_loop(
 
 fn profile_git_watcher_poll_cost(group_path: &str, samples: usize) -> Vec<u128> {
     let mut samples_us = Vec::with_capacity(samples);
+    let Ok(repo_root) = gestalt::git::repo_root(group_path) else {
+        return samples_us;
+    };
     for _ in 0..samples {
         let started = Instant::now();
-        let _ = gestalt::git::repo_change_fingerprint(group_path);
+        let _ = gestalt::git::repo_change_fingerprint_from_root(&repo_root);
         samples_us.push(started.elapsed().as_micros());
     }
     samples_us.sort_unstable();
