@@ -18,8 +18,8 @@ const ASSERT_LOCK_WAIT_P95_US: u128 = 200;
 const ASSERT_RENDER_TOTAL_P95_US: u128 = 1_000;
 const ASSERT_FULL_TOTAL_P95_US: u128 = 1_500;
 const JSON_PREFIX: &str = "GESTALT_PROFILE_JSON:";
-const RENDER_WINDOW_MULTIPLIER: usize = 12;
-const RENDER_WINDOW_MIN_ROWS: usize = 512;
+const RENDER_WINDOW_MULTIPLIER: usize = 8;
+const RENDER_WINDOW_MIN_ROWS: usize = 256;
 
 fn main() -> Result<(), String> {
     let args = std::env::args().collect::<Vec<_>>();

@@ -272,4 +272,7 @@ Recommendation:
 - Milestone 2 completed on 2026-03-01:
   - Removed render-path round-bound extraction and bounded orchestrator prompt scan depth.
   - Measured result: `docs/perf-results/2026-03-01-084224-milestone-2-round-scan-removal.md`.
-- Next step is Milestone 3 (reduce row-render workload volume and repeated parsing cost).
+- Milestone 3 completed on 2026-03-01:
+  - Reduced render window constants to lower per-refresh row workload volume.
+  - Measured result: `docs/perf-results/2026-03-01-084627-milestone-3-render-window.md`.
+- Next step is Milestone 4 (reduce autosave snapshot cost via incremental reuse).

@@ -43,8 +43,8 @@ pub(crate) fn terminal_shell(
         "--term-rows: {}; --term-cols: {};",
         terminal.rows, terminal.cols
     );
-    const RENDER_WINDOW_MULTIPLIER: usize = 12;
-    const RENDER_WINDOW_MIN_ROWS: usize = 512;
+    const RENDER_WINDOW_MULTIPLIER: usize = 8;
+    const RENDER_WINDOW_MIN_ROWS: usize = 256;
     let line_count = terminal.lines.len().max(1);
     let max_render_rows_u16 = u16::try_from(line_count).unwrap_or(u16::MAX);
     let cursor_row = terminal
