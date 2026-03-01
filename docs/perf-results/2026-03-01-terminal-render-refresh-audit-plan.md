@@ -278,4 +278,8 @@ Recommendation:
 - Milestone 4 completed on 2026-03-01:
   - Added autosave history cap path (`4000` lines per terminal) with full-fidelity shutdown save retained.
   - Measured result: `docs/perf-results/2026-03-01-090832-milestone-4-autosave-history-cap.md`.
-- Next step is Milestone 5 (final comparison + recommendation update from consolidated rerun).
+- Milestone 5 completed on 2026-03-01:
+  - Final consolidated rerun and significance review completed.
+  - Measured result: `docs/perf-results/2026-03-01-091603-milestone-5-final-comparison.md`.
+- Recommendations updated from measured results in:
+  - `docs/PERFORMANCE-RECOMMENDATIONS.md`

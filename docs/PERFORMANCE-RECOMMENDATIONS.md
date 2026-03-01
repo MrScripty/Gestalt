@@ -134,46 +134,65 @@ Initial targets to validate with data:
 
 These priorities must be re-ranked after baseline and milestone measurements.
 
-## 2026-03-01 Measured Review
+## 2026-03-01 Terminal Render/Refresh Audit (Latest)
 
-Data source:
-- Baseline: `docs/perf-results/2026-03-01-025300-baseline-v2.md`
-- Final: `docs/perf-results/2026-03-01-074955-final.md`
+Data sources:
+- Baseline: `docs/perf-results/2026-03-01-082534-render-instrumentation-baseline.md`
+- Milestone 2: `docs/perf-results/2026-03-01-084224-milestone-2-round-scan-removal.md`
+- Milestone 3: `docs/perf-results/2026-03-01-084627-milestone-3-render-window.md`
+- Milestone 4: `docs/perf-results/2026-03-01-090832-milestone-4-autosave-history-cap.md`
+- Final comparison: `docs/perf-results/2026-03-01-091603-milestone-5-final-comparison.md`
 
-| Metric | Baseline (median/p95/p99/max) | Final (median/p95/p99/max) | p95 delta | Result |
+### Net p95 Delta (Baseline -> Final)
+
+| Metric | Baseline | Final | Delta | Result |
 | --- | --- | --- | --- | --- |
-| `baseline_total_send_p95_us` | `25.0 / 28 / 28 / 29` | `22.0 / 25 / 25 / 27` | `-10.7%` | Significant improvement |
-| `render_total_send_p95_us` | `25.5 / 27 / 27 / 27` | `24.0 / 25 / 25 / 26` | `-7.4%` | Neutral |
-| `full_total_send_p95_us` | `25.0 / 27 / 27 / 27` | `22.5 / 25 / 25 / 25` | `-7.4%` | Neutral |
-| `render_pass_p95_us` | `9608.5 / 10511 / 10511 / 10527` | `10435.5 / 10694 / 10694 / 10759` | `+1.7%` | Neutral regression |
-| `autosave_pass_p95_us` | `6600.5 / 6695 / 6695 / 6726` | `7209.0 / 7252 / 7252 / 7265` | `+8.3%` | Neutral regression |
+| `autosave_pass_p95_us` | `5647` | `1784` | `-68.4%` | Significant improvement |
+| `autosave_snapshot_build_p95_us` | `5647` | `1784` | `-68.4%` | Significant improvement |
+| `autosave_snapshot_lines_total_p95` | `36009` | `12000` | `-66.7%` | Significant improvement |
+| `ui_rows_rendered_per_refresh_p95` | `1536` | `1008` | `-34.4%` | Significant improvement |
+| `ui_row_render_pass_p95_us` | `1284` | `801` | `-37.6%` | Significant improvement |
+| `render_pass_p95_us` | `4429` | `4065` | `-8.2%` | Neutral improvement |
+| `baseline_total_send_p95_us` | `24` | `25` | `+4.2%` | Neutral |
+| `render_total_send_p95_us` | `25` | `26` | `+4.0%` | Neutral |
+| `full_total_send_p95_us` | `27` | `27` | `0.0%` | Neutral |
 
 ## What Worked
 
-1. Isolating startup side effects and Git refresh from render-sensitive paths delivered the only clear significant gain (`baseline_total_send_p95_us` improved by `10.7%`).
-2. Final combined change set also reduced worst-case p95 totals in all send scenarios, but only one met the significance threshold.
+1. Reducing render window workload (Milestone 3) materially reduced rows processed per refresh and row-render pass cost.
+2. Capping periodic autosave history to `4000` lines/session (Milestone 4) delivered the largest win and remained stable in final reruns.
+3. Keeping full-fidelity save on shutdown preserved clean-exit persistence quality while reducing periodic autosave overhead.
 
 ## What Did Not Work
 
-1. Clone/dedupe and terminal windowing milestones did not produce significant p95 wins in this harness.
-2. Render/autosave heavy-path metrics remain worse than baseline, so the perceived sluggishness root cause is likely still in render/autosave workloads rather than PTY send latency.
+1. Removing round scans from hot path (Milestone 2) was directionally correct but did not deliver a large end-to-end p95 win on its own.
+2. Send-latency metrics were noisy and are not a reliable primary proxy for render smoothness; improvements came from render/autosave workload metrics instead.
 
 ## Re-Ranked Priorities (Evidence-Based)
 
-1. Add render-frame and autosave workload profiling (frame time, lock hold, line materialization counts) as first-class benchmark outputs.
-2. Optimize autosave/render heavy paths directly; do not use send-latency deltas alone as proxy for UI smoothness.
-3. Keep startup/refresh isolation in place; it is currently the highest-confidence win.
+1. Keep the autosave history-cap path and tune cap by UX/recovery requirements (`4000` is current measured sweet spot).
+2. Maintain row-render workload controls (window sizing) and avoid reintroducing full-window redraw pressure.
+3. Add event-driven/coalesced refresh work next (poll-loop reduction remains the largest unimplemented audit item).
+4. Keep render/autosave suspect metrics in routine perf checks, not just send-latency metrics.
 
 ## Standards Shortcomings Revealed By Data
 
-The coding standards discuss profiling and hot paths, but this implementation showed gaps that can still allow performance regressions:
+1. `FRONTEND-STANDARDS.md` encourages event-driven sync but does not enforce polling budgets.
+   Impact: frequent global polling loops can survive review and reintroduce UI work churn.
+   Recommendation: add mandatory per-loop budget and justification requirements.
 
-1. No required CI performance gate or budget check.
-   Impact: regressions in render/autosave metrics were not blocked.
-   Recommendation: add a mandatory perf benchmark gate with tracked budget thresholds.
-2. No mandatory render-path side-effect audit checklist.
-   Impact: startup and refresh work reached render-adjacent loops before being isolated.
-   Recommendation: add a rule that render paths must be side-effect free and non-blocking, with explicit lifecycle ownership.
-3. No enforced benchmark protocol schema in standards.
-   Impact: baseline correctness had to be repaired midstream (lock-wait and warmup readiness).
-   Recommendation: standardize required metadata, warmup criteria, sample count, and significance rules in one benchmark template.
+2. `CODING-STANDARDS.md` and `TESTING-STANDARDS.md` discuss profiling but do not define required UI budgets.
+   Impact: regressions can pass review without explicit render/autosave thresholds.
+   Recommendation: add explicit p95 budgets for render pass, autosave pass, and row workload.
+
+3. `TOOLING-STANDARDS.md` lacks a mandatory perf gate.
+   Impact: CI can pass while user-visible performance regresses.
+   Recommendation: require a benchmark gate using `profile_terminal` summaries with threshold checks.
+
+4. Persistence standards do not separate autosave durability policy from clean-shutdown fidelity.
+   Impact: autosave previously defaulted to full-history snapshots, causing avoidable periodic cost.
+   Recommendation: formalize dual policy in standards: bounded periodic autosave + full-fidelity explicit save path.
+
+5. Benchmark protocol standardization is incomplete for probe comparability.
+   Impact: some metric probe semantics changed between milestones (`round_bounds_extract`) and required manual interpretation.
+   Recommendation: require probe-definition changelog and comparability notes in every perf milestone report.
