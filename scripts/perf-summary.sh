@@ -36,7 +36,7 @@ summary_for_metric() {
     { values[++n] = $1 + 0 }
     END {
       if (n == 0) {
-        print "0 - - - -"
+        print "0 - - - - -"
         exit
       }
 
@@ -58,15 +58,17 @@ summary_for_metric() {
         median = (values[n / 2] + values[n / 2 + 1]) / 2
       }
       p95_idx = int(((n - 1) * 95) / 100) + 1
+      p99_idx = int(((n - 1) * 99) / 100) + 1
       p95 = values[p95_idx]
+      p99 = values[p99_idx]
 
-      printf "%d %.1f %d %d %d\n", n, median, p95, min, max
+      printf "%d %.1f %d %d %d %d\n", n, median, p95, p99, min, max
     }
   '
 }
 
-printf "%-34s %6s %10s %8s %8s %8s\n" "metric" "runs" "median" "p95" "min" "max"
-printf "%-34s %6s %10s %8s %8s %8s\n" "----------------------------------" "------" "----------" "--------" "--------" "--------"
+printf "%-34s %6s %10s %8s %8s %8s %8s\n" "metric" "runs" "median" "p95" "p99" "min" "max"
+printf "%-34s %6s %10s %8s %8s %8s %8s\n" "----------------------------------" "------" "----------" "--------" "--------" "--------" "--------"
 
 for metric in \
   render_pass_p95_us \
@@ -75,6 +77,6 @@ for metric in \
   render_total_send_p95_us \
   full_total_send_p95_us
   do
-    read -r runs median p95 min max <<< "$(summary_for_metric "$metric")"
-    printf "%-34s %6s %10s %8s %8s %8s\n" "$metric" "$runs" "$median" "$p95" "$min" "$max"
+    read -r runs median p95 p99 min max <<< "$(summary_for_metric "$metric")"
+    printf "%-34s %6s %10s %8s %8s %8s %8s\n" "$metric" "$runs" "$median" "$p95" "$p99" "$min" "$max"
   done

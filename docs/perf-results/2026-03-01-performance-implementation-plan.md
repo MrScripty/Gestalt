@@ -138,17 +138,17 @@ The app feels sluggish. Current profiling indicates low terminal send latency, b
 **Goal:** Quantify total impact and update recommendations from evidence.
 
 **Tasks:**
-- [ ] Run final 10-run benchmark suite in the same environment.
-- [ ] Produce consolidated before/after table (median, p95, p99, max).
-- [ ] Classify each milestone as significant/neutral/regression.
-- [ ] Update [`docs/PERFORMANCE-RECOMMENDATIONS.md`](/media/jeremy/OrangeCream/Linux Software/Gestalt/docs/PERFORMANCE-RECOMMENDATIONS.md) with what worked vs did not.
+- [x] Run final 10-run benchmark suite in the same environment.
+- [x] Produce consolidated before/after table (median, p95, p99, max).
+- [x] Classify each milestone as significant/neutral/regression.
+- [x] Update [`docs/PERFORMANCE-RECOMMENDATIONS.md`](/media/jeremy/OrangeCream/Linux Software/Gestalt/docs/PERFORMANCE-RECOMMENDATIONS.md) with what worked vs did not.
 
 **Verification:**
 - Final report saved under `docs/perf-results/`
 - All code-quality gates pass
 - Recommendations file updated with data-backed ranking
 
-**Status:** Not started
+**Status:** Complete
 
 ## Execution Notes
 
@@ -158,6 +158,7 @@ Update during implementation:
 - 2026-03-01: Milestone 2 completed. Snapshot cloning reduced and runtime sharing introduced.
 - 2026-03-01: Milestone 3 completed. Terminal rendering path reduced cloning and added row windowing.
 - 2026-03-01: Milestone 4 completed. Startup session initialization moved off render path and Git refresh loading isolated via blocking worker.
+- 2026-03-01: Milestone 5 completed. Final 10-run benchmark captured and significance review documented; recommendations updated from measured data.
 
 ## Commit Cadence Notes
 
@@ -184,6 +185,7 @@ Update during implementation:
 - Milestone 2: Render Data-Path De-duplication
 - Milestone 3: Terminal Render Work Reduction
 - Milestone 4: Async/UI Path Isolation
+- Milestone 5: Final Measurement and Recommendation Review
 
 ### Deviations
 
@@ -191,7 +193,8 @@ Update during implementation:
 
 ### Follow-Ups
 
-- N/A
+- Add frame-time focused instrumentation and benchmarks for render/autosave workloads.
+- Add CI/perf gating so regressions are caught before merge.
 
 ### Verification Summary
 
@@ -200,6 +203,7 @@ Update during implementation:
 - Milestone 2 measurement (10 runs): [`docs/perf-results/2026-03-01-025719-milestone-2.md`](/media/jeremy/OrangeCream/Linux Software/Gestalt/docs/perf-results/2026-03-01-025719-milestone-2.md)
 - Milestone 3 measurement (10 runs): [`docs/perf-results/2026-03-01-030134-milestone-3.md`](/media/jeremy/OrangeCream/Linux Software/Gestalt/docs/perf-results/2026-03-01-030134-milestone-3.md)
 - Milestone 4 measurement (10 runs): [`docs/perf-results/2026-03-01-030953-milestone-4.md`](/media/jeremy/OrangeCream/Linux Software/Gestalt/docs/perf-results/2026-03-01-030953-milestone-4.md)
+- Final measurement and review (10 runs): [`docs/perf-results/2026-03-01-074955-final.md`](/media/jeremy/OrangeCream/Linux Software/Gestalt/docs/perf-results/2026-03-01-074955-final.md)
 
 ### Traceability Links
 

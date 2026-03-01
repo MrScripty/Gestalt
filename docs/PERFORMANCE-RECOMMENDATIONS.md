@@ -133,3 +133,47 @@ Initial targets to validate with data:
 4. Remove side-effectful startup work from render paths.
 
 These priorities must be re-ranked after baseline and milestone measurements.
+
+## 2026-03-01 Measured Review
+
+Data source:
+- Baseline: `docs/perf-results/2026-03-01-025300-baseline-v2.md`
+- Final: `docs/perf-results/2026-03-01-074955-final.md`
+
+| Metric | Baseline (median/p95/p99/max) | Final (median/p95/p99/max) | p95 delta | Result |
+| --- | --- | --- | --- | --- |
+| `baseline_total_send_p95_us` | `25.0 / 28 / 28 / 29` | `22.0 / 25 / 25 / 27` | `-10.7%` | Significant improvement |
+| `render_total_send_p95_us` | `25.5 / 27 / 27 / 27` | `24.0 / 25 / 25 / 26` | `-7.4%` | Neutral |
+| `full_total_send_p95_us` | `25.0 / 27 / 27 / 27` | `22.5 / 25 / 25 / 25` | `-7.4%` | Neutral |
+| `render_pass_p95_us` | `9608.5 / 10511 / 10511 / 10527` | `10435.5 / 10694 / 10694 / 10759` | `+1.7%` | Neutral regression |
+| `autosave_pass_p95_us` | `6600.5 / 6695 / 6695 / 6726` | `7209.0 / 7252 / 7252 / 7265` | `+8.3%` | Neutral regression |
+
+## What Worked
+
+1. Isolating startup side effects and Git refresh from render-sensitive paths delivered the only clear significant gain (`baseline_total_send_p95_us` improved by `10.7%`).
+2. Final combined change set also reduced worst-case p95 totals in all send scenarios, but only one met the significance threshold.
+
+## What Did Not Work
+
+1. Clone/dedupe and terminal windowing milestones did not produce significant p95 wins in this harness.
+2. Render/autosave heavy-path metrics remain worse than baseline, so the perceived sluggishness root cause is likely still in render/autosave workloads rather than PTY send latency.
+
+## Re-Ranked Priorities (Evidence-Based)
+
+1. Add render-frame and autosave workload profiling (frame time, lock hold, line materialization counts) as first-class benchmark outputs.
+2. Optimize autosave/render heavy paths directly; do not use send-latency deltas alone as proxy for UI smoothness.
+3. Keep startup/refresh isolation in place; it is currently the highest-confidence win.
+
+## Standards Shortcomings Revealed By Data
+
+The coding standards discuss profiling and hot paths, but this implementation showed gaps that can still allow performance regressions:
+
+1. No required CI performance gate or budget check.
+   Impact: regressions in render/autosave metrics were not blocked.
+   Recommendation: add a mandatory perf benchmark gate with tracked budget thresholds.
+2. No mandatory render-path side-effect audit checklist.
+   Impact: startup and refresh work reached render-adjacent loops before being isolated.
+   Recommendation: add a rule that render paths must be side-effect free and non-blocking, with explicit lifecycle ownership.
+3. No enforced benchmark protocol schema in standards.
+   Impact: baseline correctness had to be repaired midstream (lock-wait and warmup readiness).
+   Recommendation: standardize required metadata, warmup criteria, sample count, and significance rules in one benchmark template.
