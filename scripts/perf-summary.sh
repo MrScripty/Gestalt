@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 1 ]]; then
-  echo "Usage: $0 <profile-log-file>" >&2
+if [[ $# -lt 1 ]]; then
+  echo "Usage: $0 <profile-log-file> [metric ...]" >&2
   exit 1
 fi
 
 raw_log="$1"
+shift
 if [[ ! -f "$raw_log" ]]; then
   echo "Profile log file not found: $raw_log" >&2
   exit 1
@@ -70,13 +71,19 @@ summary_for_metric() {
 printf "%-34s %6s %10s %8s %8s %8s %8s\n" "metric" "runs" "median" "p95" "p99" "min" "max"
 printf "%-34s %6s %10s %8s %8s %8s %8s\n" "----------------------------------" "------" "----------" "--------" "--------" "--------" "--------"
 
-for metric in \
-  render_pass_p95_us \
-  autosave_pass_p95_us \
-  baseline_total_send_p95_us \
-  render_total_send_p95_us \
-  full_total_send_p95_us
-  do
+if [[ $# -gt 0 ]]; then
+  metrics=("$@")
+else
+  metrics=(
+    render_pass_p95_us
+    autosave_pass_p95_us
+    baseline_total_send_p95_us
+    render_total_send_p95_us
+    full_total_send_p95_us
+  )
+fi
+
+for metric in "${metrics[@]}"; do
     read -r runs median p95 p99 min max <<< "$(summary_for_metric "$metric")"
     printf "%-34s %6s %10s %8s %8s %8s %8s\n" "$metric" "$runs" "$median" "$p95" "$p99" "$min" "$max"
-  done
+done

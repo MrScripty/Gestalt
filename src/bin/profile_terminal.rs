@@ -1,8 +1,9 @@
 use gestalt::orchestrator;
 use gestalt::persistence;
 use gestalt::state::{AppState, SessionId};
-use gestalt::terminal::TerminalManager;
+use gestalt::terminal::{TerminalManager, TerminalSnapshot};
 use serde::Serialize;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
@@ -17,6 +18,8 @@ const ASSERT_LOCK_WAIT_P95_US: u128 = 200;
 const ASSERT_RENDER_TOTAL_P95_US: u128 = 1_000;
 const ASSERT_FULL_TOTAL_P95_US: u128 = 1_500;
 const JSON_PREFIX: &str = "GESTALT_PROFILE_JSON:";
+const RENDER_WINDOW_MULTIPLIER: usize = 12;
+const RENDER_WINDOW_MIN_ROWS: usize = 512;
 
 fn main() -> Result<(), String> {
     let args = std::env::args().collect::<Vec<_>>();
@@ -48,10 +51,16 @@ fn main() -> Result<(), String> {
     );
     println!("Warm terminal history lines: {}", WARMUP_HISTORY_LINES);
 
-    let render_hold = profile_render_hold(&terminal_manager, &app_state, 180);
-    let autosave_hold = profile_autosave_hold(&terminal_manager, &app_state, 36);
-    let render_hold_stats = stats_from_sorted(&render_hold);
-    let autosave_hold_stats = stats_from_sorted(&autosave_hold);
+    let render_profile = profile_render_hold(&terminal_manager, &app_state, 180);
+    let autosave_profile = profile_autosave_hold(&terminal_manager, &app_state, 36);
+    let render_hold_stats = stats_from_sorted(&render_profile.hold_times_us);
+    let autosave_hold_stats = stats_from_sorted(&autosave_profile.hold_times_us);
+    let ui_rows_rendered_stats = stats_from_sorted(&render_profile.ui_rows_rendered);
+    let ui_row_render_stats = stats_from_sorted(&render_profile.ui_row_render_us);
+    let round_bounds_extract_stats = stats_from_sorted(&render_profile.round_bounds_extract_us);
+    let orchestrator_round_extract_stats =
+        stats_from_sorted(&render_profile.orchestrator_round_extract_us);
+    let autosave_snapshot_lines_stats = stats_from_sorted(&autosave_profile.snapshot_lines_total);
 
     println!();
     println!("Mutex hold timings for heavy operations");
@@ -70,6 +79,48 @@ fn main() -> Result<(), String> {
         autosave_hold_stats.p95_us,
         autosave_hold_stats.p99_us,
         autosave_hold_stats.max_us
+    );
+    println!();
+    println!("Render suspect timings");
+    println!(
+        "  ui rows rendered per refresh: avg={} p50={} p95={} p99={} max={}",
+        ui_rows_rendered_stats.avg_us,
+        ui_rows_rendered_stats.p50_us,
+        ui_rows_rendered_stats.p95_us,
+        ui_rows_rendered_stats.p99_us,
+        ui_rows_rendered_stats.max_us
+    );
+    println!(
+        "  ui row render pass us: avg={} p50={} p95={} p99={} max={}",
+        ui_row_render_stats.avg_us,
+        ui_row_render_stats.p50_us,
+        ui_row_render_stats.p95_us,
+        ui_row_render_stats.p99_us,
+        ui_row_render_stats.max_us
+    );
+    println!(
+        "  round bounds extract us: avg={} p50={} p95={} p99={} max={}",
+        round_bounds_extract_stats.avg_us,
+        round_bounds_extract_stats.p50_us,
+        round_bounds_extract_stats.p95_us,
+        round_bounds_extract_stats.p99_us,
+        round_bounds_extract_stats.max_us
+    );
+    println!(
+        "  orchestrator round extract us: avg={} p50={} p95={} p99={} max={}",
+        orchestrator_round_extract_stats.avg_us,
+        orchestrator_round_extract_stats.p50_us,
+        orchestrator_round_extract_stats.p95_us,
+        orchestrator_round_extract_stats.p99_us,
+        orchestrator_round_extract_stats.max_us
+    );
+    println!(
+        "  autosave snapshot lines total: avg={} p50={} p95={} p99={} max={}",
+        autosave_snapshot_lines_stats.avg_us,
+        autosave_snapshot_lines_stats.p50_us,
+        autosave_snapshot_lines_stats.p95_us,
+        autosave_snapshot_lines_stats.p99_us,
+        autosave_snapshot_lines_stats.max_us
     );
 
     let baseline = profile_typing_latency(&terminal_manager, session_ids[0], TYPING_SAMPLES)?;
@@ -166,6 +217,11 @@ fn main() -> Result<(), String> {
         typing_samples: TYPING_SAMPLES,
         render_pass: render_hold_stats,
         autosave_pass: autosave_hold_stats,
+        ui_rows_rendered_per_refresh: ui_rows_rendered_stats,
+        ui_row_render_pass: ui_row_render_stats,
+        round_bounds_extract: round_bounds_extract_stats,
+        orchestrator_round_extract: orchestrator_round_extract_stats,
+        autosave_snapshot_lines_total: autosave_snapshot_lines_stats,
         baseline_lock_wait: baseline.lock_wait_stats(),
         baseline_total_send: baseline.total_send_stats(),
         render_lock_wait: render_contended.lock_wait_stats(),
@@ -174,6 +230,12 @@ fn main() -> Result<(), String> {
         full_total_send: full_contended.total_send_stats(),
         render_pass_p95_us: render_hold_stats.p95_us,
         autosave_pass_p95_us: autosave_hold_stats.p95_us,
+        ui_rows_rendered_per_refresh_p95: ui_rows_rendered_stats.p95_us,
+        ui_row_render_pass_p95_us: ui_row_render_stats.p95_us,
+        round_bounds_extract_p95_us: round_bounds_extract_stats.p95_us,
+        orchestrator_round_extract_p95_us: orchestrator_round_extract_stats.p95_us,
+        autosave_snapshot_lines_total_p95: autosave_snapshot_lines_stats.p95_us,
+        autosave_snapshot_build_p95_us: autosave_hold_stats.p95_us,
         baseline_total_send_p95_us: baseline.total_send_p95(),
         render_total_send_p95_us: render_contended.total_send_p95(),
         full_total_send_p95_us: full_contended.total_send_p95(),
@@ -274,9 +336,33 @@ fn spawn_autosave_worker(
     })
 }
 
-fn simulate_render_pass(app_state: &AppState, runtime: &TerminalManager) {
+#[derive(Default)]
+struct RenderPassProbe {
+    ui_rows_rendered: u128,
+    ui_row_render_us: u128,
+    round_bounds_extract_us: u128,
+    orchestrator_round_extract_us: u128,
+}
+
+#[derive(Default)]
+struct RenderProfile {
+    hold_times_us: Vec<u128>,
+    ui_rows_rendered: Vec<u128>,
+    ui_row_render_us: Vec<u128>,
+    round_bounds_extract_us: Vec<u128>,
+    orchestrator_round_extract_us: Vec<u128>,
+}
+
+#[derive(Default)]
+struct AutosaveProfile {
+    hold_times_us: Vec<u128>,
+    snapshot_lines_total: Vec<u128>,
+}
+
+fn simulate_render_pass(app_state: &AppState, runtime: &TerminalManager) -> RenderPassProbe {
+    let mut probe = RenderPassProbe::default();
     let Some(group_id) = app_state.active_group_id() else {
-        return;
+        return probe;
     };
 
     let (agents, runner) = app_state.workspace_sessions_for_group(group_id);
@@ -285,16 +371,63 @@ fn simulate_render_pass(app_state: &AppState, runtime: &TerminalManager) {
         sessions.push(runner);
     }
 
+    struct RuntimePane {
+        session_id: SessionId,
+        lines: Vec<String>,
+        cwd: String,
+        is_runtime_ready: bool,
+    }
+    let mut runtime_panes = Vec::<RuntimePane>::new();
+
     for session in &sessions {
-        let _ = runtime.snapshot(session.id);
-        let _ = runtime.session_cwd(session.id).or_else(|| {
+        let runtime_snapshot = runtime.snapshot(session.id);
+        let is_runtime_ready = runtime_snapshot.is_some();
+        let snapshot = runtime_snapshot.unwrap_or_else(empty_terminal_snapshot);
+        let row_render_started = Instant::now();
+        let rows_rendered = emulate_terminal_row_render_work(snapshot.rows, &snapshot.lines);
+        probe.ui_rows_rendered = probe.ui_rows_rendered.saturating_add(rows_rendered as u128);
+        probe.ui_row_render_us = probe
+            .ui_row_render_us
+            .saturating_add(row_render_started.elapsed().as_micros());
+
+        let round_started = Instant::now();
+        let _ = terminal_round_bounds(&snapshot.lines, snapshot.cursor_row);
+        probe.round_bounds_extract_us = probe
+            .round_bounds_extract_us
+            .saturating_add(round_started.elapsed().as_micros());
+
+        let cwd = runtime.session_cwd(session.id).unwrap_or_else(|| {
             app_state
                 .group_path(session.group_id)
                 .map(ToString::to_string)
+                .unwrap_or_else(|| ".".to_string())
+        });
+
+        runtime_panes.push(RuntimePane {
+            session_id: session.id,
+            lines: snapshot.lines,
+            cwd,
+            is_runtime_ready,
         });
     }
 
-    let _ = orchestrator::snapshot_group(app_state, runtime, group_id, None);
+    let runtime_map = runtime_panes
+        .iter()
+        .map(|pane| {
+            (
+                pane.session_id,
+                orchestrator::SessionRuntimeView {
+                    lines: &pane.lines,
+                    cwd: pane.cwd.as_str(),
+                    is_runtime_ready: pane.is_runtime_ready,
+                },
+            )
+        })
+        .collect::<HashMap<SessionId, orchestrator::SessionRuntimeView>>();
+    let orchestrator_started = Instant::now();
+    let _ = orchestrator::snapshot_group_from_runtime(app_state, group_id, None, &runtime_map);
+    probe.orchestrator_round_extract_us = orchestrator_started.elapsed().as_micros();
+    probe
 }
 
 fn profile_typing_latency(
@@ -320,34 +453,181 @@ fn profile_render_hold(
     terminal_manager: &Arc<TerminalManager>,
     app_state: &AppState,
     iterations: usize,
-) -> Vec<u128> {
-    let mut hold_times = Vec::with_capacity(iterations);
+) -> RenderProfile {
+    let mut profile = RenderProfile {
+        hold_times_us: Vec::with_capacity(iterations),
+        ui_rows_rendered: Vec::with_capacity(iterations),
+        ui_row_render_us: Vec::with_capacity(iterations),
+        round_bounds_extract_us: Vec::with_capacity(iterations),
+        orchestrator_round_extract_us: Vec::with_capacity(iterations),
+    };
 
     for _ in 0..iterations {
         let started = Instant::now();
-        simulate_render_pass(app_state, terminal_manager);
-        hold_times.push(started.elapsed().as_micros());
+        let probe = simulate_render_pass(app_state, terminal_manager);
+        profile.hold_times_us.push(started.elapsed().as_micros());
+        profile.ui_rows_rendered.push(probe.ui_rows_rendered);
+        profile.ui_row_render_us.push(probe.ui_row_render_us);
+        profile
+            .round_bounds_extract_us
+            .push(probe.round_bounds_extract_us);
+        profile
+            .orchestrator_round_extract_us
+            .push(probe.orchestrator_round_extract_us);
     }
 
-    hold_times.sort_unstable();
-    hold_times
+    profile.hold_times_us.sort_unstable();
+    profile.ui_rows_rendered.sort_unstable();
+    profile.ui_row_render_us.sort_unstable();
+    profile.round_bounds_extract_us.sort_unstable();
+    profile.orchestrator_round_extract_us.sort_unstable();
+    profile
 }
 
 fn profile_autosave_hold(
     terminal_manager: &Arc<TerminalManager>,
     app_state: &AppState,
     iterations: usize,
-) -> Vec<u128> {
-    let mut hold_times = Vec::with_capacity(iterations);
+) -> AutosaveProfile {
+    let mut profile = AutosaveProfile {
+        hold_times_us: Vec::with_capacity(iterations),
+        snapshot_lines_total: Vec::with_capacity(iterations),
+    };
 
     for _ in 0..iterations {
         let started = Instant::now();
-        let _ = persistence::build_workspace_snapshot(app_state, terminal_manager);
-        hold_times.push(started.elapsed().as_micros());
+        let workspace = persistence::build_workspace_snapshot(app_state, terminal_manager);
+        profile.hold_times_us.push(started.elapsed().as_micros());
+        let line_total = workspace
+            .terminals
+            .iter()
+            .map(|terminal| terminal.lines.len() as u128)
+            .sum();
+        profile.snapshot_lines_total.push(line_total);
     }
 
-    hold_times.sort_unstable();
-    hold_times
+    profile.hold_times_us.sort_unstable();
+    profile.snapshot_lines_total.sort_unstable();
+    profile
+}
+
+fn empty_terminal_snapshot() -> TerminalSnapshot {
+    TerminalSnapshot {
+        lines: vec![String::new()],
+        rows: 42,
+        cols: 140,
+        cursor_row: 0,
+        cursor_col: 0,
+        hide_cursor: false,
+        bracketed_paste: false,
+    }
+}
+
+fn emulate_terminal_row_render_work(rows: u16, lines: &[String]) -> usize {
+    let render_window_rows = usize::from(rows)
+        .saturating_mul(RENDER_WINDOW_MULTIPLIER)
+        .max(RENDER_WINDOW_MIN_ROWS);
+    let window_start = lines.len().saturating_sub(render_window_rows);
+    let rendered = &lines[window_start..];
+
+    for line in rendered {
+        let _ = split_prompt_prefix(line);
+        let _ = char_index_to_byte(line, 0);
+    }
+
+    rendered.len()
+}
+
+fn terminal_round_bounds(lines: &[String], cursor_row: u16) -> Option<(u16, u16)> {
+    if lines.is_empty() {
+        return None;
+    }
+
+    let cursor_idx = usize::from(cursor_row).min(lines.len().saturating_sub(1));
+
+    let start_idx = (0..=cursor_idx)
+        .rev()
+        .find(|idx| {
+            split_prompt_prefix(
+                lines
+                    .get(*idx)
+                    .map(|line| line.as_str())
+                    .unwrap_or_default(),
+            )
+            .is_some()
+        })
+        .unwrap_or(0);
+
+    let next_prompt_idx = (start_idx + 1..lines.len()).find(|idx| {
+        split_prompt_prefix(
+            lines
+                .get(*idx)
+                .map(|line| line.as_str())
+                .unwrap_or_default(),
+        )
+        .is_some()
+    });
+
+    let last_non_empty = lines
+        .iter()
+        .rposition(|line| !line.trim().is_empty())
+        .unwrap_or(cursor_idx);
+
+    let mut end_idx = next_prompt_idx
+        .map(|idx| idx.saturating_sub(1))
+        .unwrap_or(last_non_empty.max(cursor_idx));
+    if end_idx < start_idx {
+        end_idx = start_idx;
+    }
+
+    let start = u16::try_from(start_idx).ok()?;
+    let end = u16::try_from(end_idx).ok()?;
+    Some((start, end))
+}
+
+fn char_index_to_byte(input: &str, char_index: usize) -> usize {
+    if char_index == 0 {
+        return 0;
+    }
+
+    input
+        .char_indices()
+        .nth(char_index)
+        .map(|(idx, _)| idx)
+        .unwrap_or(input.len())
+}
+
+fn split_prompt_prefix(line: &str) -> Option<(&str, &str)> {
+    let trimmed = line.trim_start();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let leading = line.len().saturating_sub(trimmed.len());
+
+    if trimmed.starts_with("$ ") || trimmed.starts_with("# ") {
+        let end = leading + 2;
+        return Some((&line[..end], &line[end..]));
+    }
+
+    if trimmed == "$" || trimmed == "#" {
+        return Some((line, ""));
+    }
+
+    if (trimmed.ends_with('$') || trimmed.ends_with('#'))
+        && (trimmed.contains('@') || trimmed.contains(':'))
+    {
+        return Some((line, ""));
+    }
+
+    let marker = trimmed.find("$ ").or_else(|| trimmed.find("# "))?;
+    let end = leading + marker + 2;
+    let prefix = &line[..end];
+    if !prefix.contains('@') || !prefix.contains(':') {
+        return None;
+    }
+
+    Some((prefix, &line[end..]))
 }
 
 #[derive(Clone, Copy, Serialize)]
@@ -377,6 +657,11 @@ struct ProfileSummary {
     typing_samples: usize,
     render_pass: DistributionStats,
     autosave_pass: DistributionStats,
+    ui_rows_rendered_per_refresh: DistributionStats,
+    ui_row_render_pass: DistributionStats,
+    round_bounds_extract: DistributionStats,
+    orchestrator_round_extract: DistributionStats,
+    autosave_snapshot_lines_total: DistributionStats,
     baseline_lock_wait: DistributionStats,
     baseline_total_send: DistributionStats,
     render_lock_wait: DistributionStats,
@@ -385,6 +670,12 @@ struct ProfileSummary {
     full_total_send: DistributionStats,
     render_pass_p95_us: u128,
     autosave_pass_p95_us: u128,
+    ui_rows_rendered_per_refresh_p95: u128,
+    ui_row_render_pass_p95_us: u128,
+    round_bounds_extract_p95_us: u128,
+    orchestrator_round_extract_p95_us: u128,
+    autosave_snapshot_lines_total_p95: u128,
+    autosave_snapshot_build_p95_us: u128,
     baseline_total_send_p95_us: u128,
     render_total_send_p95_us: u128,
     full_total_send_p95_us: u128,

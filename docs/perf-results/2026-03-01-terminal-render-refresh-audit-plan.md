@@ -266,5 +266,7 @@ Recommendation:
 ## Execution Notes
 
 - This document is planning + audit only.
-- No runtime behavior changes are included yet.
-- Next step is Milestone 1 instrumentation baseline capture for this render/refresh-focused campaign.
+- Milestone 1 completed on 2026-03-01:
+  - Instrumentation added in `src/bin/profile_terminal.rs`.
+  - Instrumented baseline captured: `docs/perf-results/2026-03-01-082534-render-instrumentation-baseline.md`.
+- Next step is Milestone 2 (remove full-history scans in frequent render paths).
