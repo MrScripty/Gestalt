@@ -4,6 +4,7 @@ use gestalt::state::{AppState, SessionId};
 use gestalt::terminal::{TerminalManager, TerminalSnapshot};
 use serde::Serialize;
 use std::collections::HashMap;
+use std::hint::black_box;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
@@ -19,8 +20,12 @@ const ASSERT_RENDER_TOTAL_P95_US: u128 = 1_000;
 const ASSERT_FULL_TOTAL_P95_US: u128 = 1_500;
 const JSON_PREFIX: &str = "GESTALT_PROFILE_JSON:";
 const AUTOSAVE_PERSISTED_HISTORY_LINES: usize = 4_000;
+const REFRESH_LOOP_INTERVAL_MS: u64 = 33;
+const RESIZE_LOOP_INTERVAL_MS: u64 = 180;
 const RENDER_WINDOW_MULTIPLIER: usize = 8;
 const RENDER_WINDOW_MIN_ROWS: usize = 256;
+const REFRESH_PROBE_ITERATIONS: usize = 180;
+const GIT_WATCHER_POLL_SAMPLES: usize = 12;
 
 fn main() -> Result<(), String> {
     let args = std::env::args().collect::<Vec<_>>();
@@ -54,6 +59,9 @@ fn main() -> Result<(), String> {
 
     let render_profile = profile_render_hold(&terminal_manager, &app_state, 180);
     let autosave_profile = profile_autosave_hold(&terminal_manager, &app_state, 36);
+    let refresh_profile =
+        profile_refresh_loop(&terminal_manager, &app_state, REFRESH_PROBE_ITERATIONS);
+    let git_watcher_poll_profile = profile_git_watcher_poll_cost(&cwd, GIT_WATCHER_POLL_SAMPLES);
     let render_hold_stats = stats_from_sorted(&render_profile.hold_times_us);
     let autosave_hold_stats = stats_from_sorted(&autosave_profile.hold_times_us);
     let ui_rows_rendered_stats = stats_from_sorted(&render_profile.ui_rows_rendered);
@@ -62,6 +70,17 @@ fn main() -> Result<(), String> {
     let orchestrator_round_extract_stats =
         stats_from_sorted(&render_profile.orchestrator_round_extract_us);
     let autosave_snapshot_lines_stats = stats_from_sorted(&autosave_profile.snapshot_lines_total);
+    let autosave_fingerprint_stats = stats_from_sorted(&autosave_profile.fingerprint_us);
+    let refresh_loop_tick_stats = stats_from_sorted(&refresh_profile.tick_us);
+    let refresh_loop_state_clone_stats = stats_from_sorted(&refresh_profile.state_clone_us);
+    let resize_measure_stats = stats_from_sorted(&refresh_profile.resize_measure_us);
+    let resize_measure_calls_per_sec_stats =
+        stats_from_sorted(&refresh_profile.resize_measure_calls_per_sec);
+    let scroll_observer_callbacks_per_sec_stats =
+        stats_from_sorted(&refresh_profile.scroll_observer_callbacks_per_sec);
+    let orchestrator_snapshot_build_stats =
+        stats_from_sorted(&refresh_profile.orchestrator_snapshot_build_us);
+    let git_watcher_poll_cost_stats = stats_from_sorted(&git_watcher_poll_profile);
 
     println!();
     println!("Mutex hold timings for heavy operations");
@@ -122,6 +141,72 @@ fn main() -> Result<(), String> {
         autosave_snapshot_lines_stats.p95_us,
         autosave_snapshot_lines_stats.p99_us,
         autosave_snapshot_lines_stats.max_us
+    );
+    println!(
+        "  autosave fingerprint us: avg={} p50={} p95={} p99={} max={}",
+        autosave_fingerprint_stats.avg_us,
+        autosave_fingerprint_stats.p50_us,
+        autosave_fingerprint_stats.p95_us,
+        autosave_fingerprint_stats.p99_us,
+        autosave_fingerprint_stats.max_us
+    );
+    println!();
+    println!("Refresh and watcher suspect timings");
+    println!(
+        "  refresh loop tick us: avg={} p50={} p95={} p99={} max={}",
+        refresh_loop_tick_stats.avg_us,
+        refresh_loop_tick_stats.p50_us,
+        refresh_loop_tick_stats.p95_us,
+        refresh_loop_tick_stats.p99_us,
+        refresh_loop_tick_stats.max_us
+    );
+    println!(
+        "  refresh loop state clone us: avg={} p50={} p95={} p99={} max={}",
+        refresh_loop_state_clone_stats.avg_us,
+        refresh_loop_state_clone_stats.p50_us,
+        refresh_loop_state_clone_stats.p95_us,
+        refresh_loop_state_clone_stats.p99_us,
+        refresh_loop_state_clone_stats.max_us
+    );
+    println!(
+        "  resize measure us: avg={} p50={} p95={} p99={} max={}",
+        resize_measure_stats.avg_us,
+        resize_measure_stats.p50_us,
+        resize_measure_stats.p95_us,
+        resize_measure_stats.p99_us,
+        resize_measure_stats.max_us
+    );
+    println!(
+        "  resize measure calls/sec: avg={} p50={} p95={} p99={} max={}",
+        resize_measure_calls_per_sec_stats.avg_us,
+        resize_measure_calls_per_sec_stats.p50_us,
+        resize_measure_calls_per_sec_stats.p95_us,
+        resize_measure_calls_per_sec_stats.p99_us,
+        resize_measure_calls_per_sec_stats.max_us
+    );
+    println!(
+        "  scroll observer callbacks/sec (estimated): avg={} p50={} p95={} p99={} max={}",
+        scroll_observer_callbacks_per_sec_stats.avg_us,
+        scroll_observer_callbacks_per_sec_stats.p50_us,
+        scroll_observer_callbacks_per_sec_stats.p95_us,
+        scroll_observer_callbacks_per_sec_stats.p99_us,
+        scroll_observer_callbacks_per_sec_stats.max_us
+    );
+    println!(
+        "  orchestrator snapshot build us: avg={} p50={} p95={} p99={} max={}",
+        orchestrator_snapshot_build_stats.avg_us,
+        orchestrator_snapshot_build_stats.p50_us,
+        orchestrator_snapshot_build_stats.p95_us,
+        orchestrator_snapshot_build_stats.p99_us,
+        orchestrator_snapshot_build_stats.max_us
+    );
+    println!(
+        "  git watcher poll cost us: avg={} p50={} p95={} p99={} max={}",
+        git_watcher_poll_cost_stats.avg_us,
+        git_watcher_poll_cost_stats.p50_us,
+        git_watcher_poll_cost_stats.p95_us,
+        git_watcher_poll_cost_stats.p99_us,
+        git_watcher_poll_cost_stats.max_us
     );
 
     let baseline = profile_typing_latency(&terminal_manager, session_ids[0], TYPING_SAMPLES)?;
@@ -222,6 +307,14 @@ fn main() -> Result<(), String> {
         ui_row_render_pass: ui_row_render_stats,
         round_bounds_extract: round_bounds_extract_stats,
         orchestrator_round_extract: orchestrator_round_extract_stats,
+        refresh_loop_tick: refresh_loop_tick_stats,
+        refresh_loop_state_clone: refresh_loop_state_clone_stats,
+        resize_measure: resize_measure_stats,
+        resize_measure_calls_per_sec: resize_measure_calls_per_sec_stats,
+        scroll_observer_callbacks_per_sec: scroll_observer_callbacks_per_sec_stats,
+        orchestrator_snapshot_build: orchestrator_snapshot_build_stats,
+        autosave_fingerprint: autosave_fingerprint_stats,
+        git_watcher_poll_cost: git_watcher_poll_cost_stats,
         autosave_snapshot_lines_total: autosave_snapshot_lines_stats,
         baseline_lock_wait: baseline.lock_wait_stats(),
         baseline_total_send: baseline.total_send_stats(),
@@ -235,6 +328,14 @@ fn main() -> Result<(), String> {
         ui_row_render_pass_p95_us: ui_row_render_stats.p95_us,
         round_bounds_extract_p95_us: round_bounds_extract_stats.p95_us,
         orchestrator_round_extract_p95_us: orchestrator_round_extract_stats.p95_us,
+        refresh_loop_tick_p95_us: refresh_loop_tick_stats.p95_us,
+        refresh_loop_state_clone_p95_us: refresh_loop_state_clone_stats.p95_us,
+        resize_measure_p95_us: resize_measure_stats.p95_us,
+        resize_measure_calls_per_sec_p95: resize_measure_calls_per_sec_stats.p95_us,
+        scroll_observer_callbacks_per_sec_p95: scroll_observer_callbacks_per_sec_stats.p95_us,
+        orchestrator_snapshot_build_p95_us: orchestrator_snapshot_build_stats.p95_us,
+        autosave_fingerprint_p95_us: autosave_fingerprint_stats.p95_us,
+        git_watcher_poll_cost_p95_us: git_watcher_poll_cost_stats.p95_us,
         autosave_snapshot_lines_total_p95: autosave_snapshot_lines_stats.p95_us,
         autosave_snapshot_build_p95_us: autosave_hold_stats.p95_us,
         baseline_total_send_p95_us: baseline.total_send_p95(),
@@ -361,6 +462,17 @@ struct RenderProfile {
 struct AutosaveProfile {
     hold_times_us: Vec<u128>,
     snapshot_lines_total: Vec<u128>,
+    fingerprint_us: Vec<u128>,
+}
+
+#[derive(Default)]
+struct RefreshLoopProfile {
+    tick_us: Vec<u128>,
+    state_clone_us: Vec<u128>,
+    resize_measure_us: Vec<u128>,
+    resize_measure_calls_per_sec: Vec<u128>,
+    scroll_observer_callbacks_per_sec: Vec<u128>,
+    orchestrator_snapshot_build_us: Vec<u128>,
 }
 
 fn simulate_render_pass(app_state: &AppState, runtime: &TerminalManager) -> RenderPassProbe {
@@ -497,6 +609,7 @@ fn profile_autosave_hold(
     let mut profile = AutosaveProfile {
         hold_times_us: Vec::with_capacity(iterations),
         snapshot_lines_total: Vec::with_capacity(iterations),
+        fingerprint_us: Vec::with_capacity(iterations),
     };
 
     for _ in 0..iterations {
@@ -507,6 +620,11 @@ fn profile_autosave_hold(
             AUTOSAVE_PERSISTED_HISTORY_LINES,
         );
         profile.hold_times_us.push(started.elapsed().as_micros());
+        let fingerprint_started = Instant::now();
+        let _ = workspace.stable_fingerprint();
+        profile
+            .fingerprint_us
+            .push(fingerprint_started.elapsed().as_micros());
         let line_total = workspace
             .terminals
             .iter()
@@ -517,7 +635,189 @@ fn profile_autosave_hold(
 
     profile.hold_times_us.sort_unstable();
     profile.snapshot_lines_total.sort_unstable();
+    profile.fingerprint_us.sort_unstable();
     profile
+}
+
+fn profile_refresh_loop(
+    terminal_manager: &Arc<TerminalManager>,
+    app_state: &AppState,
+    iterations: usize,
+) -> RefreshLoopProfile {
+    let mut profile = RefreshLoopProfile {
+        tick_us: Vec::with_capacity(iterations),
+        state_clone_us: Vec::with_capacity(iterations),
+        resize_measure_us: Vec::with_capacity(iterations),
+        resize_measure_calls_per_sec: Vec::with_capacity(iterations),
+        scroll_observer_callbacks_per_sec: Vec::with_capacity(iterations),
+        orchestrator_snapshot_build_us: Vec::with_capacity(iterations),
+    };
+    let mut last_revisions = Vec::<(SessionId, u64)>::new();
+    let mut last_sizes: HashMap<SessionId, (u16, u16)> = HashMap::new();
+
+    for _ in 0..iterations {
+        let tick_started = Instant::now();
+
+        let clone_started = Instant::now();
+        let snapshot = app_state.clone();
+        let clone_elapsed = clone_started.elapsed().as_micros();
+
+        let mut resize_measure_elapsed = 0_u128;
+        let mut resize_calls = 0_u128;
+        let mut scroll_callbacks_est = 0_u128;
+        let mut orchestrator_snapshot_elapsed = 0_u128;
+
+        if let Some(group_id) = snapshot.active_group_id() {
+            let mut revisions = snapshot
+                .sessions_in_group(group_id)
+                .into_iter()
+                .map(|session| {
+                    (
+                        session.id,
+                        terminal_manager
+                            .session_snapshot_revision(session.id)
+                            .unwrap_or(0),
+                    )
+                })
+                .collect::<Vec<_>>();
+            revisions.sort_unstable_by_key(|(session_id, _)| *session_id);
+            if revisions != last_revisions {
+                last_revisions = revisions;
+            }
+
+            let (agents, runner) = snapshot.workspace_sessions_for_group(group_id);
+            let mut active_session_ids: Vec<SessionId> =
+                agents.into_iter().map(|session| session.id).collect();
+            if let Some(runner) = runner {
+                active_session_ids.push(runner.id);
+            }
+            let active_session_set = active_session_ids
+                .iter()
+                .copied()
+                .collect::<std::collections::HashSet<_>>();
+            last_sizes.retain(|session_id, _| active_session_set.contains(session_id));
+
+            let resize_started = Instant::now();
+            for session_id in &active_session_ids {
+                let body_id = format!("terminal-body-{session_id}");
+                let fallback = empty_terminal_snapshot();
+                let snapshot = terminal_manager
+                    .snapshot_shared(*session_id)
+                    .unwrap_or_else(|| Arc::new(fallback));
+                let (rows, cols) =
+                    emulate_resize_measure_work(&body_id, snapshot.rows, snapshot.cols);
+                resize_calls = resize_calls.saturating_add(1);
+
+                if last_sizes.get(session_id).copied() != Some((rows, cols)) {
+                    last_sizes.insert(*session_id, (rows, cols));
+                }
+            }
+            resize_measure_elapsed = resize_started.elapsed().as_micros();
+            let resize_hz = (1_000_u128 / u128::from(RESIZE_LOOP_INTERVAL_MS.max(1))).max(1);
+            let refresh_hz = (1_000_u128 / u128::from(REFRESH_LOOP_INTERVAL_MS.max(1))).max(1);
+            profile
+                .resize_measure_calls_per_sec
+                .push(resize_calls.saturating_mul(resize_hz));
+            scroll_callbacks_est =
+                u128::from(active_session_ids.len() as u64).saturating_mul(refresh_hz);
+
+            let orchestrator_started = Instant::now();
+            probe_orchestrator_snapshot_build(&snapshot, group_id, terminal_manager);
+            orchestrator_snapshot_elapsed = orchestrator_started.elapsed().as_micros();
+        } else {
+            profile.resize_measure_calls_per_sec.push(0);
+        }
+
+        profile.tick_us.push(tick_started.elapsed().as_micros());
+        profile.state_clone_us.push(clone_elapsed);
+        profile.resize_measure_us.push(resize_measure_elapsed);
+        profile
+            .scroll_observer_callbacks_per_sec
+            .push(scroll_callbacks_est);
+        profile
+            .orchestrator_snapshot_build_us
+            .push(orchestrator_snapshot_elapsed);
+    }
+
+    profile.tick_us.sort_unstable();
+    profile.state_clone_us.sort_unstable();
+    profile.resize_measure_us.sort_unstable();
+    profile.resize_measure_calls_per_sec.sort_unstable();
+    profile.scroll_observer_callbacks_per_sec.sort_unstable();
+    profile.orchestrator_snapshot_build_us.sort_unstable();
+    profile
+}
+
+fn profile_git_watcher_poll_cost(group_path: &str, samples: usize) -> Vec<u128> {
+    let mut samples_us = Vec::with_capacity(samples);
+    for _ in 0..samples {
+        let started = Instant::now();
+        let _ = gestalt::git::repo_change_fingerprint(group_path);
+        samples_us.push(started.elapsed().as_micros());
+    }
+    samples_us.sort_unstable();
+    samples_us
+}
+
+fn probe_orchestrator_snapshot_build(
+    app_state: &AppState,
+    group_id: u32,
+    terminal_manager: &TerminalManager,
+) {
+    struct RuntimePane {
+        session_id: SessionId,
+        snapshot: Arc<TerminalSnapshot>,
+        cwd: String,
+        is_runtime_ready: bool,
+    }
+
+    let (agents, runner) = app_state.workspace_sessions_for_group(group_id);
+    let mut sessions = agents;
+    if let Some(runner) = runner {
+        sessions.push(runner);
+    }
+
+    let mut runtime_panes = Vec::with_capacity(sessions.len());
+    for session in &sessions {
+        let runtime_snapshot = terminal_manager.snapshot_shared(session.id);
+        let is_runtime_ready = runtime_snapshot.is_some();
+        let snapshot = runtime_snapshot.unwrap_or_else(|| Arc::new(empty_terminal_snapshot()));
+        let cwd = terminal_manager.session_cwd(session.id).unwrap_or_else(|| {
+            app_state
+                .group_path(session.group_id)
+                .map(ToString::to_string)
+                .unwrap_or_else(|| ".".to_string())
+        });
+        runtime_panes.push(RuntimePane {
+            session_id: session.id,
+            snapshot,
+            cwd,
+            is_runtime_ready,
+        });
+    }
+
+    let runtime_map = runtime_panes
+        .iter()
+        .map(|pane| {
+            (
+                pane.session_id,
+                orchestrator::SessionRuntimeView {
+                    lines: &pane.snapshot.lines,
+                    cwd: pane.cwd.as_str(),
+                    is_runtime_ready: pane.is_runtime_ready,
+                },
+            )
+        })
+        .collect::<HashMap<SessionId, orchestrator::SessionRuntimeView>>();
+    let _ = orchestrator::snapshot_group_from_runtime(app_state, group_id, None, &runtime_map);
+}
+
+fn emulate_resize_measure_work(terminal_body_id: &str, rows: u16, cols: u16) -> (u16, u16) {
+    let checksum = terminal_body_id
+        .bytes()
+        .fold(0_u64, |acc, byte| acc.wrapping_add(u64::from(byte)));
+    black_box(checksum);
+    (rows.max(2), cols.max(8))
 }
 
 fn empty_terminal_snapshot() -> TerminalSnapshot {
@@ -687,6 +987,14 @@ struct ProfileSummary {
     ui_row_render_pass: DistributionStats,
     round_bounds_extract: DistributionStats,
     orchestrator_round_extract: DistributionStats,
+    refresh_loop_tick: DistributionStats,
+    refresh_loop_state_clone: DistributionStats,
+    resize_measure: DistributionStats,
+    resize_measure_calls_per_sec: DistributionStats,
+    scroll_observer_callbacks_per_sec: DistributionStats,
+    orchestrator_snapshot_build: DistributionStats,
+    autosave_fingerprint: DistributionStats,
+    git_watcher_poll_cost: DistributionStats,
     autosave_snapshot_lines_total: DistributionStats,
     baseline_lock_wait: DistributionStats,
     baseline_total_send: DistributionStats,
@@ -700,6 +1008,14 @@ struct ProfileSummary {
     ui_row_render_pass_p95_us: u128,
     round_bounds_extract_p95_us: u128,
     orchestrator_round_extract_p95_us: u128,
+    refresh_loop_tick_p95_us: u128,
+    refresh_loop_state_clone_p95_us: u128,
+    resize_measure_p95_us: u128,
+    resize_measure_calls_per_sec_p95: u128,
+    scroll_observer_callbacks_per_sec_p95: u128,
+    orchestrator_snapshot_build_p95_us: u128,
+    autosave_fingerprint_p95_us: u128,
+    git_watcher_poll_cost_p95_us: u128,
     autosave_snapshot_lines_total_p95: u128,
     autosave_snapshot_build_p95_us: u128,
     baseline_total_send_p95_us: u128,
