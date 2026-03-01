@@ -94,7 +94,8 @@ pub fn App() -> Element {
     let git_context = use_signal(|| None::<RepoContext>);
     let git_context_loading = use_signal(|| false);
     let git_refresh_nonce = use_signal(|| 0_u64);
-    let sidebar_panel = use_signal(|| SidebarPanelKind::LocalAgent);
+    let sidebar_panel = use_signal(|| SidebarPanelKind::Commands);
+    let sidebar_open = use_signal(|| true);
     let insert_mode_state = use_signal(|| None::<InsertModeState>);
 
     {
@@ -471,6 +472,7 @@ pub fn App() -> Element {
                 git_context_loading: git_context_loading,
                 git_refresh_nonce: git_refresh_nonce,
                 sidebar_panel: sidebar_panel,
+                sidebar_open: sidebar_open,
                 insert_mode_state: insert_mode_state,
             }
         }

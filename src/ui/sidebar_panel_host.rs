@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum SidebarPanelKind {
+    #[allow(dead_code)]
     LocalAgent,
     Commands,
     Git,
@@ -41,7 +42,6 @@ pub(crate) fn SidebarPanelHost(
     rsx! {
         div { class: "side-panel-host",
             div { class: "side-panel-switcher", role: "tablist", aria_label: "Sidebar panels",
-                {panel_button("Agent", "Local agent orchestrator", SidebarPanelKind::LocalAgent, active_panel, sidebar_panel)}
                 {panel_button("Commands", "Insert command library", SidebarPanelKind::Commands, active_panel, sidebar_panel)}
                 {panel_button("Git", "Git repository context", SidebarPanelKind::Git, active_panel, sidebar_panel)}
             }
