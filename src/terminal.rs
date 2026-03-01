@@ -295,6 +295,21 @@ impl TerminalManager {
             .map(|runtime| runtime.cwd.read().clone())
     }
 
+    /// Terminates and unregisters a session runtime if it exists.
+    pub fn terminate_session(&self, session_id: SessionId) -> bool {
+        self.pending_restore.lock().remove(&session_id);
+
+        let runtime = self.sessions.write().remove(&session_id);
+        let Some(runtime) = runtime else {
+            return false;
+        };
+
+        let mut child = runtime.child.lock();
+        let _ = child.kill();
+        let _ = child.wait();
+        true
+    }
+
     /// Returns the monotonic snapshot revision for change detection.
     pub fn session_snapshot_revision(&self, session_id: SessionId) -> Option<u64> {
         self.session_runtime(session_id)

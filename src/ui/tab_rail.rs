@@ -36,6 +36,7 @@ pub(crate) fn TabRail(
                         let group_label = group.label();
                         let terminal_manager_for_add = terminal_manager.read().clone();
                         let terminal_manager_for_drop = terminal_manager.read().clone();
+                        let terminal_manager_for_remove = terminal_manager.read().clone();
 
                         let sessions_in_group: Vec<_> = snapshot
                             .sessions
@@ -56,26 +57,51 @@ pub(crate) fn TabRail(
                                         h3 { "{group_label}" }
                                         p { class: "group-path", "{group_path}" }
                                     }
-                                    button {
-                                        class: "pill-btn",
-                                        onclick: move |_| {
-                                            let (session_id, path) = {
-                                                let mut state = app_state.write();
-                                                let id = state.add_session(group_id);
-                                                state.select_session(id);
-                                                let path = state.group_path(group_id).unwrap_or(".").to_string();
-                                                (id, path)
-                                            };
+                                    div { class: "group-header-actions",
+                                        button {
+                                            class: "pill-btn",
+                                            onclick: move |_| {
+                                                let (session_id, path) = {
+                                                    let mut state = app_state.write();
+                                                    let id = state.add_session(group_id);
+                                                    state.select_session(id);
+                                                    let path = state.group_path(group_id).unwrap_or(".").to_string();
+                                                    (id, path)
+                                                };
 
-                                            let start_error = terminal_manager_for_add
-                                                .ensure_session(session_id, &path)
-                                                .err();
+                                                let start_error = terminal_manager_for_add
+                                                    .ensure_session(session_id, &path)
+                                                    .err();
 
-                                            if start_error.is_some() {
-                                                app_state.write().set_session_status(session_id, SessionStatus::Error);
-                                            }
-                                        },
-                                        "+ tab"
+                                                if start_error.is_some() {
+                                                    app_state.write().set_session_status(session_id, SessionStatus::Error);
+                                                }
+                                            },
+                                            "+ tab"
+                                        }
+                                        button {
+                                            class: "pill-btn danger-btn",
+                                            onclick: move |_| {
+                                                let removed_session_ids = app_state.write().remove_group(group_id);
+                                                if removed_session_ids.is_empty() {
+                                                    return;
+                                                }
+
+                                                let removed_renaming_session = renaming_tab
+                                                    .read()
+                                                    .is_some_and(|session_id| removed_session_ids.contains(&session_id));
+                                                for session_id in &removed_session_ids {
+                                                    let _ = terminal_manager_for_remove.terminate_session(*session_id);
+                                                }
+
+                                                if removed_renaming_session {
+                                                    renaming_tab.set(None);
+                                                    rename_draft.set(String::new());
+                                                }
+                                                dragging_tab.set(None);
+                                            },
+                                            "remove"
+                                        }
                                     }
                                 }
 

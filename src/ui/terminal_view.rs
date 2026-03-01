@@ -55,11 +55,13 @@ pub(crate) fn terminal_shell(
     let click_cursor_col = cursor_col;
     let bracketed_paste = terminal.bracketed_paste;
     let show_caret = terminal_is_focused && !terminal.hide_cursor;
+    let terminal_shell_id = format!("terminal-shell-{session_id}");
     let terminal_body_id = format!("terminal-body-{session_id}");
     let body_id_for_click = terminal_body_id.clone();
     let body_id_for_round_select = terminal_body_id.clone();
     let body_id_for_mount = terminal_body_id.clone();
-    let body_id_for_paste_event = terminal_body_id.clone();
+    let shell_id_for_mount = terminal_shell_id.clone();
+    let shell_id_for_paste_event = terminal_shell_id.clone();
     let terminal_manager_for_click = terminal_manager.clone();
     let terminal_manager_for_keydown = terminal_manager;
     let terminal_manager_for_paste = terminal_manager_for_keydown.clone();
@@ -101,6 +103,7 @@ pub(crate) fn terminal_shell(
     rsx! {
         div {
             class: "{shell_class}",
+            id: "{terminal_shell_id}",
             tabindex: "0",
             onfocus: move |_| {
                 focused_terminal.set(Some(session_id));
@@ -290,13 +293,13 @@ pub(crate) fn terminal_shell(
                     return;
                 }
                 let terminal_manager = terminal_manager_for_paste.clone();
-                let body_id = body_id_for_paste_event.clone();
+                let shell_id = shell_id_for_paste_event.clone();
                 paste_clipboard_into_terminal(
                     terminal_manager,
                     app_state,
                     session_id,
                     bracketed_paste,
-                    body_id,
+                    shell_id,
                 );
             },
 
@@ -306,9 +309,10 @@ pub(crate) fn terminal_shell(
                 style: "{body_style}",
                 onmounted: move |_| {
                     let body_id = body_id_for_mount.clone();
+                    let shell_id = shell_id_for_mount.clone();
                     spawn(async move {
-                        let _ = install_terminal_scroll_behavior(body_id.clone()).await;
-                        let _ = install_terminal_paste_bridge(body_id).await;
+                        let _ = install_terminal_scroll_behavior(body_id).await;
+                        let _ = install_terminal_paste_bridge(shell_id).await;
                     });
                 },
                 div { class: "terminal-grid",

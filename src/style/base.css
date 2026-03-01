@@ -139,6 +139,12 @@ body {
   gap: 8px;
 }
 
+.group-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .group-header h3 {
   margin: 0;
   font-size: 0.92rem;
@@ -166,6 +172,15 @@ body {
   color: #e9fbff;
   padding: 4px 8px;
   font-size: 0.76rem;
+}
+
+.danger-btn {
+  background: #7d3b3b;
+  color: #ffe4e4;
+}
+
+.danger-btn:hover {
+  background: #915050;
 }
 
 .tab-list {
