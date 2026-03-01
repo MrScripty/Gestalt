@@ -121,8 +121,11 @@ pub(crate) fn TabRail(
                                             let status_style = format!("background: var({});", session.status.css_var());
                                             let target_path = snapshot.group_path(session.group_id).unwrap_or(".").to_string();
                                             let terminal_manager_for_reorder = terminal_manager.read().clone();
+                                            let terminal_manager_for_close = terminal_manager.read().clone();
                                             let is_renaming = renaming_tab_id == Some(session_id);
                                             let title_for_start = session.title.clone();
+                                            let rename_title = session.title.clone();
+                                            let close_aria_label = format!("Close terminal {}", session.title);
 
                                             rsx! {
                                                 li {
@@ -221,15 +224,44 @@ pub(crate) fn TabRail(
                                                         span { class: "status-text", "{session.status.label()}" }
                                                         button {
                                                             class: "rename-btn",
+                                                            r#type: "button",
                                                             onclick: move |event| {
                                                                 event.stop_propagation();
                                                                 renaming_tab.set(Some(session_id));
-                                                                rename_draft.set(session.title.clone());
+                                                                rename_draft.set(rename_title.clone());
                                                             },
                                                             oncontextmenu: move |event| {
                                                                 event.stop_propagation();
                                                             },
                                                             "rename"
+                                                        }
+                                                        button {
+                                                            class: "close-btn",
+                                                            r#type: "button",
+                                                            aria_label: "{close_aria_label}",
+                                                            onmousedown: move |event| {
+                                                                event.stop_propagation();
+                                                            },
+                                                            onclick: move |event| {
+                                                                event.stop_propagation();
+                                                                let removed = app_state.write().remove_session(session_id);
+                                                                if !removed {
+                                                                    return;
+                                                                }
+
+                                                                let _ = terminal_manager_for_close.terminate_session(session_id);
+                                                                if *dragging_tab.read() == Some(session_id) {
+                                                                    dragging_tab.set(None);
+                                                                }
+                                                                if *renaming_tab.read() == Some(session_id) {
+                                                                    renaming_tab.set(None);
+                                                                    rename_draft.set(String::new());
+                                                                }
+                                                            },
+                                                            oncontextmenu: move |event| {
+                                                                event.stop_propagation();
+                                                            },
+                                                            "X"
                                                         }
                                                     }
                                                 }
