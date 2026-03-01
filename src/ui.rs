@@ -1,9 +1,13 @@
 mod autosave;
+mod git_helpers;
+mod git_panel;
+mod local_agent_panel;
 mod tab_rail;
 mod terminal_input;
 mod terminal_view;
 mod workspace;
 
+use crate::git::RepoContext;
 use crate::persistence;
 use crate::state::{SessionId, SessionStatus};
 use crate::terminal::{PersistedTerminalState, TerminalManager};
@@ -18,11 +22,13 @@ use std::time::Duration;
 
 const STYLE: &str = concat!(
     include_str!("style/base.css"),
-    include_str!("style/workspace.css")
+    include_str!("style/workspace.css"),
+    include_str!("style/git_panel.css")
 );
 const TERMINAL_REFRESH_POLL_MS: u64 = 33;
 const TERMINAL_RESIZE_POLL_MS: u64 = 180;
 const AUTOSAVE_POLL_MS: u64 = 1_200;
+const GIT_CONTEXT_REFRESH_POLL_MS: u64 = 1_500;
 const AUTOSAVE_QUEUE_CAPACITY: usize = 1;
 const RAIL_WIDTH_DEFAULT_PX: i32 = 330;
 const RAIL_WIDTH_MIN_PX: i32 = 240;
@@ -78,6 +84,9 @@ pub fn App() -> Element {
     let runner_width_px = use_signal(|| RUNNER_WIDTH_DEFAULT_PX);
     let agent_top_ratio = use_signal(|| SPLIT_RATIO_DEFAULT);
     let runner_top_ratio = use_signal(|| SPLIT_RATIO_DEFAULT);
+    let git_context = use_signal(|| None::<RepoContext>);
+    let git_context_loading = use_signal(|| false);
+    let git_refresh_nonce = use_signal(|| 0_u64);
 
     {
         let mut refresh_tick = refresh_tick;
@@ -170,6 +179,50 @@ pub fn App() -> Element {
                         }
                     }
                 }
+            }
+        });
+    }
+
+    {
+        let app_state = app_state;
+        let mut git_context = git_context;
+        let mut git_context_loading = git_context_loading;
+        use_future(move || async move {
+            let mut last_key = (String::new(), u64::MAX);
+
+            loop {
+                tokio::time::sleep(Duration::from_millis(GIT_CONTEXT_REFRESH_POLL_MS)).await;
+
+                let snapshot = app_state.read().clone();
+                let Some(group_id) = snapshot.active_group_id() else {
+                    if git_context.read().is_some() {
+                        git_context.set(None);
+                    }
+                    last_key = (String::new(), u64::MAX);
+                    continue;
+                };
+                let group_path = snapshot.group_path(group_id).unwrap_or(".").to_string();
+                let refresh_nonce = *git_refresh_nonce.read();
+                let next_key = (group_path.clone(), refresh_nonce);
+                if next_key == last_key {
+                    continue;
+                }
+
+                last_key = next_key;
+                git_context_loading.set(true);
+
+                match crate::orchestrator::git::load_repo_context(&group_path) {
+                    Ok(context) => {
+                        git_context.set(Some(context));
+                    }
+                    Err(_) => {
+                        git_context.set(Some(RepoContext::NotRepo {
+                            inspected_path: group_path,
+                        }));
+                    }
+                }
+
+                git_context_loading.set(false);
             }
         });
     }
@@ -405,6 +458,9 @@ pub fn App() -> Element {
                 runner_width_px: runner_width_px,
                 agent_top_ratio: agent_top_ratio,
                 runner_top_ratio: runner_top_ratio,
+                git_context: git_context,
+                git_context_loading: git_context_loading,
+                git_refresh_nonce: git_refresh_nonce,
             }
         }
     }

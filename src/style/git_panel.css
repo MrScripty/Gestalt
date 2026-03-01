@@ -1,0 +1,241 @@
+.side-tools {
+  min-height: 0;
+  min-width: 0;
+  display: grid;
+  grid-template-rows: minmax(220px, 1fr) minmax(220px, 1fr);
+  gap: 10px;
+}
+
+.git-panel-card {
+  background: linear-gradient(180deg, #fefcf6 0%, #f8f4e6 100%);
+  border-radius: 12px;
+  border: 1px solid #d8c597;
+  box-shadow: 0 10px 26px #0f1b1d14;
+  min-height: 0;
+  min-width: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+}
+
+.git-panel-head {
+  padding: 10px 12px 6px;
+  border-bottom: 1px solid #eadbb6;
+}
+
+.git-panel-head h3 {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #4a3f1d;
+}
+
+.git-panel-head p {
+  margin: 4px 0 0;
+  font-size: 0.72rem;
+  color: #75673e;
+  line-break: anywhere;
+}
+
+.git-loading {
+  margin: 8px 12px;
+  font-size: 0.72rem;
+  color: #6a5f3e;
+}
+
+.git-empty {
+  margin: 8px 12px;
+  border: 1px dashed #d0bf92;
+  border-radius: 10px;
+  padding: 10px;
+  background: #fdf8ec;
+}
+
+.git-empty h4 {
+  margin: 0;
+  font-size: 0.82rem;
+}
+
+.git-empty p {
+  margin: 6px 0 0;
+}
+
+.git-repo-meta {
+  padding: 8px 12px;
+  border-bottom: 1px solid #eadbb6;
+}
+
+.git-meta {
+  margin: 2px 0;
+  font-size: 0.7rem;
+  color: #6a5f3e;
+  line-break: anywhere;
+}
+
+.git-section {
+  padding: 10px 12px;
+  border-bottom: 1px solid #eadbb6;
+}
+
+.git-section h4 {
+  margin: 0 0 8px;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #5a4a1f;
+}
+
+.git-branch-list,
+.git-change-list,
+.git-commit-list {
+  max-height: 160px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.git-branch-row,
+.git-change-row {
+  display: grid;
+  align-items: center;
+  gap: 8px;
+}
+
+.git-branch-row {
+  grid-template-columns: 1fr auto auto;
+}
+
+.git-branch-row.current {
+  font-weight: 600;
+}
+
+.git-branch-name {
+  font-size: 0.74rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-branch-kind {
+  font-size: 0.64rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #7f6f43;
+}
+
+.git-commit-row {
+  border: 1px solid #e0d2af;
+  border-radius: 8px;
+  background: #fffaf1;
+  text-align: left;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+.git-commit-row.selected {
+  border-color: #b29048;
+  box-shadow: inset 0 0 0 1px #b29048;
+}
+
+.git-commit-line {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: 8px;
+}
+
+.git-graph {
+  font-family: "JetBrains Mono", "Iosevka", "Consolas", monospace;
+  font-size: 0.72rem;
+  color: #7b6d49;
+  white-space: pre;
+}
+
+.git-subject {
+  font-size: 0.75rem;
+  color: #2c250f;
+}
+
+.git-change-row {
+  grid-template-columns: auto 1fr auto;
+}
+
+.git-change-code {
+  font-family: "JetBrains Mono", "Iosevka", "Consolas", monospace;
+  font-size: 0.7rem;
+  color: #6a5f3e;
+}
+
+.git-change-path {
+  font-size: 0.74rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-change-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.git-input,
+.git-textarea {
+  width: 100%;
+  border: 1px solid #ccb680;
+  border-radius: 8px;
+  background: #fffdf7;
+  color: #2d270f;
+  padding: 7px 8px;
+  font: inherit;
+  font-size: 0.74rem;
+}
+
+.git-textarea {
+  resize: vertical;
+  min-height: 48px;
+}
+
+.git-checkbox-row {
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  color: #5f5331;
+}
+
+.git-action-btn {
+  border: 1px solid #bca16b;
+  border-radius: 8px;
+  background: #f1e3c3;
+  color: #3a2f14;
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 5px 8px;
+  cursor: pointer;
+}
+
+.git-action-btn:hover {
+  background: #ead7ad;
+}
+
+.git-action-btn:focus-visible,
+.git-commit-row:focus-visible {
+  outline: 2px solid #bf9b4b;
+  outline-offset: 2px;
+}
+
+.git-action-primary {
+  background: #d8be7f;
+}
+
+.git-feedback {
+  margin: 8px 12px 10px;
+  padding: 8px;
+  border: 1px solid #ceb16f;
+  border-radius: 8px;
+  background: #f9f0da;
+  font-size: 0.72rem;
+  color: #4c3d18;
+}

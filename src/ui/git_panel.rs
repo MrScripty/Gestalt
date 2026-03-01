@@ -1,0 +1,460 @@
+use crate::git::{CheckoutTarget, CommitDraft, RepoContext};
+use crate::state::AppState;
+use crate::terminal::TerminalManager;
+use crate::ui::git_helpers::{bump_refresh_nonce, create_group_for_worktree, toggle_bool_signal};
+use dioxus::prelude::*;
+use std::sync::Arc;
+
+#[component]
+pub(crate) fn GitPanel(
+    app_state: Signal<AppState>,
+    terminal_manager: Signal<Arc<TerminalManager>>,
+    active_group_path: String,
+    repo_context: Signal<Option<RepoContext>>,
+    repo_loading: Signal<bool>,
+    git_refresh_nonce: Signal<u64>,
+) -> Element {
+    let repo_loading_value = *repo_loading.read();
+    let context = repo_context.read().clone();
+    let mut op_feedback = use_signal(String::new);
+    let op_feedback_value = op_feedback.read().clone();
+    let mut selected_commit = use_signal(String::new);
+    let mut commit_title = use_signal(String::new);
+    let mut commit_message = use_signal(String::new);
+    let mut tag_name = use_signal(String::new);
+    let mut tag_message = use_signal(String::new);
+    let mut worktree_path = use_signal(String::new);
+    let mut worktree_target = use_signal(String::new);
+    let auto_workspace = use_signal(|| true);
+
+    if selected_commit.read().is_empty()
+        && let Some(RepoContext::Available(snapshot)) = context.as_ref()
+        && let Some(head) = snapshot
+            .head
+            .clone()
+            .or_else(|| snapshot.commits.first().map(|commit| commit.sha.clone()))
+    {
+        selected_commit.set(head);
+    }
+
+    rsx! {
+        article { class: "git-panel-card",
+            div { class: "git-panel-head",
+                h3 { "Git" }
+                p { "Path context: {active_group_path}" }
+            }
+
+            if repo_loading_value {
+                p { class: "git-loading", "Refreshing repository context..." }
+            }
+
+            if let Some(context) = context {
+                {
+                    match context {
+                        RepoContext::NotRepo { inspected_path } => rsx! {
+                            div { class: "git-empty",
+                                h4 { "No Repository" }
+                                p { "No Git repository found for this path group." }
+                                p { class: "git-meta", "Inspected path: {inspected_path}" }
+                            }
+                        },
+                        RepoContext::Available(snapshot) => {
+                            let selected_commit_value = {
+                                let selected = selected_commit.read().trim().to_string();
+                                if selected.is_empty() {
+                                    snapshot
+                                        .head
+                                        .clone()
+                                        .or_else(|| snapshot.commits.first().map(|commit| commit.sha.clone()))
+                                        .unwrap_or_default()
+                                } else {
+                                    selected
+                                }
+                            };
+                            let worktree_target_value = {
+                                let value = worktree_target.read().trim().to_string();
+                                if value.is_empty() {
+                                    snapshot
+                                        .current_branch
+                                        .clone()
+                                        .or_else(|| snapshot.head.clone())
+                                        .unwrap_or_default()
+                                } else {
+                                    value
+                                }
+                            };
+                            let commit_title_value = commit_title.read().clone();
+                            let commit_message_value = commit_message.read().clone();
+                            let tag_name_value = tag_name.read().clone();
+                            let tag_message_value = tag_message.read().clone();
+                            let worktree_path_value = worktree_path.read().clone();
+                            let worktree_target_input_value = worktree_target.read().clone();
+                            let auto_workspace_checked = *auto_workspace.read();
+                            let recent_tags = snapshot
+                                .tags
+                                .iter()
+                                .take(8)
+                                .map(|tag| tag.name.clone())
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                            let branch_checkout_group_path = active_group_path.clone();
+                            let commit_checkout_group_path = active_group_path.clone();
+                            let commit_group_path = active_group_path.clone();
+                            let tag_group_path = active_group_path.clone();
+                            let worktree_group_path = active_group_path.clone();
+                            let selected_commit_for_checkout = selected_commit_value.clone();
+                            let selected_commit_for_tag = selected_commit_value.clone();
+                            let worktree_target_for_create = worktree_target_value.clone();
+
+                            rsx! {
+                                div { class: "git-repo-meta",
+                                    p { class: "git-meta", "Repo root: {snapshot.root}" }
+                                    p { class: "git-meta",
+                                        "HEAD: "
+                                        {snapshot.head.clone().unwrap_or_else(|| "(none)".to_string())}
+                                    }
+                                    p { class: "git-meta",
+                                        "Branch: "
+                                        {snapshot.current_branch.clone().unwrap_or_else(|| "(detached)".to_string())}
+                                    }
+                                }
+
+                                section { class: "git-section",
+                                    h4 { "Branches" }
+                                    div { class: "git-branch-list",
+                                        for branch in snapshot.branches.clone() {
+                                            {
+                                                let branch_name = branch.name.clone();
+                                                let branch_name_for_checkout = branch_name.clone();
+                                                let branch_row_class = if branch.is_current {
+                                                    "git-branch-row current"
+                                                } else {
+                                                    "git-branch-row"
+                                                };
+                                                let remote_badge = if branch.is_remote { "remote" } else { "local" };
+                                                let checkout_group_path = branch_checkout_group_path.clone();
+                                                rsx! {
+                                                    div { class: "{branch_row_class}",
+                                                        span { class: "git-branch-name", "{branch_name}" }
+                                                        span { class: "git-branch-kind", "{remote_badge}" }
+                                                        button {
+                                                            class: "git-action-btn",
+                                                            onclick: move |_| {
+                                                                let result = crate::orchestrator::git::checkout_target(
+                                                                    &checkout_group_path,
+                                                                    CheckoutTarget::Branch(branch_name_for_checkout.clone()),
+                                                                );
+                                                                match result {
+                                                                    Ok(_) => {
+                                                                        op_feedback.set(format!("Checked out branch '{branch_name_for_checkout}'."));
+                                                                        bump_refresh_nonce(git_refresh_nonce);
+                                                                    }
+                                                                    Err(error) => op_feedback.set(error.to_string()),
+                                                                }
+                                                            },
+                                                            "Checkout"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                section { class: "git-section",
+                                    h4 { "Commit Tree (Newest First)" }
+                                    div { class: "git-commit-list",
+                                        for commit in snapshot.commits.clone() {
+                                            {
+                                                let commit_sha = commit.sha.clone();
+                                                let selected_class = if selected_commit_value == commit.sha {
+                                                    "git-commit-row selected"
+                                                } else {
+                                                    "git-commit-row"
+                                                };
+                                                let decoration_text = if commit.decorations.is_empty() {
+                                                    String::new()
+                                                } else {
+                                                    format!(" ({})", commit.decorations.join(", "))
+                                                };
+                                                rsx! {
+                                                    button {
+                                                        class: "{selected_class}",
+                                                        r#type: "button",
+                                                        onclick: move |_| selected_commit.set(commit_sha.clone()),
+                                                        div {
+                                                            class: "git-commit-line",
+                                                            span { class: "git-graph", "{commit.graph_prefix}" }
+                                                            span { class: "git-subject", "{commit.subject}" }
+                                                        }
+                                                        p { class: "git-meta", "{commit.short_sha} • {commit.author} • {commit.authored_at}{decoration_text}" }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    button {
+                                        class: "git-action-btn",
+                                        onclick: move |_| {
+                                            if selected_commit_for_checkout.trim().is_empty() {
+                                                op_feedback.set("Select a commit first.".to_string());
+                                                return;
+                                            }
+                                            let result = crate::orchestrator::git::checkout_target(&commit_checkout_group_path, CheckoutTarget::Commit(selected_commit_for_checkout.clone()));
+                                            match result {
+                                                Ok(_) => {
+                                                    op_feedback.set(format!(
+                                                        "Checked out commit {}.",
+                                                        selected_commit_for_checkout
+                                                    ));
+                                                    bump_refresh_nonce(git_refresh_nonce);
+                                                }
+                                                Err(error) => op_feedback.set(error.to_string()),
+                                            }
+                                        },
+                                        "Checkout Selected Commit"
+                                    }
+                                }
+
+                                section { class: "git-section",
+                                    h4 { "Changed Files" }
+                                    if snapshot.changes.is_empty() {
+                                        p { class: "git-meta", "Working tree clean." }
+                                    } else {
+                                        div { class: "git-change-list",
+                                            for change in snapshot.changes.clone() {
+                                                {
+                                                    let change_path = change.path.clone();
+                                                    let path_for_stage = change.path.clone();
+                                                    let path_for_unstage = change.path.clone();
+                                                    let stageable = change.is_unstaged || change.is_untracked;
+                                                    let unstageable = change.is_staged;
+                                                    let stage_group_path = active_group_path.clone();
+                                                    let unstage_group_path = active_group_path.clone();
+                                                    rsx! {
+                                                        div { class: "git-change-row",
+                                                            span { class: "git-change-code", "{change.code}" }
+                                                            span { class: "git-change-path", "{change_path}" }
+                                                            div { class: "git-change-actions",
+                                                                if stageable {
+                                                                    button {
+                                                                        class: "git-action-btn",
+                                                                        onclick: move |_| {
+                                                                            let results = crate::orchestrator::git::stage_files(
+                                                                                &stage_group_path,
+                                                                                std::slice::from_ref(&path_for_stage),
+                                                                            );
+                                                                            if let Some(error) = results
+                                                                                .iter()
+                                                                                .find_map(|result| result.error.clone())
+                                                                            {
+                                                                                op_feedback.set(error.to_string());
+                                                                            } else {
+                                                                                op_feedback
+                                                                                    .set(format!("Staged {}.", path_for_stage));
+                                                                                bump_refresh_nonce(git_refresh_nonce);
+                                                                            }
+                                                                        },
+                                                                        "Stage"
+                                                                    }
+                                                                }
+                                                                if unstageable {
+                                                                    button {
+                                                                        class: "git-action-btn",
+                                                                        onclick: move |_| {
+                                                                            let results = crate::orchestrator::git::unstage_files(
+                                                                                &unstage_group_path,
+                                                                                std::slice::from_ref(&path_for_unstage),
+                                                                            );
+                                                                            if let Some(error) = results
+                                                                                .iter()
+                                                                                .find_map(|result| result.error.clone())
+                                                                            {
+                                                                                op_feedback.set(error.to_string());
+                                                                            } else {
+                                                                                op_feedback
+                                                                                    .set(format!("Unstaged {}.", path_for_unstage));
+                                                                                bump_refresh_nonce(git_refresh_nonce);
+                                                                            }
+                                                                        },
+                                                                        "Unstage"
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                section { class: "git-section",
+                                    h4 { "Commit" }
+                                    input {
+                                        class: "git-input",
+                                        placeholder: "Commit title",
+                                        value: "{commit_title_value}",
+                                        oninput: move |event| commit_title.set(event.value()),
+                                    }
+                                    textarea {
+                                        class: "git-textarea",
+                                        rows: "3",
+                                        placeholder: "Commit message body",
+                                        value: "{commit_message_value}",
+                                        oninput: move |event| commit_message.set(event.value()),
+                                    }
+                                    button {
+                                        class: "git-action-btn git-action-primary",
+                                        onclick: move |_| {
+                                            let draft = CommitDraft {
+                                                title: commit_title.read().clone(),
+                                                message: commit_message.read().clone(),
+                                            };
+                                            match crate::orchestrator::git::create_commit(&commit_group_path, draft) {
+                                                Ok(_) => {
+                                                    op_feedback.set("Commit created.".to_string());
+                                                    commit_title.set(String::new());
+                                                    commit_message.set(String::new());
+                                                    bump_refresh_nonce(git_refresh_nonce);
+                                                }
+                                                Err(error) => op_feedback.set(error.to_string()),
+                                            }
+                                        },
+                                        "Create Commit"
+                                    }
+                                }
+
+                                section { class: "git-section",
+                                    h4 { "Tag Release" }
+                                    input {
+                                        class: "git-input",
+                                        placeholder: "Tag name (e.g. v1.2.0)",
+                                        value: "{tag_name_value}",
+                                        oninput: move |event| tag_name.set(event.value()),
+                                    }
+                                    textarea {
+                                        class: "git-textarea",
+                                        rows: "2",
+                                        placeholder: "Tag annotation message",
+                                        value: "{tag_message_value}",
+                                        oninput: move |event| tag_message.set(event.value()),
+                                    }
+                                    button {
+                                        class: "git-action-btn",
+                                        onclick: move |_| {
+                                            if selected_commit_for_tag.trim().is_empty() {
+                                                op_feedback.set("Select a commit to tag.".to_string());
+                                                return;
+                                            }
+                                            let tag_name_value = tag_name.read().trim().to_string();
+                                            let tag_message_value = tag_message.read().trim().to_string();
+
+                                            match crate::orchestrator::git::create_tag(
+                                                &tag_group_path,
+                                                &tag_name_value,
+                                                &tag_message_value,
+                                                &selected_commit_for_tag,
+                                            ) {
+                                                Ok(_) => {
+                                                    op_feedback.set(format!(
+                                                        "Tag '{}' created.",
+                                                        tag_name_value
+                                                    ));
+                                                    tag_name.set(String::new());
+                                                    tag_message.set(String::new());
+                                                    bump_refresh_nonce(git_refresh_nonce);
+                                                }
+                                                Err(error) => op_feedback.set(error.to_string()),
+                                            }
+                                        },
+                                        "Create Tag"
+                                    }
+                                    if !snapshot.tags.is_empty() {
+                                        p { class: "git-meta", "Recent tags: {recent_tags}" }
+                                    }
+                                }
+
+                                section { class: "git-section",
+                                    h4 { "Create Workspace (Worktree)" }
+                                    input {
+                                        class: "git-input",
+                                        placeholder: "/abs/path/to/new-worktree",
+                                        value: "{worktree_path_value}",
+                                        oninput: move |event| worktree_path.set(event.value()),
+                                    }
+                                    input {
+                                        class: "git-input",
+                                        placeholder: "Target branch or commit (defaults to current branch)",
+                                        value: "{worktree_target_input_value}",
+                                        oninput: move |event| worktree_target.set(event.value()),
+                                    }
+                                    label {
+                                        class: "git-checkbox-row",
+                                        input {
+                                            r#type: "checkbox",
+                                            checked: auto_workspace_checked,
+                                            onchange: move |_| toggle_bool_signal(auto_workspace),
+                                        }
+                                        "Create Gestalt path-group after worktree creation"
+                                    }
+                                    button {
+                                        class: "git-action-btn git-action-primary",
+                                        onclick: move |_| {
+                                            let path_value = worktree_path.read().trim().to_string();
+                                            if path_value.is_empty() {
+                                                op_feedback.set("Worktree path is required.".to_string());
+                                                return;
+                                            }
+
+                                            let result = crate::orchestrator::git::create_worktree(
+                                                &worktree_group_path,
+                                                &path_value,
+                                                &worktree_target_for_create,
+                                            );
+
+                                            match result {
+                                                Ok(_) => {
+                                                    if *auto_workspace.read() {
+                                                        match create_group_for_worktree(
+                                                            app_state,
+                                                            terminal_manager,
+                                                            &path_value,
+                                                        ) {
+                                                            Ok(_) => {
+                                                                op_feedback.set(format!(
+                                                                    "Worktree created and workspace group added at {}.",
+                                                                    path_value
+                                                                ));
+                                                            }
+                                                            Err(error) => op_feedback.set(error),
+                                                        }
+                                                    } else {
+                                                        op_feedback
+                                                            .set(format!("Worktree created at {}.", path_value));
+                                                    }
+
+                                                    worktree_path.set(String::new());
+                                                    worktree_target.set(String::new());
+                                                    bump_refresh_nonce(git_refresh_nonce);
+                                                }
+                                                Err(error) => op_feedback.set(error.to_string()),
+                                            }
+                                        },
+                                        "Create Worktree"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                p { class: "git-empty", "No active path-group selected." }
+            }
+
+            if !op_feedback_value.is_empty() {
+                p { class: "git-feedback", "{op_feedback_value}" }
+            }
+        }
+    }
+}
