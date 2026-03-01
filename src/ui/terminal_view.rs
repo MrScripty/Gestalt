@@ -43,15 +43,24 @@ pub(crate) fn terminal_shell(
         "--term-rows: {}; --term-cols: {};",
         terminal.rows, terminal.cols
     );
+    const RENDER_WINDOW_MULTIPLIER: usize = 12;
+    const RENDER_WINDOW_MIN_ROWS: usize = 512;
     let line_count = terminal.lines.len().max(1);
     let max_render_rows_u16 = u16::try_from(line_count).unwrap_or(u16::MAX);
     let cursor_row = terminal
         .cursor_row
         .min(max_render_rows_u16.saturating_sub(1));
     let cursor_col = terminal.cursor_col.min(terminal.cols.saturating_sub(1));
-    let click_rows = max_render_rows_u16;
+    let render_window_rows = usize::from(terminal.rows)
+        .saturating_mul(RENDER_WINDOW_MULTIPLIER)
+        .max(RENDER_WINDOW_MIN_ROWS);
+    let window_start = terminal.lines.len().saturating_sub(render_window_rows);
+    let rendered_lines = &terminal.lines[window_start..];
+    let click_rows = u16::try_from(rendered_lines.len().max(1)).unwrap_or(u16::MAX);
     let click_cols = terminal.cols;
     let click_cursor_row = cursor_row;
+    let click_cursor_row_local = usize::from(click_cursor_row).saturating_sub(window_start);
+    let click_window_start = window_start;
     let click_cursor_col = cursor_col;
     let bracketed_paste = terminal.bracketed_paste;
     let show_caret = terminal_is_focused && !terminal.hide_cursor;
@@ -65,11 +74,11 @@ pub(crate) fn terminal_shell(
     let terminal_manager_for_click = terminal_manager.clone();
     let terminal_manager_for_keydown = terminal_manager;
     let terminal_manager_for_paste = terminal_manager_for_keydown.clone();
-    let round_anchor_row = match *round_anchor.read() {
+    let round_anchor_row_global = match *round_anchor.read() {
         Some((anchor_session, row)) if anchor_session == session_id => row,
         _ => cursor_row,
     };
-    let round_bounds = terminal_round_bounds(&terminal.lines, round_anchor_row);
+    let round_bounds = terminal_round_bounds(&terminal.lines, round_anchor_row_global);
     let current_insert_mode = insert_mode_state.read().clone();
     let insert_mode_for_session = current_insert_mode
         .as_ref()
@@ -138,15 +147,18 @@ pub(crate) fn terminal_shell(
                         return;
                     };
 
-                    round_anchor.set(Some((session_id, target_row)));
-                    if target_row != click_cursor_row {
+                    let target_row_global = click_window_start.saturating_add(usize::from(target_row));
+                    let target_row_global = u16::try_from(target_row_global).unwrap_or(u16::MAX);
+
+                    round_anchor.set(Some((session_id, target_row_global)));
+                    if usize::from(target_row) != click_cursor_row_local {
                         return;
                     }
 
                     let movement = cursor_move_bytes(
                         click_cursor_row,
                         click_cursor_col,
-                        target_row,
+                        target_row_global,
                         target_col,
                     );
 
@@ -316,15 +328,19 @@ pub(crate) fn terminal_shell(
                     });
                 },
                 div { class: "terminal-grid",
-                    for row_idx in 0..terminal.lines.len() {
+                    for row_idx in 0..rendered_lines.len() {
                         {
-                            let line = terminal.lines.get(row_idx).cloned().unwrap_or_default();
+                            let line = rendered_lines
+                                .get(row_idx)
+                                .map(|line| line.as_str())
+                                .unwrap_or_default();
+                            let actual_row_idx = window_start.saturating_add(row_idx);
                             rsx! {
                                 div {
                                     class: "terminal-line",
-                                    key: "line-{session_id}-{row_idx}",
-                                    "data-row": "{row_idx}",
-                                    if show_caret && row_idx == usize::from(cursor_row) {
+                                    key: "line-{session_id}-{actual_row_idx}",
+                                    "data-row": "{actual_row_idx}",
+                                    if show_caret && actual_row_idx == usize::from(cursor_row) {
                                         {render_terminal_line_with_caret(line, cursor_col)}
                                     } else {
                                         {render_terminal_line(line)}
@@ -363,8 +379,8 @@ pub(crate) fn pending_terminal_snapshot() -> TerminalSnapshot {
     }
 }
 
-fn render_terminal_line(line: String) -> Element {
-    if let Some((prompt, rest)) = split_prompt_prefix(&line) {
+fn render_terminal_line(line: &str) -> Element {
+    if let Some((prompt, rest)) = split_prompt_prefix(line) {
         rsx! {
             span {
                 class: "terminal-prompt",
@@ -379,12 +395,12 @@ fn render_terminal_line(line: String) -> Element {
     }
 }
 
-fn render_terminal_line_with_caret(line: String, cursor_col: u16) -> Element {
-    let split_idx = char_index_to_byte(&line, usize::from(cursor_col));
+fn render_terminal_line_with_caret(line: &str, cursor_col: u16) -> Element {
+    let split_idx = char_index_to_byte(line, usize::from(cursor_col));
     let before = &line[..split_idx];
     let after = &line[split_idx..];
 
-    if let Some((prompt, rest)) = split_prompt_prefix(&line) {
+    if let Some((prompt, rest)) = split_prompt_prefix(line) {
         let prompt_chars = prompt.chars().count();
         let before_chars = before.chars().count();
 

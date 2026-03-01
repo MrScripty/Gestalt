@@ -113,7 +113,7 @@ The app feels sluggish. Current profiling indicates low terminal send latency, b
 - Manual UX check: typing, scrollback, selection, insert-mode behavior
 - 10-run milestone measurement with baseline comparison
 
-**Status:** Not started
+**Status:** Complete
 
 ### Milestone 4: Async/UI Path Isolation
 
@@ -156,6 +156,7 @@ Update during implementation:
 - 2026-03-01: Plan created from initial baseline and audit findings.
 - 2026-03-01: Milestone 1 completed. Profiling harness corrected and baseline-v2 captured.
 - 2026-03-01: Milestone 2 completed. Snapshot cloning reduced and runtime sharing introduced.
+- 2026-03-01: Milestone 3 completed. Terminal rendering path reduced cloning and added row windowing.
 
 ## Commit Cadence Notes
 
@@ -180,6 +181,7 @@ Update during implementation:
 
 - Milestone 1: Measurement Hardening
 - Milestone 2: Render Data-Path De-duplication
+- Milestone 3: Terminal Render Work Reduction
 
 ### Deviations
 
@@ -194,6 +196,7 @@ Update during implementation:
 - Baseline captured (10 runs): [`docs/perf-results/2026-03-01-024409-baseline.md`](/media/jeremy/OrangeCream/Linux Software/Gestalt/docs/perf-results/2026-03-01-024409-baseline.md)
 - Corrected baseline-v2 (10 runs): [`docs/perf-results/2026-03-01-025300-baseline-v2.md`](/media/jeremy/OrangeCream/Linux Software/Gestalt/docs/perf-results/2026-03-01-025300-baseline-v2.md)
 - Milestone 2 measurement (10 runs): [`docs/perf-results/2026-03-01-025719-milestone-2.md`](/media/jeremy/OrangeCream/Linux Software/Gestalt/docs/perf-results/2026-03-01-025719-milestone-2.md)
+- Milestone 3 measurement (10 runs): [`docs/perf-results/2026-03-01-030134-milestone-3.md`](/media/jeremy/OrangeCream/Linux Software/Gestalt/docs/perf-results/2026-03-01-030134-milestone-3.md)
 
 ### Traceability Links
 
