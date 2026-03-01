@@ -132,3 +132,118 @@ pub(crate) fn reduce_insert_mode_key(
         _ => InsertModeOutcome::Ignore,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        InsertModeOutcome, InsertModeSelection, InsertModeState, KeyModifiers,
+        reduce_insert_mode_key,
+    };
+    use dioxus::prelude::Key;
+
+    #[test]
+    fn character_input_keeps_session_target() {
+        let mode = InsertModeState {
+            session_id: 42,
+            query: "bu".to_string(),
+            highlighted_index: 0,
+        };
+        let outcome = reduce_insert_mode_key(
+            &mode,
+            &Key::Character("i".to_string()),
+            KeyModifiers {
+                ctrl: false,
+                alt: false,
+                shift: false,
+                meta: false,
+            },
+            InsertModeSelection {
+                selected_command_id: None,
+                match_count: 0,
+            },
+        );
+
+        match outcome {
+            InsertModeOutcome::Keep(next) => {
+                assert_eq!(next.session_id, 42);
+                assert_eq!(next.query, "bui");
+            }
+            _ => panic!("expected keep outcome"),
+        }
+    }
+
+    #[test]
+    fn enter_submits_selected_command() {
+        let mode = InsertModeState {
+            session_id: 7,
+            query: "build".to_string(),
+            highlighted_index: 0,
+        };
+        let outcome = reduce_insert_mode_key(
+            &mode,
+            &Key::Enter,
+            KeyModifiers {
+                ctrl: false,
+                alt: false,
+                shift: false,
+                meta: false,
+            },
+            InsertModeSelection {
+                selected_command_id: Some(99),
+                match_count: 3,
+            },
+        );
+
+        match outcome {
+            InsertModeOutcome::Submit(command_id) => assert_eq!(command_id, 99),
+            _ => panic!("expected submit outcome"),
+        }
+    }
+
+    #[test]
+    fn arrows_wrap_highlight_index() {
+        let mode = InsertModeState {
+            session_id: 1,
+            query: "x".to_string(),
+            highlighted_index: 0,
+        };
+
+        let up = reduce_insert_mode_key(
+            &mode,
+            &Key::ArrowUp,
+            KeyModifiers {
+                ctrl: false,
+                alt: false,
+                shift: false,
+                meta: false,
+            },
+            InsertModeSelection {
+                selected_command_id: Some(1),
+                match_count: 3,
+            },
+        );
+        match up {
+            InsertModeOutcome::Keep(next) => assert_eq!(next.highlighted_index, 2),
+            _ => panic!("expected keep outcome"),
+        }
+
+        let down = reduce_insert_mode_key(
+            &mode,
+            &Key::ArrowDown,
+            KeyModifiers {
+                ctrl: false,
+                alt: false,
+                shift: false,
+                meta: false,
+            },
+            InsertModeSelection {
+                selected_command_id: Some(1),
+                match_count: 3,
+            },
+        );
+        match down {
+            InsertModeOutcome::Keep(next) => assert_eq!(next.highlighted_index, 1),
+            _ => panic!("expected keep outcome"),
+        }
+    }
+}
