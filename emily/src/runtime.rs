@@ -9,7 +9,6 @@ use crate::store::EmilyStore;
 use async_trait::async_trait;
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
-use uuid::Uuid;
 
 #[derive(Debug)]
 struct RuntimeState {
@@ -67,8 +66,9 @@ impl<S: EmilyStore> EmilyRuntime<S> {
     }
 
     fn build_text_object(request: IngestTextRequest, embedding: Option<Vec<f32>>) -> TextObject {
+        let object_id = format!("{}:{}", request.stream_id, request.sequence);
         TextObject {
-            id: Uuid::new_v4(),
+            id: object_id,
             stream_id: request.stream_id,
             source_kind: request.source_kind,
             object_kind: request.object_kind,

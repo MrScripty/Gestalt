@@ -1,5 +1,7 @@
 /// Insert-command models, matching, and validation helpers.
 pub mod commands;
+/// Emily integration bridge for ingest/query APIs.
+pub mod emily_bridge;
 /// Git repository query and mutation services.
 pub mod git;
 /// Group orchestration snapshot and broadcast helpers.

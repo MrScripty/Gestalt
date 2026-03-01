@@ -10,7 +10,6 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use tokio::sync::RwLock;
-use uuid::Uuid;
 
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 struct MemoryDb {
@@ -133,9 +132,9 @@ impl SurrealEmilyStore {
         };
 
         db.edges.push(TextEdge {
-            id: Uuid::new_v4(),
-            from_id: previous.id,
-            to_id: object.id,
+            id: format!("edge:{}:{}", previous.id, object.id),
+            from_id: previous.id.clone(),
+            to_id: object.id.clone(),
             edge_type: TextEdgeType::LinearNext,
             weight: 1.0,
             ts_unix_ms: object.ts_unix_ms,
@@ -197,7 +196,7 @@ impl EmilyStore for SurrealEmilyStore {
                     object: object.clone(),
                     similarity,
                     rank,
-                    provenance: vec![object.id],
+                    provenance: vec![object.id.clone()],
                 }
             })
             .collect::<Vec<_>>();
@@ -273,7 +272,7 @@ mod tests {
 
     fn sample_object(sequence: u64, text: &str) -> TextObject {
         TextObject {
-            id: Uuid::new_v4(),
+            id: format!("stream-a:{sequence}"),
             stream_id: "stream-a".to_string(),
             source_kind: "terminal".to_string(),
             object_kind: TextObjectKind::SystemOutput,

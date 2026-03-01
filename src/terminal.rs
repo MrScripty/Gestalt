@@ -7,7 +7,7 @@ use std::io::{Read, Write};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use vt100::Parser;
 
 const DEFAULT_ROWS: u16 = 42;
@@ -53,8 +53,15 @@ pub struct SendInputProfile {
 /// Manages PTY-backed terminal runtimes indexed by session ID.
 pub struct TerminalManager {
     shell: String,
+    memory_sink: Option<Arc<dyn TerminalMemorySink>>,
     sessions: RwLock<HashMap<SessionId, Arc<TerminalRuntime>>>,
     pending_restore: Mutex<HashMap<SessionId, PersistedTerminalState>>,
+}
+
+/// Non-blocking sink for terminal text history events.
+pub trait TerminalMemorySink: Send + Sync {
+    fn record_input_line(&self, session_id: SessionId, cwd: &str, line: String, ts_unix_ms: i64);
+    fn record_output_line(&self, session_id: SessionId, cwd: &str, line: String, ts_unix_ms: i64);
 }
 
 struct TerminalRuntime {
@@ -63,7 +70,9 @@ struct TerminalRuntime {
     writer: Mutex<Box<dyn Write + Send>>,
     parser: Arc<Mutex<Parser>>,
     scrollback: Arc<RwLock<ScrollbackBuffer>>,
-    cwd: RwLock<String>,
+    cwd: Arc<RwLock<String>>,
+    input_pending: Mutex<Vec<u8>>,
+    memory_sink: Option<Arc<dyn TerminalMemorySink>>,
     snapshot_cache: Arc<RwLock<Arc<TerminalSnapshot>>>,
     snapshot_revision: Arc<AtomicU64>,
 }
@@ -88,8 +97,14 @@ enum EscapeParseState {
 impl TerminalManager {
     /// Creates a manager configured for the detected user shell.
     pub fn new() -> Self {
+        Self::new_with_memory_sink(None)
+    }
+
+    /// Creates a manager configured for the detected user shell and optional memory sink.
+    pub fn new_with_memory_sink(memory_sink: Option<Arc<dyn TerminalMemorySink>>) -> Self {
         Self {
             shell: detect_shell(),
+            memory_sink,
             sessions: RwLock::new(HashMap::new()),
             pending_restore: Mutex::new(HashMap::new()),
         }
@@ -159,6 +174,7 @@ impl TerminalManager {
 
         let parser = Arc::new(Mutex::new(parser));
         let scrollback = Arc::new(RwLock::new(ScrollbackBuffer::from_restored(restored_lines)));
+        let cwd = Arc::new(RwLock::new(session_cwd));
         let initial_snapshot = {
             let parser = parser.lock();
             let scrollback_lines = scrollback.read().lines.clone();
@@ -172,6 +188,9 @@ impl TerminalManager {
             Arc::clone(&scrollback),
             Arc::clone(&snapshot_cache),
             Arc::clone(&snapshot_revision),
+            Arc::clone(&cwd),
+            self.memory_sink.clone(),
+            session_id,
         );
 
         let runtime = Arc::new(TerminalRuntime {
@@ -180,7 +199,9 @@ impl TerminalManager {
             writer: Mutex::new(writer),
             parser,
             scrollback,
-            cwd: RwLock::new(session_cwd),
+            cwd,
+            input_pending: Mutex::new(Vec::new()),
+            memory_sink: self.memory_sink.clone(),
             snapshot_cache,
             snapshot_revision,
         });
@@ -222,6 +243,18 @@ impl TerminalManager {
         writer
             .flush()
             .map_err(|error| format!("Failed flushing input: {error}"))?;
+
+        if let Some(memory_sink) = runtime.memory_sink.as_ref() {
+            let mut pending = runtime.input_pending.lock();
+            let lines = parse_input_lines(&mut pending, input);
+            if !lines.is_empty() {
+                let cwd = runtime.cwd.read().clone();
+                let now_ms = current_unix_ms();
+                for line in lines {
+                    memory_sink.record_input_line(session_id, &cwd, line, now_ms);
+                }
+            }
+        }
 
         Ok(SendInputProfile {
             lock_wait,
@@ -398,6 +431,9 @@ fn spawn_reader_thread(
     scrollback: Arc<RwLock<ScrollbackBuffer>>,
     snapshot_cache: Arc<RwLock<Arc<TerminalSnapshot>>>,
     snapshot_revision: Arc<AtomicU64>,
+    cwd: Arc<RwLock<String>>,
+    memory_sink: Option<Arc<dyn TerminalMemorySink>>,
+    session_id: SessionId,
 ) {
     thread::spawn(move || {
         let mut buffer = [0_u8; 4096];
@@ -410,11 +446,21 @@ fn spawn_reader_thread(
                         let mut parser = parser.lock();
                         parser.process(&buffer[..read]);
 
-                        let scrollback_lines = {
+                        let (scrollback_lines, emitted_lines) = {
                             let mut scrollback = scrollback.write();
-                            scrollback.process_bytes(&buffer[..read]);
-                            scrollback.lines.clone()
+                            let emitted_lines = scrollback.process_bytes(&buffer[..read]);
+                            (scrollback.lines.clone(), emitted_lines)
                         };
+
+                        if let Some(memory_sink) = memory_sink.as_ref() {
+                            if !emitted_lines.is_empty() {
+                                let cwd = cwd.read().clone();
+                                let now_ms = current_unix_ms();
+                                for line in emitted_lines {
+                                    memory_sink.record_output_line(session_id, &cwd, line, now_ms);
+                                }
+                            }
+                        }
 
                         terminal_snapshot_from_parser(&parser, &scrollback_lines)
                     };
@@ -461,6 +507,34 @@ fn shell_quote(input: &str) -> String {
     format!("'{}'", escaped)
 }
 
+fn current_unix_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+fn parse_input_lines(pending: &mut Vec<u8>, bytes: &[u8]) -> Vec<String> {
+    let mut lines = Vec::new();
+    for &byte in bytes {
+        match byte {
+            b'\r' | b'\n' => {
+                let line = String::from_utf8_lossy(pending)
+                    .trim_end_matches('\r')
+                    .to_string();
+                pending.clear();
+                lines.push(line);
+            }
+            0x08 => {
+                let _ = pending.pop();
+            }
+            value if value >= 0x20 || value == b'\t' => pending.push(value),
+            _ => {}
+        }
+    }
+    lines
+}
+
 fn normalized_history_lines(lines: &[String]) -> Vec<String> {
     normalized_history_lines_limited(lines, MAX_PERSISTED_HISTORY_LINES)
 }
@@ -499,12 +573,13 @@ impl ScrollbackBuffer {
         }
     }
 
-    fn process_bytes(&mut self, bytes: &[u8]) {
+    fn process_bytes(&mut self, bytes: &[u8]) -> Vec<String> {
+        let mut emitted_lines = Vec::new();
         for &byte in bytes {
             match self.escape_state {
                 EscapeParseState::Normal => match byte {
                     0x1b => self.escape_state = EscapeParseState::Esc,
-                    b'\n' => self.finish_line(),
+                    b'\n' => emitted_lines.push(self.finish_line()),
                     b'\r' => {}
                     0x08 => {
                         let _ = self.pending.pop();
@@ -532,14 +607,16 @@ impl ScrollbackBuffer {
                 }
             }
         }
+        emitted_lines
     }
 
-    fn finish_line(&mut self) {
+    fn finish_line(&mut self) -> String {
         let line = String::from_utf8_lossy(&self.pending)
             .trim_end_matches('\r')
             .to_string();
         self.pending.clear();
-        self.push_line(line);
+        self.push_line(line.clone());
+        line
     }
 
     fn push_line(&mut self, line: String) {
@@ -585,5 +662,13 @@ mod tests {
             scrollback.lines,
             vec!["red".to_string(), "plain".to_string()]
         );
+    }
+
+    #[test]
+    fn parse_input_lines_collects_completed_lines() {
+        let mut pending = Vec::new();
+        let lines = parse_input_lines(&mut pending, b"echo hi\rnext");
+        assert_eq!(lines, vec!["echo hi".to_string()]);
+        assert_eq!(pending, b"next".to_vec());
     }
 }

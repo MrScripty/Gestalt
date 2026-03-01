@@ -1,6 +1,7 @@
 mod autosave;
 mod command_palette;
 mod commands_panel;
+mod file_browser_panel;
 mod git_helpers;
 mod git_panel;
 mod git_refresh;
@@ -12,10 +13,11 @@ mod terminal_input;
 mod terminal_view;
 mod workspace;
 
+use crate::emily_bridge::EmilyBridge;
 use crate::git::RepoContext;
 use crate::persistence;
 use crate::state::{SessionId, SessionStatus};
-use crate::terminal::{PersistedTerminalState, TerminalManager};
+use crate::terminal::{PersistedTerminalState, TerminalManager, TerminalMemorySink};
 use crate::ui::autosave::{AutosaveRequest, AutosaveSignature, AutosaveWorker};
 use crate::ui::git_refresh::use_git_refresh_coordinator;
 use crate::ui::insert_command_mode::InsertModeState;
@@ -32,7 +34,8 @@ const STYLE: &str = concat!(
     include_str!("style/base.css"),
     include_str!("style/workspace.css"),
     include_str!("style/git_panel.css"),
-    include_str!("style/commands_panel.css")
+    include_str!("style/commands_panel.css"),
+    include_str!("style/file_browser_panel.css")
 );
 const TERMINAL_REFRESH_POLL_MS: u64 = 33;
 const TERMINAL_RESIZE_POLL_MS: u64 = 180;
@@ -78,7 +81,14 @@ pub fn App() -> Element {
         })
     };
     let dragging_tab = use_signal(|| None::<SessionId>);
-    let terminal_manager = use_signal(|| Arc::new(TerminalManager::new()));
+    let emily_bridge = use_signal(|| Arc::new(EmilyBridge::new_default()));
+    let terminal_manager = {
+        let emily_bridge = emily_bridge.read().clone();
+        use_signal(move || {
+            let sink: Arc<dyn TerminalMemorySink> = emily_bridge.clone();
+            Arc::new(TerminalManager::new_with_memory_sink(Some(sink)))
+        })
+    };
     let autosave_worker = {
         let loaded = initial_workspace.read().clone();
         use_signal(move || {
@@ -217,9 +227,11 @@ pub fn App() -> Element {
     {
         let mut app_state_signal = app_state;
         let terminal_manager = terminal_manager.read().clone();
+        let emily_bridge = emily_bridge.read().clone();
         let mut restored_terminals = restored_terminals;
         use_future(move || {
             let terminal_manager = terminal_manager.clone();
+            let emily_bridge = emily_bridge.clone();
             async move {
                 let mut started_session_ids = HashSet::<SessionId>::new();
 
@@ -243,7 +255,12 @@ pub fn App() -> Element {
                                 continue;
                             }
 
-                            if let Some(restored_terminal) = restored.remove(&session.id) {
+                            if let Some(mut restored_terminal) = restored.remove(&session.id) {
+                                let emily_lines = emily_bridge
+                                    .recent_lines(session.id, AUTOSAVE_PERSISTED_HISTORY_LINES);
+                                if !emily_lines.is_empty() {
+                                    restored_terminal.lines = emily_lines;
+                                }
                                 terminal_manager.seed_restored_terminal(restored_terminal);
                             }
 

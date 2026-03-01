@@ -9,6 +9,7 @@ Application source modules for Gestalt's state model, command library, terminal 
 | `lib.rs` | Library module exports for integration tests and reuse |
 | `main.rs` | Program entry point and module wiring |
 | `commands/` | Insert-command models, matching, and validation helpers |
+| `emily_bridge.rs` | Gestalt adapter for Emily memory ingest/query APIs |
 | `state.rs` | Core workspace/group/session model and transitions |
 | `terminal.rs` | PTY lifecycle, input/output, and snapshots |
 | `orchestrator/` | Group-level terminal orchestration helpers |
@@ -20,8 +21,9 @@ Application source modules for Gestalt's state model, command library, terminal 
 ## Design Decisions
 - `state` stays framework-agnostic and serializable, including command library persistence.
 - `terminal` owns live runtime processes and exposes snapshots.
+- `emily_bridge` adapts terminal line events into Emily generic text objects.
 - `persistence` is isolated infrastructure with a versioned schema.
 
 ## Dependencies
-**Internal:** `commands`, `state`, `terminal`, `orchestrator`, `git`, `persistence`  
-**External:** `dioxus`, `portable-pty`, `vt100`, `serde`
+**Internal:** `commands`, `state`, `terminal`, `emily_bridge`, `orchestrator`, `git`, `persistence`  
+**External:** `dioxus`, `portable-pty`, `vt100`, `serde`, `emily`

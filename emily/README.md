@@ -7,6 +7,7 @@ provides context retrieval and history paging against addressable databases.
 ## Public API
 - `EmilyApi`: open/switch/close database, ingest text, query context, page history
 - Generic DTOs in `model.rs` (no Gestalt-specific types)
+- Optional Pantograph embedding provider via feature `pantograph`
 
 ## Internal Modules
 - `api`: transport-agnostic public contracts

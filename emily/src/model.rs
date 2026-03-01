@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::PathBuf;
-use uuid::Uuid;
 
 /// Address of an embedded database instance that can be opened or switched at runtime.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -26,7 +25,7 @@ pub struct IngestTextRequest {
 /// Canonical text object stored by Emily.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TextObject {
-    pub id: Uuid,
+    pub id: String,
     pub stream_id: String,
     pub source_kind: String,
     pub object_kind: TextObjectKind,
@@ -52,9 +51,9 @@ pub enum TextObjectKind {
 /// Directed relationship between text objects.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TextEdge {
-    pub id: Uuid,
-    pub from_id: Uuid,
-    pub to_id: Uuid,
+    pub id: String,
+    pub from_id: String,
+    pub to_id: String,
     pub edge_type: TextEdgeType,
     pub weight: f32,
     pub ts_unix_ms: i64,
@@ -83,7 +82,7 @@ pub struct ContextItem {
     pub object: TextObject,
     pub similarity: f32,
     pub rank: f32,
-    pub provenance: Vec<Uuid>,
+    pub provenance: Vec<String>,
 }
 
 /// Context response consumed by host orchestrators.
