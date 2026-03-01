@@ -15,13 +15,36 @@ permissions:
 
 jobs:
   quality:
-    name: quality (linux)
-    runs-on: ubuntu-latest
+    name: quality (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux
+            os: ubuntu-latest
+            run_fmt: true
+            run_clippy: true
+            run_tests: true
+            compile_only: false
+          - platform: windows
+            os: windows-latest
+            run_fmt: false
+            run_clippy: true
+            run_tests: true
+            compile_only: false
+          - platform: macos
+            os: macos-latest
+            run_fmt: false
+            run_clippy: false
+            run_tests: false
+            compile_only: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Install Linux desktop build dependencies
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -40,13 +63,20 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Format check
+        if: ${{ matrix.run_fmt }}
         run: cargo fmt --all -- --check
 
       - name: Clippy
+        if: ${{ matrix.run_clippy }}
         run: cargo clippy --all-targets -- -D warnings
 
       - name: Tests
+        if: ${{ matrix.run_tests }}
         run: cargo test -q
+
+      - name: Compile check
+        if: ${{ matrix.compile_only }}
+        run: cargo check -q --all-targets
 
   build_installers:
     name: build installer (${{ matrix.package_type }})
