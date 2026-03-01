@@ -171,6 +171,10 @@ Before/After:
 Success:
 - Significant orchestrator build p95 drop and measurable render-path improvement.
 
+Status:
+- Regressed (attempt reverted)
+- Result: `docs/perf-results/2026-03-01-114353-v2-milestone-4-regression.md`
+
 ### Milestone 5: Autosave Fingerprint Cost Reduction
 
 Goal:
@@ -290,3 +294,16 @@ Output:
     (`scroll_observer_callbacks_per_sec_p95`: 90 -> 45, -50.0%)
     with no >=10% key metric regression.
   - Next step: Milestone 4 (orchestrator + session clone reduction).
+- 2026-03-01: Milestone 4 attempted and reverted.
+  - Attempted reduced clone/snapshot work in:
+    - `src/ui/workspace.rs`
+    - `src/orchestrator/runtime.rs`
+    - `src/bin/profile_terminal.rs`
+  - Captured 10-run attempt metrics:
+    - `.perf/2026-03-01-114353-profile-terminal-v2-m4-orchestrator.txt`
+    - `docs/perf-results/2026-03-01-114353-v2-milestone-4-regression.md`
+  - Outcome: regression
+    (`render_pass_p95_us`: 3974 -> 6116, +53.9%;
+     `autosave_pass_p95_us`: 1817 -> 2269, +24.9%).
+  - Decision: reverted Milestone 4 code changes; keep Milestone 3 baseline.
+  - Next step: Milestone 5 (autosave fingerprint cost reduction).
