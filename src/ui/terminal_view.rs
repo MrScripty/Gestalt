@@ -1,8 +1,9 @@
 use crate::state::{AppState, SessionId, SessionStatus};
 use crate::terminal::{TerminalManager, TerminalSnapshot};
 use crate::ui::terminal_input::{
-    COPY_SELECTION_JS, READ_CLIPBOARD_JS, cursor_move_bytes, key_event_to_bytes,
-    map_click_to_terminal_cell, select_terminal_round,
+    COPY_SELECTION_JS, READ_CLIPBOARD_JS, cursor_move_bytes, install_terminal_paste_bridge,
+    install_terminal_scroll_behavior, key_event_to_bytes, map_click_to_terminal_cell,
+    select_terminal_round, take_terminal_paste_buffer,
 };
 use dioxus::document;
 use dioxus::prelude::*;
@@ -26,19 +27,27 @@ pub(crate) fn terminal_shell(
         "--term-rows: {}; --term-cols: {};",
         terminal.rows, terminal.cols
     );
-    let cursor_row = terminal.cursor_row.min(terminal.rows.saturating_sub(1));
+    let line_count = terminal.lines.len().max(1);
+    let max_render_rows_u16 = u16::try_from(line_count).unwrap_or(u16::MAX);
+    let cursor_row = terminal
+        .cursor_row
+        .min(max_render_rows_u16.saturating_sub(1));
     let cursor_col = terminal.cursor_col.min(terminal.cols.saturating_sub(1));
-    let click_rows = terminal.rows;
+    let click_rows = max_render_rows_u16;
     let click_cols = terminal.cols;
-    let click_cursor_row = terminal.cursor_row;
-    let click_cursor_col = terminal.cursor_col;
+    let click_cursor_row = cursor_row;
+    let click_cursor_col = cursor_col;
     let bracketed_paste = terminal.bracketed_paste;
     let show_caret = terminal_is_focused && !terminal.hide_cursor;
     let terminal_body_id = format!("terminal-body-{session_id}");
     let body_id_for_click = terminal_body_id.clone();
     let body_id_for_round_select = terminal_body_id.clone();
+    let body_id_for_mount = terminal_body_id.clone();
+    let body_id_for_paste_shortcut = terminal_body_id.clone();
+    let body_id_for_paste_event = terminal_body_id.clone();
     let terminal_manager_for_click = terminal_manager.clone();
     let terminal_manager_for_keydown = terminal_manager;
+    let terminal_manager_for_paste = terminal_manager_for_keydown.clone();
     let round_anchor_row = match *round_anchor.read() {
         Some((anchor_session, row)) if anchor_session == session_id => row,
         _ => cursor_row,
@@ -99,6 +108,27 @@ pub(crate) fn terminal_shell(
                 let data = event.data();
                 let key = data.key();
                 let modifiers = data.modifiers();
+                if is_paste_shortcut(
+                    &key,
+                    modifiers.ctrl(),
+                    modifiers.alt(),
+                    modifiers.shift(),
+                    modifiers.meta(),
+                ) {
+                    event.prevent_default();
+                    event.stop_propagation();
+                    let terminal_manager = terminal_manager_for_keydown.clone();
+                    let body_id = body_id_for_paste_shortcut.clone();
+                    paste_clipboard_into_terminal(
+                        terminal_manager,
+                        app_state,
+                        session_id,
+                        bracketed_paste,
+                        body_id,
+                    );
+                    return;
+                }
+
                 if modifiers.ctrl() && !modifiers.alt() && let Key::Character(text) = &key {
                     if text.eq_ignore_ascii_case("a") {
                         event.prevent_default();
@@ -109,34 +139,6 @@ pub(crate) fn terminal_shell(
                                 let _ = select_terminal_round(body_id, start_row, end_row).await;
                             });
                         }
-                        return;
-                    }
-
-                    if text.eq_ignore_ascii_case("v") {
-                        event.prevent_default();
-                        event.stop_propagation();
-                        let terminal_manager = terminal_manager_for_keydown.clone();
-                        spawn(async move {
-                            let clipboard_text = document::eval(READ_CLIPBOARD_JS)
-                                .join::<String>()
-                                .await
-                                .unwrap_or_default();
-                            if clipboard_text.is_empty() {
-                                return;
-                            }
-
-                            let payload = if bracketed_paste {
-                                wrap_bracketed_paste(clipboard_text.as_bytes())
-                            } else {
-                                clipboard_text.into_bytes()
-                            };
-                            send_input_to_session(
-                                &terminal_manager,
-                                app_state,
-                                session_id,
-                                &payload,
-                            );
-                        });
                         return;
                     }
 
@@ -173,13 +175,33 @@ pub(crate) fn terminal_shell(
                     );
                 }
             },
+            onpaste: move |event| {
+                event.prevent_default();
+                event.stop_propagation();
+                let terminal_manager = terminal_manager_for_paste.clone();
+                let body_id = body_id_for_paste_event.clone();
+                paste_clipboard_into_terminal(
+                    terminal_manager,
+                    app_state,
+                    session_id,
+                    bracketed_paste,
+                    body_id,
+                );
+            },
 
             div {
                 class: "terminal-body",
                 id: "{terminal_body_id}",
                 style: "{body_style}",
+                onmounted: move |_| {
+                    let body_id = body_id_for_mount.clone();
+                    spawn(async move {
+                        let _ = install_terminal_scroll_behavior(body_id.clone()).await;
+                        let _ = install_terminal_paste_bridge(body_id).await;
+                    });
+                },
                 div { class: "terminal-grid",
-                    for row_idx in 0..usize::from(terminal.rows) {
+                    for row_idx in 0..terminal.lines.len() {
                         {
                             let line = terminal.lines.get(row_idx).cloned().unwrap_or_default();
                             rsx! {
@@ -319,6 +341,47 @@ fn split_prompt_prefix(line: &str) -> Option<(&str, &str)> {
     }
 
     Some((prefix, &line[end..]))
+}
+
+fn is_paste_shortcut(key: &Key, ctrl: bool, alt: bool, shift: bool, meta: bool) -> bool {
+    match key {
+        Key::Character(text) => text.eq_ignore_ascii_case("v") && (ctrl || meta) && !alt,
+        Key::Insert => shift && !ctrl && !alt && !meta,
+        _ => false,
+    }
+}
+
+fn paste_clipboard_into_terminal(
+    terminal_manager: Arc<TerminalManager>,
+    app_state: Signal<AppState>,
+    session_id: SessionId,
+    bracketed_paste: bool,
+    terminal_body_id: String,
+) {
+    spawn(async move {
+        let bridged_text = take_terminal_paste_buffer(terminal_body_id)
+            .await
+            .unwrap_or_default();
+        let clipboard_text = if bridged_text.is_empty() {
+            document::eval(READ_CLIPBOARD_JS)
+                .join::<String>()
+                .await
+                .unwrap_or_default()
+        } else {
+            bridged_text
+        };
+
+        if clipboard_text.is_empty() {
+            return;
+        }
+
+        let payload = if bracketed_paste {
+            wrap_bracketed_paste(clipboard_text.as_bytes())
+        } else {
+            clipboard_text.into_bytes()
+        };
+        send_input_to_session(&terminal_manager, app_state, session_id, &payload);
+    });
 }
 
 fn terminal_round_bounds(lines: &[String], cursor_row: u16) -> Option<(u16, u16)> {

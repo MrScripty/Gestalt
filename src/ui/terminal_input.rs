@@ -8,6 +8,24 @@ if (navigator.clipboard && navigator.clipboard.readText) {
         return await navigator.clipboard.readText();
     } catch (_) {}
 }
+
+try {
+    const probe = document.createElement("textarea");
+    probe.style.position = "fixed";
+    probe.style.opacity = "0";
+    probe.style.pointerEvents = "none";
+    probe.style.left = "-9999px";
+    probe.style.top = "0";
+    document.body.appendChild(probe);
+    probe.focus();
+    document.execCommand("paste");
+    const text = probe.value || "";
+    document.body.removeChild(probe);
+    if (text) {
+        return text;
+    }
+} catch (_) {}
+
 return "";
 "#;
 
@@ -29,7 +47,7 @@ pub(crate) async fn map_click_to_terminal_cell(
     terminal_body_id: String,
     client_x: f64,
     client_y: f64,
-    rows: u16,
+    max_row_count: u16,
     cols: u16,
 ) -> Option<(u16, u16)> {
     let script = format!(
@@ -83,9 +101,87 @@ return `${{row}},${{Math.max(0, col)}}`;
 
     let mapped = document::eval(&script).join::<String>().await.ok()?;
     let (row, col) = parse_row_col(&mapped)?;
-    let clamped_row = row.min(rows.saturating_sub(1));
+    let clamped_row = row.min(max_row_count.saturating_sub(1));
     let clamped_col = col.min(cols.saturating_sub(1));
     Some((clamped_row, clamped_col))
+}
+
+pub(crate) async fn install_terminal_scroll_behavior(terminal_body_id: String) -> bool {
+    let script = format!(
+        r#"
+const root = document.getElementById({terminal_body_id:?});
+if (!root) return false;
+if (root.dataset.scrollManaged === "1") return true;
+
+const threshold = 24;
+const isNearBottom = () => (root.scrollHeight - root.clientHeight - root.scrollTop) <= threshold;
+
+root.dataset.scrollManaged = "1";
+root.dataset.stickBottom = "1";
+
+root.addEventListener("scroll", () => {{
+    root.dataset.stickBottom = isNearBottom() ? "1" : "0";
+}}, {{ passive: true }});
+
+const observer = new MutationObserver(() => {{
+    if (root.dataset.stickBottom === "1") {{
+        root.scrollTop = root.scrollHeight;
+    }}
+}});
+observer.observe(root, {{ childList: true, subtree: true, characterData: true }});
+root._gestaltScrollObserver = observer;
+root.scrollTop = root.scrollHeight;
+return true;
+"#
+    );
+
+    document::eval(&script)
+        .join::<bool>()
+        .await
+        .unwrap_or(false)
+}
+
+pub(crate) async fn install_terminal_paste_bridge(terminal_body_id: String) -> bool {
+    let script = format!(
+        r#"
+const root = document.getElementById({terminal_body_id:?});
+if (!root) return false;
+if (root.dataset.pasteBridgeInstalled === "1") return true;
+
+if (!window.__gestaltPasteBuffer) {{
+    window.__gestaltPasteBuffer = Object.create(null);
+}}
+
+root.dataset.pasteBridgeInstalled = "1";
+root.addEventListener("paste", (event) => {{
+    const clipboard = event.clipboardData || window.clipboardData;
+    const text = clipboard ? (clipboard.getData("text/plain") || clipboard.getData("Text") || "") : "";
+    window.__gestaltPasteBuffer[{terminal_body_id:?}] = text;
+}}, true);
+
+return true;
+"#
+    );
+
+    document::eval(&script)
+        .join::<bool>()
+        .await
+        .unwrap_or(false)
+}
+
+pub(crate) async fn take_terminal_paste_buffer(terminal_body_id: String) -> Option<String> {
+    let script = format!(
+        r#"
+const store = window.__gestaltPasteBuffer;
+if (!store) return "";
+const key = {terminal_body_id:?};
+const text = typeof store[key] === "string" ? store[key] : "";
+delete store[key];
+return text;
+"#
+    );
+
+    document::eval(&script).join::<String>().await.ok()
 }
 
 pub(crate) async fn select_terminal_round(
