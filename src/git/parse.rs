@@ -36,10 +36,37 @@ pub(crate) fn parse_branches(output: &str) -> Vec<BranchInfo> {
 pub(crate) fn parse_tags(output: &str) -> Vec<TagInfo> {
     output
         .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .map(|line| TagInfo {
-            name: line.to_string(),
+        .filter_map(|line| {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+
+            let fields = trimmed.split('\t').collect::<Vec<_>>();
+            if fields.len() == 2 {
+                return Some(TagInfo {
+                    name: fields[0].trim().to_string(),
+                    target_sha: fields[1].trim().to_string(),
+                    annotated: false,
+                });
+            }
+            if fields.len() >= 3 {
+                let object_name = fields[1].trim();
+                let peeled_name = fields[2].trim();
+                let annotated = !peeled_name.is_empty();
+                let target_sha = if annotated { peeled_name } else { object_name };
+                return Some(TagInfo {
+                    name: fields[0].trim().to_string(),
+                    target_sha: target_sha.to_string(),
+                    annotated,
+                });
+            }
+
+            Some(TagInfo {
+                name: trimmed.to_string(),
+                target_sha: String::new(),
+                annotated: false,
+            })
         })
         .collect()
 }
@@ -48,11 +75,21 @@ pub(crate) fn parse_status_porcelain(output: &str) -> Vec<FileChange> {
     output
         .lines()
         .filter_map(|line| {
-            if line.len() < 3 {
+            let trimmed = line.trim_end();
+            if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with('!') {
                 return None;
             }
 
-            if let Some(path) = line.strip_prefix("?? ") {
+            if let Some(path) = trimmed.strip_prefix("?? ") {
+                return Some(FileChange {
+                    path: path.trim().to_string(),
+                    code: "??".to_string(),
+                    is_staged: false,
+                    is_unstaged: false,
+                    is_untracked: true,
+                });
+            }
+            if let Some(path) = trimmed.strip_prefix("? ") {
                 return Some(FileChange {
                     path: path.trim().to_string(),
                     code: "??".to_string(),
@@ -62,10 +99,45 @@ pub(crate) fn parse_status_porcelain(output: &str) -> Vec<FileChange> {
                 });
             }
 
-            let mut chars = line.chars();
+            if let Some(rest) = trimmed
+                .strip_prefix("1 ")
+                .or_else(|| trimmed.strip_prefix("2 "))
+            {
+                let fields = rest.split_whitespace().collect::<Vec<_>>();
+                if fields.len() < 2 {
+                    return None;
+                }
+
+                let code = fields[0];
+                let mut code_chars = code.chars();
+                let x = code_chars.next().unwrap_or(' ');
+                let y = code_chars.next().unwrap_or(' ');
+                let path = if trimmed.starts_with("2 ") && fields.len() >= 2 {
+                    let idx = fields.len().saturating_sub(2);
+                    rename_destination(fields[idx])
+                } else {
+                    fields
+                        .last()
+                        .map_or_else(String::new, |raw| rename_destination(raw))
+                };
+
+                return Some(FileChange {
+                    path,
+                    code: code.to_string(),
+                    is_staged: x != '.' && x != ' ' && x != '?',
+                    is_unstaged: y != '.' && y != ' ',
+                    is_untracked: false,
+                });
+            }
+
+            if trimmed.len() < 3 {
+                return None;
+            }
+
+            let mut chars = trimmed.chars();
             let x = chars.next()?;
             let y = chars.next()?;
-            let path_raw = line.get(3..)?.trim();
+            let path_raw = trimmed.get(3..)?.trim();
             let path = rename_destination(path_raw);
 
             let is_staged = x != ' ' && x != '?';
@@ -116,6 +188,7 @@ pub(crate) fn parse_graph_commits(output: &str) -> Result<Vec<CommitInfo>, GitEr
             author: fields[2].to_string(),
             authored_at: fields[3].to_string(),
             subject: fields[4].to_string(),
+            body_preview: fields[4].to_string(),
             decorations,
             graph_prefix,
         });
@@ -133,7 +206,7 @@ fn rename_destination(path_raw: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_graph_commits, parse_status_porcelain};
+    use super::{parse_branches, parse_graph_commits, parse_status_porcelain, parse_tags};
 
     #[test]
     fn parse_graph_commits_extracts_graph_prefix_and_fields() {
@@ -148,6 +221,7 @@ mod tests {
         assert_eq!(commits[0].sha.len(), 40);
         assert_eq!(commits[1].graph_prefix, "| * ");
         assert_eq!(commits[1].decorations[0], "tag: v1.0.0");
+        assert_eq!(commits[0].body_preview, "feat: add panel");
     }
 
     #[test]
@@ -161,5 +235,34 @@ mod tests {
         assert!(!changes[2].is_staged);
         assert!(changes[2].is_untracked);
         assert_eq!(changes[3].path, "new.rs");
+    }
+
+    #[test]
+    fn parse_branches_handles_current_remote_and_symbolic_refs() {
+        let input =
+            "* main\n  feature/a\n  remotes/origin/main\n  remotes/origin/HEAD -> origin/main\n";
+        let branches = parse_branches(input);
+
+        assert_eq!(branches.len(), 3);
+        assert!(branches[0].is_current);
+        assert_eq!(branches[0].name, "main");
+        assert!(!branches[0].is_remote);
+        assert!(branches[2].is_remote);
+        assert_eq!(branches[2].name, "origin/main");
+    }
+
+    #[test]
+    fn parse_tags_skips_blank_lines() {
+        let input = concat!(
+            "v1.0.0\taaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\t\n",
+            "v1.1.0\tbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\tcccccccccccccccccccccccccccccccccccccccc\n"
+        );
+        let tags = parse_tags(input);
+        assert_eq!(tags.len(), 2);
+        assert_eq!(tags[0].name, "v1.0.0");
+        assert_eq!(tags[1].name, "v1.1.0");
+        assert!(!tags[0].annotated);
+        assert!(tags[1].annotated);
+        assert_eq!(tags[1].target_sha.len(), 40);
     }
 }

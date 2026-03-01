@@ -54,3 +54,30 @@ fn is_not_repo_error(stderr: &str) -> bool {
     let normalized = stderr.to_lowercase();
     normalized.contains("not a git repository")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::run_git;
+    use crate::git::GitError;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn run_git_maps_non_repo_error() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |duration| duration.as_nanos());
+        let path = std::env::temp_dir().join(format!("gestalt-git-nonrepo-{nonce}"));
+        std::fs::create_dir_all(&path).expect("temp dir should be created");
+
+        let result = run_git(
+            path.to_str().expect("temp path to be valid UTF-8"),
+            &["status"],
+        );
+        let _ = std::fs::remove_dir_all(&path);
+
+        match result {
+            Err(GitError::NotRepo { .. }) => {}
+            other => panic!("expected NotRepo, got {other:?}"),
+        }
+    }
+}

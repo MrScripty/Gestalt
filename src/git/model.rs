@@ -29,6 +29,7 @@ pub struct CommitInfo {
     pub author: String,
     pub authored_at: String,
     pub subject: String,
+    pub body_preview: String,
     pub decorations: Vec<String>,
     pub graph_prefix: String,
 }
@@ -45,6 +46,8 @@ pub struct FileChange {
 #[derive(Debug, Clone)]
 pub struct TagInfo {
     pub name: String,
+    pub target_sha: String,
+    pub annotated: bool,
 }
 
 #[derive(Debug, Clone)]

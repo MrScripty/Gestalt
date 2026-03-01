@@ -14,6 +14,7 @@ use parse::{parse_branches, parse_graph_commits, parse_status_porcelain, parse_t
 
 pub const DEFAULT_COMMIT_LIMIT: usize = 120;
 const COMMIT_LOG_FORMAT: &str = "%x00%H%x1f%h%x1f%an%x1f%ad%x1f%s%x1f%D";
+const TAG_FORMAT: &str = "%(refname:short)\t%(objectname)\t%(*objectname)";
 
 pub fn load_repo_context(group_path: &str, commit_limit: usize) -> Result<RepoContext, GitError> {
     let root_output = run_git(group_path, &["rev-parse", "--show-toplevel"]);
@@ -61,11 +62,25 @@ pub fn load_repo_context(group_path: &str, commit_limit: usize) -> Result<RepoCo
 
     let change_output = run_git(
         &repo_root,
-        &["status", "--porcelain", "--untracked-files=all"],
+        &[
+            "status",
+            "--porcelain=v2",
+            "--branch",
+            "--untracked-files=all",
+        ],
     )?;
     let changes = parse_status_porcelain(&change_output.stdout);
 
-    let tag_output = run_git(&repo_root, &["tag", "--list", "--sort=-creatordate"])?;
+    let tag_format_arg = format!("--format={TAG_FORMAT}");
+    let tag_output = run_git(
+        &repo_root,
+        &[
+            "for-each-ref",
+            "refs/tags",
+            "--sort=-creatordate",
+            tag_format_arg.as_str(),
+        ],
+    )?;
     let tags = parse_tags(&tag_output.stdout);
 
     Ok(RepoContext::Available(RepoSnapshot {
