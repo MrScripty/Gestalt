@@ -1,11 +1,17 @@
 use crate::commands::{
     CommandId, InsertCommand, parse_tags_csv, validate_command_name, validate_command_prompt,
 };
+use crate::persistence;
 use crate::state::AppState;
+use crate::terminal::TerminalManager;
 use dioxus::prelude::*;
+use std::sync::Arc;
 
 #[component]
-pub(crate) fn CommandsPanel(app_state: Signal<AppState>) -> Element {
+pub(crate) fn CommandsPanel(
+    app_state: Signal<AppState>,
+    terminal_manager: Signal<Arc<TerminalManager>>,
+) -> Element {
     let mut filter_query = use_signal(String::new);
     let mut selected_command_id = use_signal(|| None::<CommandId>);
     let mut editor_name = use_signal(String::new);
@@ -197,7 +203,15 @@ pub(crate) fn CommandsPanel(app_state: Signal<AppState>) -> Element {
                                     );
                                     if updated {
                                         pending_delete_id.set(None);
-                                        editor_feedback.set("Command updated.".to_string());
+                                        if let Err(error) =
+                                            persist_workspace_snapshot(app_state, terminal_manager)
+                                        {
+                                            editor_feedback.set(format!(
+                                                "Command updated, but save failed: {error}"
+                                            ));
+                                        } else {
+                                            editor_feedback.set("Command updated.".to_string());
+                                        }
                                     } else {
                                         editor_feedback.set("No changes to save.".to_string());
                                     }
@@ -210,7 +224,15 @@ pub(crate) fn CommandsPanel(app_state: Signal<AppState>) -> Element {
                                     );
                                     selected_command_id.set(Some(command_id));
                                     pending_delete_id.set(None);
-                                    editor_feedback.set("Command created.".to_string());
+                                    if let Err(error) =
+                                        persist_workspace_snapshot(app_state, terminal_manager)
+                                    {
+                                        editor_feedback.set(format!(
+                                            "Command created, but save failed: {error}"
+                                        ));
+                                    } else {
+                                        editor_feedback.set("Command created.".to_string());
+                                    }
                                 }
                             },
                             "Save"
@@ -255,7 +277,14 @@ pub(crate) fn CommandsPanel(app_state: Signal<AppState>) -> Element {
                                     editor_description.set(String::new());
                                     editor_tags_csv.set(String::new());
                                 }
-                                editor_feedback.set("Command deleted.".to_string());
+                                if let Err(error) =
+                                    persist_workspace_snapshot(app_state, terminal_manager)
+                                {
+                                    editor_feedback
+                                        .set(format!("Command deleted, but save failed: {error}"));
+                                } else {
+                                    editor_feedback.set("Command deleted.".to_string());
+                                }
                             },
                             "{delete_button_label}"
                         }
@@ -281,6 +310,16 @@ fn load_editor_from_command(
     prompt.set(command.prompt.clone());
     description.set(command.description.clone());
     tags_csv.set(command.tags.join(", "));
+}
+
+fn persist_workspace_snapshot(
+    app_state: Signal<AppState>,
+    terminal_manager: Signal<Arc<TerminalManager>>,
+) -> Result<(), String> {
+    let state = app_state.read().clone();
+    let runtime = terminal_manager.read().clone();
+    let workspace = persistence::build_workspace_snapshot(&state, runtime.as_ref());
+    persistence::save_workspace(&workspace).map_err(|error| error.to_string())
 }
 
 fn matches_filter(command: &InsertCommand, filter: &str) -> bool {

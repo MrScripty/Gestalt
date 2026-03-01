@@ -70,7 +70,10 @@ pub(crate) fn SidebarPanelHost(
                             }
                         }
                         SidebarPanelKind::Commands => rsx! {
-                            CommandsPanel { app_state: app_state }
+                            CommandsPanel {
+                                app_state: app_state,
+                                terminal_manager: terminal_manager,
+                            }
                         },
                         SidebarPanelKind::Git => rsx! {
                             GitPanel {
