@@ -4,6 +4,8 @@ pub mod commands;
 pub mod emily_bridge;
 /// Git repository query and mutation services.
 pub mod git;
+/// SQLite-backed local terminal restore projection.
+pub mod local_restore;
 /// Group orchestration snapshot and broadcast helpers.
 pub mod orchestrator;
 /// Input validation helpers for filesystem path boundaries.

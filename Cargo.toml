@@ -14,3 +14,4 @@ serde_json = "1"
 thiserror = "2"
 parking_lot = "0.12"
 emily = { path = "emily" }
+rusqlite = { version = "0.32.1", features = ["bundled"] }

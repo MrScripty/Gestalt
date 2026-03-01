@@ -15,6 +15,7 @@ mod workspace;
 
 use crate::emily_bridge::EmilyBridge;
 use crate::git::RepoContext;
+use crate::local_restore;
 use crate::persistence;
 use crate::state::{SessionId, SessionStatus};
 use crate::terminal::{PersistedTerminalState, TerminalManager, TerminalMemorySink};
@@ -67,15 +68,28 @@ pub fn App() -> Element {
     let restored_terminals = {
         let loaded = initial_workspace.read().clone();
         use_signal(move || {
+            let projection_map = local_restore::load_projection_map().unwrap_or_default();
             loaded
                 .as_ref()
                 .map(|workspace| {
-                    workspace
+                    let mut map = workspace
                         .terminals
                         .iter()
                         .cloned()
                         .map(|terminal| (terminal.session_id, terminal))
-                        .collect::<HashMap<SessionId, PersistedTerminalState>>()
+                        .collect::<HashMap<SessionId, PersistedTerminalState>>();
+                    for (session_id, terminal) in &mut map {
+                        if let Some(projection) = projection_map.get(session_id) {
+                            terminal.cwd = projection.cwd.clone();
+                            terminal.rows = projection.rows;
+                            terminal.cols = projection.cols;
+                            terminal.cursor_row = projection.cursor_row;
+                            terminal.cursor_col = projection.cursor_col;
+                            terminal.hide_cursor = projection.hide_cursor;
+                            terminal.bracketed_paste = projection.bracketed_paste;
+                        }
+                    }
+                    map
                 })
                 .unwrap_or_default()
         })
@@ -361,6 +375,7 @@ pub fn App() -> Element {
                         &terminal_manager,
                         AUTOSAVE_PERSISTED_HISTORY_LINES,
                     );
+                    let _ = local_restore::save_projection(&workspace.terminals);
 
                     let request = AutosaveRequest {
                         workspace,
@@ -392,6 +407,7 @@ pub fn App() -> Element {
             autosave_worker.shutdown();
             let state = app_state.read().clone();
             let workspace = persistence::build_workspace_snapshot(&state, &terminal_manager);
+            let _ = local_restore::save_projection(&workspace.terminals);
             let _ = persistence::save_workspace(&workspace);
         }
     });
