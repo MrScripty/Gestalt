@@ -1,5 +1,6 @@
 pub mod events;
 pub mod git;
+pub mod repo_watcher;
 mod runtime;
 
 pub use runtime::{

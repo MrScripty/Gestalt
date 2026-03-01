@@ -1,5 +1,6 @@
 use crate::git::RepoContext;
 use crate::orchestrator::events::{GitCommandExecuted, OrchestratorEvent, event_bus};
+use crate::orchestrator::repo_watcher::RepoWatcherHandle;
 use crate::state::AppState;
 use dioxus::prelude::*;
 use std::collections::{HashMap, hash_map::DefaultHasher};
@@ -11,6 +12,7 @@ const GIT_REFRESH_ACTIVE_INTERVAL_MS: u64 = 5_000;
 const GIT_REFRESH_INACTIVE_INTERVAL_MS: u64 = 20_000;
 const GIT_REFRESH_ACTIVE_JITTER_MS: u64 = 500;
 const GIT_REFRESH_INACTIVE_JITTER_MS: u64 = 4_000;
+const GIT_REFRESH_WATCHER_DEBOUNCE_MS: u64 = 1_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PendingRefresh {
@@ -35,8 +37,10 @@ pub(crate) fn use_git_refresh_coordinator(
         let mut group_state: HashMap<String, GroupRefreshState> = HashMap::new();
         let mut pending: HashMap<String, PendingRefresh> = HashMap::new();
         let mut context_cache: HashMap<String, RepoContext> = HashMap::new();
+        let mut watcher_debounce: HashMap<String, u64> = HashMap::new();
         let mut active_path = None::<String>;
         let mut active_context_path = None::<String>;
+        let mut active_watcher = None::<RepoWatcherHandle>;
         let mut nonce_seen = u64::MAX;
         let mut tick_counter = 0_u64;
 
@@ -58,11 +62,17 @@ pub(crate) fn use_git_refresh_coordinator(
             group_state.retain(|path, _| known_paths.contains(path));
             pending.retain(|path, _| known_paths.contains(path));
             context_cache.retain(|path, _| known_paths.contains(path));
+            watcher_debounce.retain(|path, _| known_paths.contains(path));
 
             if active_path != active_group_path {
+                if let Some(mut watcher) = active_watcher.take() {
+                    watcher.stop();
+                }
                 active_path = active_group_path.clone();
                 match active_path.as_ref() {
                     Some(path) => {
+                        active_watcher =
+                            crate::orchestrator::repo_watcher::start_active_repo_watcher(path);
                         if let Some(context) = context_cache.get(path).cloned() {
                             git_context_loading.set(false);
                             git_context.set(Some(context));
@@ -82,13 +92,29 @@ pub(crate) fn use_git_refresh_coordinator(
             }
 
             while let Ok(event) = events.try_recv() {
-                if let OrchestratorEvent::GitCommandExecuted(GitCommandExecuted {
-                    group_path,
-                    ..
-                }) = event
-                {
-                    mark_pending(&mut pending, &group_path, PendingRefresh::Immediate);
+                match event {
+                    OrchestratorEvent::GitCommandExecuted(GitCommandExecuted {
+                        group_path,
+                        ..
+                    }) => {
+                        mark_pending(&mut pending, &group_path, PendingRefresh::Immediate);
+                    }
+                    OrchestratorEvent::RepoFsChanged(changed) => {
+                        watcher_debounce.insert(
+                            changed.group_path,
+                            tick_counter + ticks_for_ms(GIT_REFRESH_WATCHER_DEBOUNCE_MS),
+                        );
+                    }
                 }
+            }
+
+            let debounced_due = watcher_debounce
+                .iter()
+                .filter_map(|(path, due)| (*due <= tick_counter).then(|| path.clone()))
+                .collect::<Vec<_>>();
+            for path in debounced_due {
+                watcher_debounce.remove(&path);
+                mark_pending(&mut pending, &path, PendingRefresh::Immediate);
             }
 
             let refresh_nonce = *git_refresh_nonce.read();
@@ -224,8 +250,7 @@ fn ticks_for_jittered_interval(group_path: &str, active: bool, tick_counter: u64
 
     let jitter_offset = jitter_offset_ms(group_path, tick_counter, jitter_ms);
     let interval_ms = (base_ms as i64 + jitter_offset).max(1) as u64;
-    let tick = GIT_REFRESH_COORDINATOR_TICK_MS.max(1);
-    interval_ms.div_ceil(tick)
+    ticks_for_ms(interval_ms)
 }
 
 fn jitter_offset_ms(group_path: &str, tick_counter: u64, jitter_ms: u64) -> i64 {
@@ -239,6 +264,11 @@ fn jitter_offset_ms(group_path: &str, tick_counter: u64, jitter_ms: u64) -> i64 
     let value = hasher.finish();
     let span = jitter_ms.saturating_mul(2).saturating_add(1);
     (value % span) as i64 - jitter_ms as i64
+}
+
+fn ticks_for_ms(duration_ms: u64) -> u64 {
+    let tick = GIT_REFRESH_COORDINATOR_TICK_MS.max(1);
+    duration_ms.div_ceil(tick)
 }
 
 #[cfg(test)]

@@ -152,6 +152,37 @@ pub fn create_worktree(group_path: &str, new_path: &str, target: &str) -> Result
     Ok(())
 }
 
+pub fn repo_change_fingerprint(group_path: &str) -> Result<String, GitError> {
+    let root = run_git(group_path, &["rev-parse", "--show-toplevel"])?
+        .stdout
+        .trim()
+        .to_string();
+    let head = run_git(&root, &["rev-parse", "HEAD"])?.stdout;
+    let status = run_git(
+        &root,
+        &[
+            "status",
+            "--porcelain=v2",
+            "--branch",
+            "--untracked-files=all",
+        ],
+    )?
+    .stdout;
+    let refs = run_git(
+        &root,
+        &[
+            "for-each-ref",
+            "--sort=refname",
+            "--format=%(refname)%00%(objectname)",
+            "refs/heads",
+            "refs/tags",
+        ],
+    )?
+    .stdout;
+
+    Ok(format!("{root}\n{head}\n{status}\n{refs}"))
+}
+
 fn validate_non_empty(value: &str, label: &str) -> Result<String, GitError> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
