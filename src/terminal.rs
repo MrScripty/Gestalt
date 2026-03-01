@@ -54,9 +54,27 @@ struct TerminalRuntime {
     child: Mutex<Box<dyn portable_pty::Child + Send>>,
     writer: Mutex<Box<dyn Write + Send>>,
     parser: Arc<Mutex<Parser>>,
+    scrollback: Arc<RwLock<ScrollbackBuffer>>,
     cwd: RwLock<String>,
     snapshot_cache: Arc<RwLock<TerminalSnapshot>>,
     snapshot_revision: Arc<AtomicU64>,
+}
+
+#[derive(Debug, Clone)]
+struct ScrollbackBuffer {
+    lines: Vec<String>,
+    pending: Vec<u8>,
+    escape_state: EscapeParseState,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum EscapeParseState {
+    #[default]
+    Normal,
+    Esc,
+    Csi,
+    Osc,
+    OscEsc,
 }
 
 impl TerminalManager {
@@ -120,21 +138,30 @@ impl TerminalManager {
             .try_clone_reader()
             .map_err(|error| format!("Failed to open PTY reader: {error}"))?;
 
+        let restored_lines = restored
+            .as_ref()
+            .map(|state| normalized_history_lines(&state.lines))
+            .unwrap_or_default();
+
         let mut parser = Parser::new(rows, cols, DEFAULT_SCROLLBACK);
-        if let Some(restored) = restored {
-            for line in normalized_history_lines(&restored.lines) {
-                parser.process(line.as_bytes());
-                parser.process(b"\r\n");
-            }
+        for line in &restored_lines {
+            parser.process(line.as_bytes());
+            parser.process(b"\r\n");
         }
 
         let parser = Arc::new(Mutex::new(parser));
-        let initial_snapshot = terminal_snapshot_from_parser(&parser.lock());
+        let scrollback = Arc::new(RwLock::new(ScrollbackBuffer::from_restored(restored_lines)));
+        let initial_snapshot = {
+            let parser = parser.lock();
+            let scrollback_lines = scrollback.read().lines.clone();
+            terminal_snapshot_from_parser(&parser, &scrollback_lines)
+        };
         let snapshot_cache = Arc::new(RwLock::new(initial_snapshot));
         let snapshot_revision = Arc::new(AtomicU64::new(1));
         spawn_reader_thread(
             reader,
             Arc::clone(&parser),
+            Arc::clone(&scrollback),
             Arc::clone(&snapshot_cache),
             Arc::clone(&snapshot_revision),
         );
@@ -144,6 +171,7 @@ impl TerminalManager {
             child: Mutex::new(child),
             writer: Mutex::new(writer),
             parser,
+            scrollback,
             cwd: RwLock::new(session_cwd),
             snapshot_cache,
             snapshot_revision,
@@ -209,13 +237,7 @@ impl TerminalManager {
             let screen = parser.screen();
             let (rows, cols) = screen.size();
             let (cursor_row, cursor_col) = screen.cursor_position();
-            let lines = normalized_history_lines(
-                &screen
-                    .contents()
-                    .lines()
-                    .map(ToString::to_string)
-                    .collect::<Vec<_>>(),
-            );
+            let lines = normalized_history_lines(&runtime.snapshot_cache.read().lines);
 
             return Some(PersistedTerminalState {
                 session_id,
@@ -259,7 +281,8 @@ impl TerminalManager {
 
         let mut parser = runtime.parser.lock();
         parser.set_size(rows, cols);
-        let snapshot = terminal_snapshot_from_parser(&parser);
+        let scrollback_lines = runtime.scrollback.read().lines.clone();
+        let snapshot = terminal_snapshot_from_parser(&parser, &scrollback_lines);
         *runtime.snapshot_cache.write() = snapshot;
         runtime.snapshot_revision.fetch_add(1, Ordering::Relaxed);
 
@@ -308,6 +331,7 @@ impl Drop for TerminalManager {
 fn spawn_reader_thread(
     mut reader: Box<dyn Read + Send>,
     parser: Arc<Mutex<Parser>>,
+    scrollback: Arc<RwLock<ScrollbackBuffer>>,
     snapshot_cache: Arc<RwLock<TerminalSnapshot>>,
     snapshot_revision: Arc<AtomicU64>,
 ) {
@@ -321,7 +345,14 @@ fn spawn_reader_thread(
                     let snapshot = {
                         let mut parser = parser.lock();
                         parser.process(&buffer[..read]);
-                        terminal_snapshot_from_parser(&parser)
+
+                        let scrollback_lines = {
+                            let mut scrollback = scrollback.write();
+                            scrollback.process_bytes(&buffer[..read]);
+                            scrollback.lines.clone()
+                        };
+
+                        terminal_snapshot_from_parser(&parser, &scrollback_lines)
                     };
                     *snapshot_cache.write() = snapshot;
                     snapshot_revision.fetch_add(1, Ordering::Relaxed);
@@ -332,17 +363,22 @@ fn spawn_reader_thread(
     });
 }
 
-fn terminal_snapshot_from_parser(parser: &Parser) -> TerminalSnapshot {
+fn terminal_snapshot_from_parser(parser: &Parser, scrollback_lines: &[String]) -> TerminalSnapshot {
     let screen = parser.screen();
     let (rows, cols) = screen.size();
-    let (cursor_row, cursor_col) = screen.cursor_position();
-    let lines = screen.rows(0, cols).collect();
+    let (cursor_row_rel, cursor_col) = screen.cursor_position();
+    let visible_lines = screen.rows(0, cols).collect::<Vec<_>>();
+    let lines = merge_scrollback_with_visible(scrollback_lines, &visible_lines);
+    let visible_start = lines.len().saturating_sub(visible_lines.len());
+    let cursor_row = visible_start
+        .saturating_add(usize::from(cursor_row_rel))
+        .min(lines.len().saturating_sub(1));
 
     TerminalSnapshot {
         lines,
         rows,
         cols,
-        cursor_row,
+        cursor_row: u16::try_from(cursor_row).unwrap_or(u16::MAX),
         cursor_col,
         hide_cursor: screen.hide_cursor(),
         bracketed_paste: screen.bracketed_paste(),
@@ -368,4 +404,118 @@ fn normalized_history_lines(lines: &[String]) -> Vec<String> {
         .skip(start)
         .map(|line| line.trim_end_matches('\r').to_string())
         .collect()
+}
+
+fn merge_scrollback_with_visible(scrollback: &[String], visible: &[String]) -> Vec<String> {
+    let max_overlap = scrollback.len().min(visible.len());
+    let overlap = (0..=max_overlap)
+        .rev()
+        .find(|overlap_len| {
+            scrollback[scrollback.len().saturating_sub(*overlap_len)..] == visible[..*overlap_len]
+        })
+        .unwrap_or(0);
+
+    let keep = scrollback.len().saturating_sub(overlap);
+    let mut lines = Vec::with_capacity(keep + visible.len());
+    lines.extend(scrollback.iter().take(keep).cloned());
+    lines.extend(visible.iter().cloned());
+    lines
+}
+
+impl ScrollbackBuffer {
+    fn from_restored(restored: Vec<String>) -> Self {
+        Self {
+            lines: normalized_history_lines(&restored),
+            pending: Vec::new(),
+            escape_state: EscapeParseState::Normal,
+        }
+    }
+
+    fn process_bytes(&mut self, bytes: &[u8]) {
+        for &byte in bytes {
+            match self.escape_state {
+                EscapeParseState::Normal => match byte {
+                    0x1b => self.escape_state = EscapeParseState::Esc,
+                    b'\n' => self.finish_line(),
+                    b'\r' => {}
+                    0x08 => {
+                        let _ = self.pending.pop();
+                    }
+                    byte if byte >= 0x20 || byte == b'\t' => self.pending.push(byte),
+                    _ => {}
+                },
+                EscapeParseState::Esc => match byte {
+                    b'[' => self.escape_state = EscapeParseState::Csi,
+                    b']' => self.escape_state = EscapeParseState::Osc,
+                    _ => self.escape_state = EscapeParseState::Normal,
+                },
+                EscapeParseState::Csi => {
+                    if (0x40..=0x7e).contains(&byte) {
+                        self.escape_state = EscapeParseState::Normal;
+                    }
+                }
+                EscapeParseState::Osc => match byte {
+                    0x07 => self.escape_state = EscapeParseState::Normal,
+                    0x1b => self.escape_state = EscapeParseState::OscEsc,
+                    _ => {}
+                },
+                EscapeParseState::OscEsc => {
+                    self.escape_state = EscapeParseState::Normal;
+                }
+            }
+        }
+    }
+
+    fn finish_line(&mut self) {
+        let line = String::from_utf8_lossy(&self.pending)
+            .trim_end_matches('\r')
+            .to_string();
+        self.pending.clear();
+        self.push_line(line);
+    }
+
+    fn push_line(&mut self, line: String) {
+        self.lines.push(line);
+        let overflow = self.lines.len().saturating_sub(MAX_PERSISTED_HISTORY_LINES);
+        if overflow > 0 {
+            self.lines.drain(0..overflow);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn merge_scrollback_deduplicates_visible_suffix() {
+        let scrollback = vec![
+            "line 1".to_string(),
+            "line 2".to_string(),
+            "line 3".to_string(),
+        ];
+        let visible = vec!["line 3".to_string(), "line 4".to_string()];
+
+        let merged = merge_scrollback_with_visible(&scrollback, &visible);
+        assert_eq!(
+            merged,
+            vec![
+                "line 1".to_string(),
+                "line 2".to_string(),
+                "line 3".to_string(),
+                "line 4".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn scrollback_buffer_strips_escape_sequences_and_tracks_lines() {
+        let mut scrollback = ScrollbackBuffer::from_restored(Vec::new());
+        scrollback.process_bytes(b"\x1b[31mred\x1b[0m\nplain\n");
+
+        assert_eq!(
+            scrollback.lines,
+            vec!["red".to_string(), "plain".to_string()]
+        );
+    }
 }
