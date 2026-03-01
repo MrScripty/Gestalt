@@ -26,6 +26,8 @@ pub(crate) fn GitPanel(
     let mut worktree_path = use_signal(String::new);
     let mut worktree_target = use_signal(String::new);
     let auto_workspace = use_signal(|| true);
+    let op_inflight = use_signal(|| false);
+    let op_inflight_value = *op_inflight.read();
 
     if selected_commit.read().is_empty()
         && let Some(RepoContext::Available(snapshot)) = context.as_ref()
@@ -46,6 +48,9 @@ pub(crate) fn GitPanel(
 
             if repo_loading_value {
                 p { class: "git-loading", "Refreshing repository context..." }
+            }
+            if op_inflight_value {
+                p { class: "git-loading", "Git operation in progress..." }
             }
 
             if let Some(context) = context {
@@ -139,7 +144,11 @@ pub(crate) fn GitPanel(
                                                         span { class: "git-branch-kind", "{remote_badge}" }
                                                         button {
                                                             class: "git-action-btn",
+                                                            disabled: op_inflight_value,
                                                             onclick: move |_| {
+                                                                if !start_operation(op_inflight, op_feedback) {
+                                                                    return;
+                                                                }
                                                                 let result = crate::orchestrator::git::checkout_target(
                                                                     &checkout_group_path,
                                                                     CheckoutTarget::Branch(branch_name_for_checkout.clone()),
@@ -151,6 +160,7 @@ pub(crate) fn GitPanel(
                                                                     }
                                                                     Err(error) => op_feedback.set(error.to_string()),
                                                                 }
+                                                                finish_operation(op_inflight);
                                                             },
                                                             "Checkout"
                                                         }
@@ -195,9 +205,13 @@ pub(crate) fn GitPanel(
                                     }
                                     button {
                                         class: "git-action-btn",
+                                        disabled: op_inflight_value,
                                         onclick: move |_| {
                                             if selected_commit_for_checkout.trim().is_empty() {
                                                 op_feedback.set("Select a commit first.".to_string());
+                                                return;
+                                            }
+                                            if !start_operation(op_inflight, op_feedback) {
                                                 return;
                                             }
                                             let result = crate::orchestrator::git::checkout_target(&commit_checkout_group_path, CheckoutTarget::Commit(selected_commit_for_checkout.clone()));
@@ -211,6 +225,7 @@ pub(crate) fn GitPanel(
                                                 }
                                                 Err(error) => op_feedback.set(error.to_string()),
                                             }
+                                            finish_operation(op_inflight);
                                         },
                                         "Checkout Selected Commit"
                                     }
@@ -239,7 +254,11 @@ pub(crate) fn GitPanel(
                                                                 if stageable {
                                                                     button {
                                                                         class: "git-action-btn",
+                                                                        disabled: op_inflight_value,
                                                                         onclick: move |_| {
+                                                                            if !start_operation(op_inflight, op_feedback) {
+                                                                                return;
+                                                                            }
                                                                             let results = crate::orchestrator::git::stage_files(
                                                                                 &stage_group_path,
                                                                                 std::slice::from_ref(&path_for_stage),
@@ -254,6 +273,7 @@ pub(crate) fn GitPanel(
                                                                                     .set(format!("Staged {}.", path_for_stage));
                                                                                 bump_refresh_nonce(git_refresh_nonce);
                                                                             }
+                                                                            finish_operation(op_inflight);
                                                                         },
                                                                         "Stage"
                                                                     }
@@ -261,7 +281,11 @@ pub(crate) fn GitPanel(
                                                                 if unstageable {
                                                                     button {
                                                                         class: "git-action-btn",
+                                                                        disabled: op_inflight_value,
                                                                         onclick: move |_| {
+                                                                            if !start_operation(op_inflight, op_feedback) {
+                                                                                return;
+                                                                            }
                                                                             let results = crate::orchestrator::git::unstage_files(
                                                                                 &unstage_group_path,
                                                                                 std::slice::from_ref(&path_for_unstage),
@@ -276,6 +300,7 @@ pub(crate) fn GitPanel(
                                                                                     .set(format!("Unstaged {}.", path_for_unstage));
                                                                                 bump_refresh_nonce(git_refresh_nonce);
                                                                             }
+                                                                            finish_operation(op_inflight);
                                                                         },
                                                                         "Unstage"
                                                                     }
@@ -293,12 +318,14 @@ pub(crate) fn GitPanel(
                                     h4 { "Commit" }
                                     input {
                                         class: "git-input",
+                                        disabled: op_inflight_value,
                                         placeholder: "Commit title",
                                         value: "{commit_title_value}",
                                         oninput: move |event| commit_title.set(event.value()),
                                     }
                                     textarea {
                                         class: "git-textarea",
+                                        disabled: op_inflight_value,
                                         rows: "3",
                                         placeholder: "Commit message body",
                                         value: "{commit_message_value}",
@@ -306,7 +333,11 @@ pub(crate) fn GitPanel(
                                     }
                                     button {
                                         class: "git-action-btn git-action-primary",
+                                        disabled: op_inflight_value,
                                         onclick: move |_| {
+                                            if !start_operation(op_inflight, op_feedback) {
+                                                return;
+                                            }
                                             let draft = CommitDraft {
                                                 title: commit_title.read().clone(),
                                                 message: commit_message.read().clone(),
@@ -320,6 +351,7 @@ pub(crate) fn GitPanel(
                                                 }
                                                 Err(error) => op_feedback.set(error.to_string()),
                                             }
+                                            finish_operation(op_inflight);
                                         },
                                         "Create Commit"
                                     }
@@ -329,12 +361,14 @@ pub(crate) fn GitPanel(
                                     h4 { "Tag Release" }
                                     input {
                                         class: "git-input",
+                                        disabled: op_inflight_value,
                                         placeholder: "Tag name (e.g. v1.2.0)",
                                         value: "{tag_name_value}",
                                         oninput: move |event| tag_name.set(event.value()),
                                     }
                                     textarea {
                                         class: "git-textarea",
+                                        disabled: op_inflight_value,
                                         rows: "2",
                                         placeholder: "Tag annotation message",
                                         value: "{tag_message_value}",
@@ -342,9 +376,13 @@ pub(crate) fn GitPanel(
                                     }
                                     button {
                                         class: "git-action-btn",
+                                        disabled: op_inflight_value,
                                         onclick: move |_| {
                                             if selected_commit_for_tag.trim().is_empty() {
                                                 op_feedback.set("Select a commit to tag.".to_string());
+                                                return;
+                                            }
+                                            if !start_operation(op_inflight, op_feedback) {
                                                 return;
                                             }
                                             let tag_name_value = tag_name.read().trim().to_string();
@@ -367,6 +405,7 @@ pub(crate) fn GitPanel(
                                                 }
                                                 Err(error) => op_feedback.set(error.to_string()),
                                             }
+                                            finish_operation(op_inflight);
                                         },
                                         "Create Tag"
                                     }
@@ -379,12 +418,14 @@ pub(crate) fn GitPanel(
                                     h4 { "Create Workspace (Worktree)" }
                                     input {
                                         class: "git-input",
+                                        disabled: op_inflight_value,
                                         placeholder: "/abs/path/to/new-worktree",
                                         value: "{worktree_path_value}",
                                         oninput: move |event| worktree_path.set(event.value()),
                                     }
                                     input {
                                         class: "git-input",
+                                        disabled: op_inflight_value,
                                         placeholder: "Target branch or commit (defaults to current branch)",
                                         value: "{worktree_target_input_value}",
                                         oninput: move |event| worktree_target.set(event.value()),
@@ -394,16 +435,21 @@ pub(crate) fn GitPanel(
                                         input {
                                             r#type: "checkbox",
                                             checked: auto_workspace_checked,
+                                            disabled: op_inflight_value,
                                             onchange: move |_| toggle_bool_signal(auto_workspace),
                                         }
                                         "Create Gestalt path-group after worktree creation"
                                     }
                                     button {
                                         class: "git-action-btn git-action-primary",
+                                        disabled: op_inflight_value,
                                         onclick: move |_| {
                                             let path_value = worktree_path.read().trim().to_string();
                                             if path_value.is_empty() {
                                                 op_feedback.set("Worktree path is required.".to_string());
+                                                return;
+                                            }
+                                            if !start_operation(op_inflight, op_feedback) {
                                                 return;
                                             }
 
@@ -440,6 +486,7 @@ pub(crate) fn GitPanel(
                                                 }
                                                 Err(error) => op_feedback.set(error.to_string()),
                                             }
+                                            finish_operation(op_inflight);
                                         },
                                         "Create Worktree"
                                     }
@@ -457,4 +504,18 @@ pub(crate) fn GitPanel(
             }
         }
     }
+}
+
+fn start_operation(mut op_inflight: Signal<bool>, mut op_feedback: Signal<String>) -> bool {
+    if *op_inflight.read() {
+        op_feedback.set("Another Git operation is already running.".to_string());
+        return false;
+    }
+
+    op_inflight.set(true);
+    true
+}
+
+fn finish_operation(mut op_inflight: Signal<bool>) {
+    op_inflight.set(false);
 }

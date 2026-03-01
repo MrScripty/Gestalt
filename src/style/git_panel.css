@@ -220,10 +220,20 @@
   background: #ead7ad;
 }
 
+.git-action-btn:disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
+}
+
 .git-action-btn:focus-visible,
 .git-commit-row:focus-visible {
   outline: 2px solid #bf9b4b;
   outline-offset: 2px;
+}
+
+.git-input:disabled,
+.git-textarea:disabled {
+  opacity: 0.7;
 }
 
 .git-action-primary {
