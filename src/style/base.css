@@ -295,6 +295,41 @@ body {
   color: #9ab8be;
 }
 
+.path-picker-label {
+  position: relative;
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 8px;
+  border: 1px solid #4f7680;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #274851;
+  color: #d9edf2;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.path-picker-label:hover {
+  background: #2c515b;
+}
+
+.path-picker-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.path-feedback {
+  margin: 8px 0 0;
+  color: #ffcab0;
+  font-size: 0.72rem;
+}
+
 .primary-btn {
   width: 100%;
   background: linear-gradient(90deg, #f4a261, #e9c46a);

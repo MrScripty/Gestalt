@@ -1,3 +1,4 @@
+use crate::path_validation;
 use crate::state::{AppState, SessionId, SessionStatus};
 use crate::terminal::TerminalManager;
 use dioxus::prelude::*;
@@ -16,6 +17,8 @@ pub(crate) fn TabRail(
     let renaming_tab_id = *renaming_tab.read();
     let rename_draft_value = rename_draft.read().clone();
     let new_group_path_value = new_group_path.read().clone();
+    let mut new_group_feedback = use_signal(String::new);
+    let new_group_feedback_value = new_group_feedback.read().clone();
 
     rsx! {
         aside { class: "tab-rail",
@@ -210,15 +213,46 @@ pub(crate) fn TabRail(
                     class: "path-input",
                     placeholder: "/abs/path/to/project",
                     value: "{new_group_path_value}",
-                    oninput: move |event| new_group_path.set(event.value()),
+                    oninput: move |event| {
+                        new_group_path.set(event.value());
+                        new_group_feedback.set(String::new());
+                    },
+                }
+                label {
+                    class: "path-picker-label",
+                    "Browse folder"
+                    input {
+                        class: "path-picker-input",
+                        r#type: "file",
+                        directory: true,
+                        onchange: move |event| {
+                            let Some(selection) = event.files().into_iter().next() else {
+                                return;
+                            };
+
+                            let selected_path = path_validation::derive_directory_from_selection(selection.path());
+                            let display_path = selected_path.to_string_lossy().into_owned();
+                            new_group_path.set(display_path);
+                            new_group_feedback.set(String::new());
+                        },
+                    }
                 }
                 button {
                     class: "primary-btn",
                     onclick: move |_| {
-                        let path = new_group_path.read().trim().to_string();
-                        if path.is_empty() {
+                        let raw_path = new_group_path.read().trim().to_string();
+                        if raw_path.is_empty() {
+                            new_group_feedback.set("Path is required.".to_string());
                             return;
                         }
+
+                        let path = match path_validation::validate_group_path(&raw_path) {
+                            Ok(path) => path,
+                            Err(error) => {
+                                new_group_feedback.set(error);
+                                return;
+                            }
+                        };
 
                         let default_sessions = {
                             let mut state = app_state.write();
@@ -230,6 +264,7 @@ pub(crate) fn TabRail(
                         };
 
                         new_group_path.set(String::new());
+                        new_group_feedback.set(String::new());
 
                         let runtime = terminal_manager.read().clone();
                         let failed = default_sessions
@@ -250,6 +285,9 @@ pub(crate) fn TabRail(
                         }
                     },
                     "Create Path Group"
+                }
+                if !new_group_feedback_value.is_empty() {
+                    p { class: "path-feedback", "{new_group_feedback_value}" }
                 }
             }
         }
