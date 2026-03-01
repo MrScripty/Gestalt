@@ -555,30 +555,70 @@ impl AppState {
             .collect()
     }
 
+    /// Returns session identifiers in insertion order for a group.
+    pub fn session_ids_in_group(&self, group_id: GroupId) -> Vec<SessionId> {
+        self.sessions
+            .iter()
+            .filter(|session| session.group_id == group_id)
+            .map(|session| session.id)
+            .collect()
+    }
+
     /// Returns center-stack agent sessions and optional runner for UI layout.
     pub fn workspace_sessions_for_group(
         &self,
         group_id: GroupId,
     ) -> (Vec<Session>, Option<Session>) {
-        let group_sessions = self.sessions_in_group(group_id);
-        let mut agents = Vec::new();
+        let mut agents = Vec::with_capacity(2);
         let mut runner = None;
 
-        for session in group_sessions {
+        for session in self
+            .sessions
+            .iter()
+            .filter(|session| session.group_id == group_id)
+        {
             if session.role.is_runner() && runner.is_none() {
-                runner = Some(session);
-            } else {
-                agents.push(session);
+                runner = Some(session.clone());
+                continue;
+            }
+
+            if agents.len() < 2 {
+                agents.push(session.clone());
             }
         }
-
-        agents.truncate(2);
 
         if runner.is_none() {
             runner = agents.pop();
         }
 
         (agents, runner)
+    }
+
+    /// Returns center-stack agent identifiers plus optional runner identifier.
+    pub fn workspace_session_ids_for_group(&self, group_id: GroupId) -> Vec<SessionId> {
+        let mut session_ids = Vec::with_capacity(3);
+        let mut runner_id = None;
+
+        for session in self
+            .sessions
+            .iter()
+            .filter(|session| session.group_id == group_id)
+        {
+            if session.role.is_runner() && runner_id.is_none() {
+                runner_id = Some(session.id);
+                continue;
+            }
+
+            if session_ids.len() < 2 {
+                session_ids.push(session.id);
+            }
+        }
+
+        if let Some(runner_id) = runner_id {
+            session_ids.push(runner_id);
+        }
+
+        session_ids
     }
 
     /// Returns the configured path for a group identifier.

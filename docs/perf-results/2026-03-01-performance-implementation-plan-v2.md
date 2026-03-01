@@ -113,6 +113,10 @@ Before/After:
 Success:
 - Significant drop in refresh-loop p95; no render/autosave regression.
 
+Status:
+- Complete
+- Result: `docs/perf-results/2026-03-01-092907-v2-milestone-1-refresh-loop.md`
+
 ### Milestone 2: Resize Measurement Optimization
 
 Goal:
@@ -239,3 +243,16 @@ Output:
     - `.perf/2026-03-01-091848-profile-terminal-v2-plan-baseline.txt`
     - `docs/perf-results/2026-03-01-091848-v2-milestone-0-baseline.md`
   - Next step: Milestone 1 (refresh loop efficiency).
+- 2026-03-01: Milestone 1 completed.
+  - Removed full `AppState` clones from refresh/resize polling paths in `src/ui.rs`.
+  - Added lightweight state projections in `src/state.rs`:
+    - `session_ids_in_group`
+    - `workspace_session_ids_for_group`
+  - Updated profiler refresh-loop probe in `src/bin/profile_terminal.rs` to match the
+    session-id projection strategy.
+  - Captured 10-run post-change metrics:
+    - `.perf/2026-03-01-092907-profile-terminal-v2-m1-refresh.txt`
+    - `docs/perf-results/2026-03-01-092907-v2-milestone-1-refresh-loop.md`
+  - Outcome: significant improvement on target metric (`refresh_loop_tick_p95_us`: 21 -> 18,
+    -14.3%) with no >=10% key metric regression.
+  - Next step: Milestone 2 (resize measurement optimization).

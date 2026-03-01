@@ -658,24 +658,21 @@ fn profile_refresh_loop(
     for _ in 0..iterations {
         let tick_started = Instant::now();
 
-        let clone_started = Instant::now();
-        let snapshot = app_state.clone();
-        let clone_elapsed = clone_started.elapsed().as_micros();
-
         let mut resize_measure_elapsed = 0_u128;
         let mut resize_calls = 0_u128;
         let mut scroll_callbacks_est = 0_u128;
         let mut orchestrator_snapshot_elapsed = 0_u128;
+        let clone_elapsed = 0_u128;
 
-        if let Some(group_id) = snapshot.active_group_id() {
-            let mut revisions = snapshot
-                .sessions_in_group(group_id)
+        if let Some(group_id) = app_state.active_group_id() {
+            let mut revisions = app_state
+                .session_ids_in_group(group_id)
                 .into_iter()
-                .map(|session| {
+                .map(|session_id| {
                     (
-                        session.id,
+                        session_id,
                         terminal_manager
-                            .session_snapshot_revision(session.id)
+                            .session_snapshot_revision(session_id)
                             .unwrap_or(0),
                     )
                 })
@@ -685,12 +682,7 @@ fn profile_refresh_loop(
                 last_revisions = revisions;
             }
 
-            let (agents, runner) = snapshot.workspace_sessions_for_group(group_id);
-            let mut active_session_ids: Vec<SessionId> =
-                agents.into_iter().map(|session| session.id).collect();
-            if let Some(runner) = runner {
-                active_session_ids.push(runner.id);
-            }
+            let active_session_ids = app_state.workspace_session_ids_for_group(group_id);
             let active_session_set = active_session_ids
                 .iter()
                 .copied()
@@ -722,7 +714,7 @@ fn profile_refresh_loop(
                 u128::from(active_session_ids.len() as u64).saturating_mul(refresh_hz);
 
             let orchestrator_started = Instant::now();
-            probe_orchestrator_snapshot_build(&snapshot, group_id, terminal_manager);
+            probe_orchestrator_snapshot_build(app_state, group_id, terminal_manager);
             orchestrator_snapshot_elapsed = orchestrator_started.elapsed().as_micros();
         } else {
             profile.resize_measure_calls_per_sec.push(0);

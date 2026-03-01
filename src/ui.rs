@@ -111,8 +111,13 @@ pub fn App() -> Element {
                 loop {
                     tokio::time::sleep(Duration::from_millis(TERMINAL_REFRESH_POLL_MS)).await;
 
-                    let snapshot = app_state.read().clone();
-                    let Some(group_id) = snapshot.active_group_id() else {
+                    let active_session_ids = {
+                        let state = app_state.read();
+                        state
+                            .active_group_id()
+                            .map(|group_id| state.session_ids_in_group(group_id))
+                    };
+                    let Some(active_session_ids) = active_session_ids else {
                         if !last_revisions.is_empty() {
                             last_revisions.clear();
                             let next = *refresh_tick.read() + 1;
@@ -121,14 +126,13 @@ pub fn App() -> Element {
                         continue;
                     };
 
-                    let mut revisions = snapshot
-                        .sessions_in_group(group_id)
+                    let mut revisions = active_session_ids
                         .into_iter()
-                        .map(|session| {
+                        .map(|session_id| {
                             (
-                                session.id,
+                                session_id,
                                 terminal_manager
-                                    .session_snapshot_revision(session.id)
+                                    .session_snapshot_revision(session_id)
                                     .unwrap_or(0),
                             )
                         })
@@ -155,18 +159,16 @@ pub fn App() -> Element {
                 loop {
                     tokio::time::sleep(Duration::from_millis(TERMINAL_RESIZE_POLL_MS)).await;
 
-                    let snapshot = app_state.read().clone();
-                    let Some(group_id) = snapshot.active_group_id() else {
+                    let active_session_ids = {
+                        let state = app_state.read();
+                        state
+                            .active_group_id()
+                            .map(|group_id| state.workspace_session_ids_for_group(group_id))
+                    };
+                    let Some(active_session_ids) = active_session_ids else {
                         last_sizes.clear();
                         continue;
                     };
-
-                    let (agents, runner) = snapshot.workspace_sessions_for_group(group_id);
-                    let mut active_session_ids: Vec<SessionId> =
-                        agents.into_iter().map(|session| session.id).collect();
-                    if let Some(runner) = runner {
-                        active_session_ids.push(runner.id);
-                    }
 
                     let active_session_set: HashSet<SessionId> =
                         active_session_ids.iter().copied().collect();
