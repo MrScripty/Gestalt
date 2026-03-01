@@ -8,6 +8,8 @@ pub mod orchestrator;
 pub(crate) mod path_validation;
 /// Workspace load/save schema and storage routines.
 pub mod persistence;
+/// Cross-platform system and process resource sampling.
+pub mod resource_monitor;
 /// Core workspace/group/session state model.
 pub mod state;
 /// PTY-backed terminal runtime and snapshots.

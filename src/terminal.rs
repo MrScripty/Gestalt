@@ -338,6 +338,12 @@ impl TerminalManager {
             .map(|runtime| runtime.cwd.read().clone())
     }
 
+    /// Returns the root shell process identifier for a running session.
+    pub fn session_process_id(&self, session_id: SessionId) -> Option<u32> {
+        let runtime = self.session_runtime(session_id)?;
+        runtime.child.lock().process_id()
+    }
+
     /// Terminates and unregisters a session runtime if it exists.
     pub fn terminate_session(&self, session_id: SessionId) -> bool {
         self.pending_restore.lock().remove(&session_id);
