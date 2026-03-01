@@ -7,7 +7,6 @@ use std::thread::{self, JoinHandle};
 #[derive(Clone)]
 pub(crate) struct AutosaveRequest {
     pub(crate) workspace: persistence::PersistedWorkspaceV1,
-    pub(crate) fingerprint: u64,
     pub(crate) signature: AutosaveSignature,
 }
 
@@ -15,7 +14,6 @@ pub(crate) type AutosaveSignature = (u64, Vec<(SessionId, u64)>);
 
 #[derive(Clone)]
 pub(crate) struct AutosaveResult {
-    pub(crate) fingerprint: u64,
     pub(crate) signature: AutosaveSignature,
     pub(crate) error: Option<String>,
 }
@@ -32,10 +30,11 @@ pub(crate) struct AutosaveWorker {
 }
 
 impl AutosaveWorker {
-    pub(crate) fn spawn(queue_capacity: usize) -> Self {
+    pub(crate) fn spawn(queue_capacity: usize, initial_fingerprint: Option<u64>) -> Self {
         let (command_tx, command_rx) = mpsc::sync_channel::<AutosaveCommand>(queue_capacity);
         let (result_tx, result_rx) = mpsc::channel::<AutosaveResult>();
-        let join_handle = thread::spawn(move || autosave_worker_loop(command_rx, result_tx));
+        let join_handle =
+            thread::spawn(move || autosave_worker_loop(command_rx, result_tx, initial_fingerprint));
 
         Self {
             command_tx: Mutex::new(Some(command_tx)),
@@ -85,20 +84,34 @@ impl AutosaveWorker {
 fn autosave_worker_loop(
     command_rx: Receiver<AutosaveCommand>,
     result_tx: mpsc::Sender<AutosaveResult>,
+    mut last_saved_fingerprint: Option<u64>,
 ) {
     while let Ok(command) = command_rx.recv() {
         match command {
             AutosaveCommand::Save(request) => {
-                let result = match persistence::save_workspace(&request.workspace) {
-                    Ok(()) => AutosaveResult {
-                        fingerprint: request.fingerprint,
-                        signature: request.signature,
-                        error: None,
+                let result = match request.workspace.stable_fingerprint() {
+                    Ok(fingerprint) if last_saved_fingerprint == Some(fingerprint) => {
+                        AutosaveResult {
+                            signature: request.signature,
+                            error: None,
+                        }
+                    }
+                    Ok(fingerprint) => match persistence::save_workspace(&request.workspace) {
+                        Ok(()) => {
+                            last_saved_fingerprint = Some(fingerprint);
+                            AutosaveResult {
+                                signature: request.signature,
+                                error: None,
+                            }
+                        }
+                        Err(error) => AutosaveResult {
+                            signature: request.signature,
+                            error: Some(format!("Autosave failed: {error}")),
+                        },
                     },
                     Err(error) => AutosaveResult {
-                        fingerprint: request.fingerprint,
                         signature: request.signature,
-                        error: Some(format!("Autosave failed: {error}")),
+                        error: Some(format!("Autosave failed: fingerprint error: {error}")),
                     },
                 };
                 let _ = result_tx.send(result);

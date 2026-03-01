@@ -79,7 +79,18 @@ pub fn App() -> Element {
     };
     let dragging_tab = use_signal(|| None::<SessionId>);
     let terminal_manager = use_signal(|| Arc::new(TerminalManager::new()));
-    let autosave_worker = use_signal(|| Arc::new(AutosaveWorker::spawn(AUTOSAVE_QUEUE_CAPACITY)));
+    let autosave_worker = {
+        let loaded = initial_workspace.read().clone();
+        use_signal(move || {
+            let initial_fingerprint = loaded
+                .as_ref()
+                .and_then(|workspace| workspace.stable_fingerprint().ok());
+            Arc::new(AutosaveWorker::spawn(
+                AUTOSAVE_QUEUE_CAPACITY,
+                initial_fingerprint,
+            ))
+        })
+    };
     let new_group_path = use_signal(String::new);
     let persistence_feedback = use_signal(String::new);
     let refresh_tick = use_signal(|| 0_u64);
@@ -262,15 +273,10 @@ pub fn App() -> Element {
         let terminal_manager = terminal_manager.read().clone();
         let autosave_worker = autosave_worker.read().clone();
         let mut persistence_feedback = persistence_feedback;
-        let loaded = initial_workspace.read().clone();
         use_future(move || {
             let terminal_manager = terminal_manager.clone();
             let autosave_worker = autosave_worker.clone();
-            let initial_fingerprint = loaded
-                .as_ref()
-                .and_then(|workspace| workspace.stable_fingerprint().ok());
             async move {
-                let mut last_saved_fingerprint = initial_fingerprint;
                 let mut last_saved_signature = None::<AutosaveSignature>;
                 let mut inflight_signature = None::<AutosaveSignature>;
                 let mut deferred_request = None::<AutosaveRequest>;
@@ -280,7 +286,6 @@ pub fn App() -> Element {
 
                     for result in autosave_worker.drain_results() {
                         if result.error.is_none() {
-                            last_saved_fingerprint = Some(result.fingerprint);
                             last_saved_signature = Some(result.signature.clone());
                             persistence_feedback.set(String::new());
                         } else if let Some(error) = result.error {
@@ -340,20 +345,8 @@ pub fn App() -> Element {
                         AUTOSAVE_PERSISTED_HISTORY_LINES,
                     );
 
-                    let Ok(fingerprint) = workspace.stable_fingerprint() else {
-                        persistence_feedback
-                            .set("Autosave paused: failed to fingerprint workspace.".to_string());
-                        continue;
-                    };
-
-                    if last_saved_fingerprint == Some(fingerprint) {
-                        last_saved_signature = Some(save_signature);
-                        continue;
-                    }
-
                     let request = AutosaveRequest {
                         workspace,
-                        fingerprint,
                         signature: save_signature.clone(),
                     };
 

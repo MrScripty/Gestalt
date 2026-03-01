@@ -620,11 +620,8 @@ fn profile_autosave_hold(
             AUTOSAVE_PERSISTED_HISTORY_LINES,
         );
         profile.hold_times_us.push(started.elapsed().as_micros());
-        let fingerprint_started = Instant::now();
-        let _ = workspace.stable_fingerprint();
-        profile
-            .fingerprint_us
-            .push(fingerprint_started.elapsed().as_micros());
+        // Fingerprint hashing now runs in the autosave worker thread, not the UI hold path.
+        profile.fingerprint_us.push(0);
         let line_total = workspace
             .terminals
             .iter()

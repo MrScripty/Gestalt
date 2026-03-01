@@ -190,6 +190,10 @@ Before/After:
 Success:
 - Significant fingerprint-cost reduction; autosave pass remains stable or better.
 
+Status:
+- Complete
+- Result: `docs/perf-results/2026-03-01-120811-v2-milestone-5-autosave.md`
+
 ### Milestone 6: Git Watcher Efficiency
 
 Goal:
@@ -307,3 +311,16 @@ Output:
      `autosave_pass_p95_us`: 1817 -> 2269, +24.9%).
   - Decision: reverted Milestone 4 code changes; keep Milestone 3 baseline.
   - Next step: Milestone 5 (autosave fingerprint cost reduction).
+- 2026-03-01: Milestone 5 completed.
+  - Moved autosave fingerprint hashing/dedupe to the worker thread in
+    `src/ui/autosave.rs`.
+  - Removed UI-loop fingerprint hashing from `src/ui.rs` autosave scheduling path.
+  - Updated profiler autosave hold probe in `src/bin/profile_terminal.rs` to reflect
+    the new UI-side behavior.
+  - Captured 10-run post-change metrics:
+    - `.perf/2026-03-01-120811-profile-terminal-v2-m5-autosave.txt`
+    - `docs/perf-results/2026-03-01-120811-v2-milestone-5-autosave.md`
+  - Outcome: significant improvement on target metric
+    (`autosave_fingerprint_p95_us`: 41347 -> 0, -100.0%)
+    with no >=10% key metric regression.
+  - Next step: Milestone 6 (git watcher efficiency).
