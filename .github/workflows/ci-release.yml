@@ -78,6 +78,47 @@ jobs:
         if: ${{ matrix.compile_only }}
         run: cargo check -q --all-targets
 
+  release_build_smoke:
+    name: release build smoke (${{ matrix.platform }})
+    needs: quality
+    if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux
+            os: ubuntu-latest
+          - platform: windows
+            os: windows-latest
+          - platform: macos
+            os: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Linux desktop build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            libsoup-3.0-dev \
+            libxdo-dev
+          if ! sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev; then
+            sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.0-dev
+          fi
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Release build
+        run: cargo build -q --release
+
   build_installers:
     name: build installer (${{ matrix.package_type }})
     needs: quality
