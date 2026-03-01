@@ -53,6 +53,40 @@ fn insert_commands_persist_across_save_load() {
 }
 
 #[test]
+fn insert_command_large_library_roundtrip() {
+    with_workspace_path("insert-commands-large-roundtrip", |_workspace_path| {
+        let mut state = AppState::default();
+        for index in 0..1_500_u32 {
+            let _ = state.create_insert_command(
+                format!("Command {index:04}"),
+                format!("echo command-{index:04}"),
+                format!("Description {index:04}"),
+                vec!["bulk".to_string(), "roundtrip".to_string()],
+            );
+        }
+
+        let workspace = PersistedWorkspaceV1::new(state, Vec::new());
+        persistence::save_workspace(&workspace).expect("workspace save should succeed");
+
+        let loaded = persistence::load_workspace()
+            .expect("workspace load should succeed")
+            .expect("workspace should exist");
+        let restored = loaded.app_state.into_restored();
+
+        assert_eq!(
+            restored.commands().len(),
+            1_500,
+            "all commands should survive save/load"
+        );
+        assert_eq!(
+            restored.commands()[1_499].name,
+            "Command 1499",
+            "last command should be preserved"
+        );
+    });
+}
+
+#[test]
 fn restore_repairs_invalid_command_id_counter() {
     with_workspace_path("insert-commands-repair", |_workspace_path| {
         let mut state = AppState::default();

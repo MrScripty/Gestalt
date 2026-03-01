@@ -14,6 +14,7 @@ pub(crate) fn CommandsPanel(
 ) -> Element {
     let mut filter_query = use_signal(String::new);
     let mut selected_command_id = use_signal(|| None::<CommandId>);
+    let mut is_new_draft = use_signal(|| false);
     let mut editor_name = use_signal(String::new);
     let mut editor_prompt = use_signal(String::new);
     let mut editor_description = use_signal(String::new);
@@ -41,8 +42,11 @@ pub(crate) fn CommandsPanel(
         pending_delete_id.set(None);
     }
 
-    if selected_command_id.read().is_none()
-        && let Some(first) = all_commands.first()
+    if should_auto_select_first(
+        *selected_command_id.read(),
+        *is_new_draft.read(),
+        !all_commands.is_empty(),
+    ) && let Some(first) = all_commands.first()
     {
         selected_command_id.set(Some(first.id));
         load_editor_from_command(
@@ -55,6 +59,17 @@ pub(crate) fn CommandsPanel(
     }
 
     let selected_id = *selected_command_id.read();
+    let is_editing_mode = selected_id.is_some();
+    let editor_mode_label = if is_editing_mode {
+        "Editing existing command"
+    } else {
+        "Creating new command"
+    };
+    let primary_button_label = if is_editing_mode {
+        "Save Changes"
+    } else {
+        "Create Command"
+    };
     let editor_name_value = editor_name.read().clone();
     let editor_prompt_value = editor_prompt.read().clone();
     let editor_description_value = editor_description.read().clone();
@@ -87,6 +102,7 @@ pub(crate) fn CommandsPanel(
                     class: "commands-action-btn",
                     r#type: "button",
                     onclick: move |_| {
+                        is_new_draft.set(true);
                         selected_command_id.set(None);
                         pending_delete_id.set(None);
                         editor_name.set(String::new());
@@ -120,6 +136,7 @@ pub(crate) fn CommandsPanel(
                                         class: "{row_class}",
                                         r#type: "button",
                                         onclick: move |_| {
+                                            is_new_draft.set(false);
                                             selected_command_id.set(Some(command.id));
                                             pending_delete_id.set(None);
                                             editor_name.set(command_name.clone());
@@ -172,6 +189,8 @@ pub(crate) fn CommandsPanel(
                         oninput: move |event| editor_tags_csv.set(event.value()),
                     }
 
+                    p { class: "commands-editor-mode", "{editor_mode_label}" }
+
                     div { class: "commands-editor-actions",
                         button {
                             class: "commands-action-btn primary",
@@ -194,6 +213,7 @@ pub(crate) fn CommandsPanel(
                                 let selected = *selected_command_id.read();
 
                                 if let Some(command_id) = selected {
+                                    is_new_draft.set(false);
                                     let updated = app_state.write().update_insert_command(
                                         command_id,
                                         name,
@@ -222,6 +242,7 @@ pub(crate) fn CommandsPanel(
                                         description,
                                         tags,
                                     );
+                                    is_new_draft.set(false);
                                     selected_command_id.set(Some(command_id));
                                     pending_delete_id.set(None);
                                     if let Err(error) =
@@ -235,7 +256,7 @@ pub(crate) fn CommandsPanel(
                                     }
                                 }
                             },
-                            "Save"
+                            "{primary_button_label}"
                         }
 
                         button {
@@ -263,6 +284,7 @@ pub(crate) fn CommandsPanel(
                                 selected_command_id.set(None);
                                 let next = app_state.read().commands().first().cloned();
                                 if let Some(next_command) = next {
+                                    is_new_draft.set(false);
                                     selected_command_id.set(Some(next_command.id));
                                     load_editor_from_command(
                                         &next_command,
@@ -276,6 +298,7 @@ pub(crate) fn CommandsPanel(
                                     editor_prompt.set(String::new());
                                     editor_description.set(String::new());
                                     editor_tags_csv.set(String::new());
+                                    is_new_draft.set(true);
                                 }
                                 if let Err(error) =
                                     persist_workspace_snapshot(app_state, terminal_manager)
@@ -350,4 +373,32 @@ fn prompt_preview(prompt: &str) -> String {
     }
 
     preview
+}
+
+fn should_auto_select_first(
+    selected_id: Option<CommandId>,
+    is_new_draft: bool,
+    has_commands: bool,
+) -> bool {
+    selected_id.is_none() && !is_new_draft && has_commands
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_auto_select_first;
+
+    #[test]
+    fn auto_selects_when_no_selection_and_not_in_draft_mode() {
+        assert!(should_auto_select_first(None, false, true));
+    }
+
+    #[test]
+    fn does_not_auto_select_while_new_draft_is_active() {
+        assert!(!should_auto_select_first(None, true, true));
+    }
+
+    #[test]
+    fn does_not_auto_select_when_a_command_is_already_selected() {
+        assert!(!should_auto_select_first(Some(42), false, true));
+    }
 }

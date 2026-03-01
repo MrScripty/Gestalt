@@ -179,6 +179,13 @@
   gap: 6px;
 }
 
+.commands-editor-mode {
+  margin: 2px 0 0;
+  font-size: 0.67rem;
+  font-weight: 700;
+  color: #2f5f67;
+}
+
 .commands-action-btn {
   border: 1px solid #95b7be;
   border-radius: 8px;
