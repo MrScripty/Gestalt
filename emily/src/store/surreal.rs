@@ -8,24 +8,17 @@ use async_trait::async_trait;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use surrealdb::Surreal;
+use surrealdb::engine::local::{Db, SurrealKv};
 use tokio::sync::RwLock;
-
-#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
-struct MemoryDb {
-    objects: Vec<TextObject>,
-    edges: Vec<TextEdge>,
-}
 
 #[derive(Debug, Default)]
 struct StoreState {
     active_locator: Option<DatabaseLocator>,
-    active_db: MemoryDb,
+    active_client: Option<Surreal<Db>>,
 }
 
-/// Embedded store implementation behind the Surreal-facing contract.
-///
-/// Note: this persists to a local JSON file at the selected locator path.
+/// Embedded SurrealDB-backed store implementation.
 #[derive(Debug, Default)]
 pub struct SurrealEmilyStore {
     state: RwLock<StoreState>,
@@ -38,45 +31,12 @@ impl SurrealEmilyStore {
         }
     }
 
-    fn db_file_path(locator: &DatabaseLocator) -> PathBuf {
-        locator
-            .storage_path
-            .join(&locator.namespace)
-            .join(format!("{}.json", locator.database))
-    }
-
-    fn save_db(locator: &DatabaseLocator, db: &MemoryDb) -> Result<(), EmilyError> {
-        let path = Self::db_file_path(locator);
-        let parent = path.parent().ok_or_else(|| {
-            EmilyError::Store("failed to derive parent directory for database file".to_string())
-        })?;
-        fs::create_dir_all(parent).map_err(|error| {
-            EmilyError::Store(format!(
-                "failed creating database directory {}: {error}",
-                parent.display()
-            ))
-        })?;
-        let payload = serde_json::to_vec_pretty(db)
-            .map_err(|error| EmilyError::Store(format!("failed serializing database: {error}")))?;
-        fs::write(&path, payload).map_err(|error| {
-            EmilyError::Store(format!("failed writing {}: {error}", path.display()))
-        })
-    }
-
-    fn load_db(locator: &DatabaseLocator) -> Result<MemoryDb, EmilyError> {
-        let path = Self::db_file_path(locator);
-        if !path.exists() {
-            return Ok(MemoryDb::default());
-        }
-        let bytes = fs::read(&path).map_err(|error| {
-            EmilyError::Store(format!("failed reading {}: {error}", path.display()))
-        })?;
-        serde_json::from_slice::<MemoryDb>(&bytes).map_err(|error| {
-            EmilyError::Store(format!(
-                "failed parsing embedded database payload {}: {error}",
-                path.display()
-            ))
-        })
+    async fn active_client(&self) -> Result<Surreal<Db>, EmilyError> {
+        let state = self.state.read().await;
+        state
+            .active_client
+            .clone()
+            .ok_or(EmilyError::DatabaseNotOpen)
     }
 
     fn parse_query_tokens(value: &str) -> HashMap<String, usize> {
@@ -120,69 +80,128 @@ impl SurrealEmilyStore {
             * recency_decay
     }
 
-    fn append_linear_edge(db: &mut MemoryDb, object: &TextObject) {
-        let previous = db
-            .objects
-            .iter()
-            .filter(|candidate| candidate.stream_id == object.stream_id)
-            .filter(|candidate| candidate.sequence + 1 == object.sequence)
-            .max_by_key(|candidate| candidate.sequence);
-        let Some(previous) = previous else {
-            return;
+    fn text_object_projection() -> &'static str {
+        "type::string(id) AS id, stream_id, source_kind, object_kind, sequence, ts_unix_ms, text, metadata, embedding, epsilon, confidence, outcome_factor, novelty_factor, stability_factor, learning_weight, gate_score, integrated, quarantine_score"
+    }
+
+    async fn append_linear_edge(
+        &self,
+        client: &Surreal<Db>,
+        object: &TextObject,
+    ) -> Result<(), EmilyError> {
+        if object.sequence == 0 {
+            return Ok(());
+        }
+
+        let previous_sequence = object.sequence.saturating_sub(1);
+        let mut response = client
+            .query(format!(
+                "SELECT {} FROM text_objects WHERE stream_id = $stream_id AND sequence = $sequence LIMIT 1",
+                Self::text_object_projection()
+            ))
+            .bind(("stream_id", object.stream_id.clone()))
+            .bind(("sequence", previous_sequence))
+            .await
+            .map_err(|error| EmilyError::Store(format!("surreal query failed: {error}")))?;
+
+        let previous: Vec<TextObject> = response.take(0).map_err(|error| {
+            EmilyError::Store(format!(
+                "surreal result decode failed (previous object): {error}"
+            ))
+        })?;
+
+        let Some(previous) = previous.into_iter().next() else {
+            return Ok(());
         };
 
-        db.edges.push(TextEdge {
+        let edge = TextEdge {
             id: format!("edge:{}:{}", previous.id, object.id),
-            from_id: previous.id.clone(),
+            from_id: previous.id,
             to_id: object.id.clone(),
             edge_type: TextEdgeType::LinearNext,
             weight: 1.0,
             ts_unix_ms: object.ts_unix_ms,
-        });
+        };
+
+        client
+            .query("UPSERT type::thing('text_edges', $id) CONTENT $edge")
+            .bind(("id", edge.id.clone()))
+            .bind(("edge", edge))
+            .await
+            .map_err(|error| EmilyError::Store(format!("surreal edge upsert failed: {error}")))?;
+
+        Ok(())
     }
 }
 
 #[async_trait]
 impl EmilyStore for SurrealEmilyStore {
     async fn open(&self, locator: &DatabaseLocator) -> Result<(), EmilyError> {
+        fs::create_dir_all(&locator.storage_path).map_err(|error| {
+            EmilyError::Store(format!(
+                "failed creating surreal storage path {}: {error}",
+                locator.storage_path.display()
+            ))
+        })?;
+
+        let storage_path = locator.storage_path.to_string_lossy().to_string();
+        let client = Surreal::new::<SurrealKv>(storage_path)
+            .await
+            .map_err(|error| EmilyError::Store(format!("surreal open failed: {error}")))?;
+        client
+            .use_ns(&locator.namespace)
+            .use_db(&locator.database)
+            .await
+            .map_err(|error| EmilyError::Store(format!("surreal use ns/db failed: {error}")))?;
+
         let mut state = self.state.write().await;
-        state.active_db = Self::load_db(locator)?;
         state.active_locator = Some(locator.clone());
+        state.active_client = Some(client);
         Ok(())
     }
 
     async fn close(&self) -> Result<(), EmilyError> {
         let mut state = self.state.write().await;
-        if let Some(locator) = state.active_locator.clone() {
-            Self::save_db(&locator, &state.active_db)?;
-        }
         state.active_locator = None;
-        state.active_db = MemoryDb::default();
+        state.active_client = None;
         Ok(())
     }
 
     async fn insert_text_object(&self, object: &TextObject) -> Result<(), EmilyError> {
-        let mut state = self.state.write().await;
-        let locator = state
-            .active_locator
-            .clone()
-            .ok_or(EmilyError::DatabaseNotOpen)?;
+        let client = self.active_client().await?;
 
-        Self::append_linear_edge(&mut state.active_db, object);
-        state.active_db.objects.push(object.clone());
-        Self::save_db(&locator, &state.active_db)
+        self.append_linear_edge(&client, object).await?;
+
+        client
+            .query("UPSERT type::thing('text_objects', $id) CONTENT $object")
+            .bind(("id", object.id.clone()))
+            .bind(("object", object.clone()))
+            .await
+            .map_err(|error| EmilyError::Store(format!("surreal object upsert failed: {error}")))?;
+
+        Ok(())
     }
 
     async fn query_context(&self, query: &ContextQuery) -> Result<ContextPacket, EmilyError> {
-        let state = self.state.read().await;
-        if state.active_locator.is_none() {
-            return Err(EmilyError::DatabaseNotOpen);
-        }
+        let client = self.active_client().await?;
 
-        let mut ranked = state
-            .active_db
-            .objects
-            .iter()
+        let mut response = client
+            .query(format!(
+                "SELECT {} FROM text_objects",
+                Self::text_object_projection()
+            ))
+            .await
+            .map_err(|error| {
+                EmilyError::Store(format!("surreal select text_objects failed: {error}"))
+            })?;
+        let objects: Vec<TextObject> = response.take(0).map_err(|error| {
+            EmilyError::Store(format!(
+                "surreal result decode failed (text_objects): {error}"
+            ))
+        })?;
+
+        let mut ranked = objects
+            .into_iter()
             .filter(|object| {
                 query
                     .stream_id
@@ -191,12 +210,12 @@ impl EmilyStore for SurrealEmilyStore {
             })
             .map(|object| {
                 let similarity = Self::lexical_similarity(&query.query_text, &object.text);
-                let rank = Self::rank_score(similarity, object);
+                let rank = Self::rank_score(similarity, &object);
                 ContextItem {
-                    object: object.clone(),
+                    provenance: vec![object.id.clone()],
+                    object,
                     similarity,
                     rank,
-                    provenance: vec![object.id.clone()],
                 }
             })
             .collect::<Vec<_>>();
@@ -223,22 +242,30 @@ impl EmilyStore for SurrealEmilyStore {
             ));
         }
 
-        let state = self.state.read().await;
-        if state.active_locator.is_none() {
-            return Err(EmilyError::DatabaseNotOpen);
-        }
+        let client = self.active_client().await?;
+        let mut response = client
+            .query(format!(
+                "SELECT {} FROM text_objects",
+                Self::text_object_projection()
+            ))
+            .await
+            .map_err(|error| {
+                EmilyError::Store(format!("surreal select text_objects failed: {error}"))
+            })?;
+        let objects: Vec<TextObject> = response.take(0).map_err(|error| {
+            EmilyError::Store(format!(
+                "surreal result decode failed (text_objects): {error}"
+            ))
+        })?;
 
-        let mut items = state
-            .active_db
-            .objects
-            .iter()
+        let mut items = objects
+            .into_iter()
             .filter(|object| object.stream_id == request.stream_id)
             .filter(|object| {
                 request
                     .before_sequence
                     .is_none_or(|before| object.sequence < before)
             })
-            .cloned()
             .collect::<Vec<_>>();
         items.sort_by(|left, right| right.sequence.cmp(&left.sequence));
         items.truncate(request.limit);
@@ -264,7 +291,7 @@ mod tests {
             .expect("system time before unix epoch");
         DatabaseLocator {
             storage_path: std::env::temp_dir()
-                .join(format!("emily-store-test-{}", now.as_millis())),
+                .join(format!("emily-surreal-test-{}", now.as_millis())),
             namespace: "ns".to_string(),
             database: "db".to_string(),
         }
@@ -320,5 +347,6 @@ mod tests {
         assert_eq!(page.next_before_sequence, Some(2));
 
         store.close().await.expect("close store");
+        let _ = std::fs::remove_dir_all(locator.storage_path);
     }
 }
