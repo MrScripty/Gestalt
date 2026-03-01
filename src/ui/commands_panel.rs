@@ -13,6 +13,7 @@ pub(crate) fn CommandsPanel(app_state: Signal<AppState>) -> Element {
     let mut editor_description = use_signal(String::new);
     let mut editor_tags_csv = use_signal(String::new);
     let mut editor_feedback = use_signal(String::new);
+    let mut pending_delete_id = use_signal(|| None::<CommandId>);
 
     let all_commands = app_state.read().commands().to_vec();
     let filter = filter_query.read().trim().to_lowercase();
@@ -31,6 +32,7 @@ pub(crate) fn CommandsPanel(app_state: Signal<AppState>) -> Element {
         && app_state.read().command_by_id(selected_id).is_none()
     {
         selected_command_id.set(None);
+        pending_delete_id.set(None);
     }
 
     if selected_command_id.read().is_none()
@@ -53,6 +55,13 @@ pub(crate) fn CommandsPanel(app_state: Signal<AppState>) -> Element {
     let editor_tags_value = editor_tags_csv.read().clone();
     let feedback_value = editor_feedback.read().clone();
     let filter_query_value = filter_query.read().clone();
+    let selected_delete_target = *pending_delete_id.read();
+    let delete_needs_confirm = selected_id.is_some() && selected_delete_target == selected_id;
+    let delete_button_label = if delete_needs_confirm {
+        "Confirm Delete"
+    } else {
+        "Delete"
+    };
 
     rsx! {
         article { class: "commands-panel-card",
@@ -73,6 +82,7 @@ pub(crate) fn CommandsPanel(app_state: Signal<AppState>) -> Element {
                     r#type: "button",
                     onclick: move |_| {
                         selected_command_id.set(None);
+                        pending_delete_id.set(None);
                         editor_name.set(String::new());
                         editor_prompt.set(String::new());
                         editor_description.set(String::new());
@@ -105,6 +115,7 @@ pub(crate) fn CommandsPanel(app_state: Signal<AppState>) -> Element {
                                         r#type: "button",
                                         onclick: move |_| {
                                             selected_command_id.set(Some(command.id));
+                                            pending_delete_id.set(None);
                                             editor_name.set(command_name.clone());
                                             editor_prompt.set(prompt.clone());
                                             editor_description.set(description.clone());
@@ -185,6 +196,7 @@ pub(crate) fn CommandsPanel(app_state: Signal<AppState>) -> Element {
                                         tags,
                                     );
                                     if updated {
+                                        pending_delete_id.set(None);
                                         editor_feedback.set("Command updated.".to_string());
                                     } else {
                                         editor_feedback.set("No changes to save.".to_string());
@@ -197,6 +209,7 @@ pub(crate) fn CommandsPanel(app_state: Signal<AppState>) -> Element {
                                         tags,
                                     );
                                     selected_command_id.set(Some(command_id));
+                                    pending_delete_id.set(None);
                                     editor_feedback.set("Command created.".to_string());
                                 }
                             },
@@ -211,13 +224,20 @@ pub(crate) fn CommandsPanel(app_state: Signal<AppState>) -> Element {
                                 let Some(command_id) = *selected_command_id.read() else {
                                     return;
                                 };
+                                if *pending_delete_id.read() != Some(command_id) {
+                                    pending_delete_id.set(Some(command_id));
+                                    editor_feedback.set("Click delete again to confirm.".to_string());
+                                    return;
+                                }
 
                                 let removed = app_state.write().delete_insert_command(command_id);
                                 if !removed {
+                                    pending_delete_id.set(None);
                                     editor_feedback.set("Command not found.".to_string());
                                     return;
                                 }
 
+                                pending_delete_id.set(None);
                                 selected_command_id.set(None);
                                 let next = app_state.read().commands().first().cloned();
                                 if let Some(next_command) = next {
@@ -237,7 +257,7 @@ pub(crate) fn CommandsPanel(app_state: Signal<AppState>) -> Element {
                                 }
                                 editor_feedback.set("Command deleted.".to_string());
                             },
-                            "Delete"
+                            "{delete_button_label}"
                         }
                     }
 
