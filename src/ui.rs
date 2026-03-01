@@ -3,6 +3,7 @@ mod command_palette;
 mod commands_panel;
 mod git_helpers;
 mod git_panel;
+mod git_refresh;
 mod insert_command_mode;
 mod local_agent_panel;
 mod sidebar_panel_host;
@@ -16,6 +17,7 @@ use crate::persistence;
 use crate::state::{SessionId, SessionStatus};
 use crate::terminal::{PersistedTerminalState, TerminalManager};
 use crate::ui::autosave::{AutosaveRequest, AutosaveSignature, AutosaveWorker};
+use crate::ui::git_refresh::use_git_refresh_coordinator;
 use crate::ui::insert_command_mode::InsertModeState;
 use crate::ui::sidebar_panel_host::SidebarPanelKind;
 use crate::ui::tab_rail::TabRail;
@@ -35,7 +37,6 @@ const STYLE: &str = concat!(
 const TERMINAL_REFRESH_POLL_MS: u64 = 33;
 const TERMINAL_RESIZE_POLL_MS: u64 = 180;
 const AUTOSAVE_POLL_MS: u64 = 1_200;
-const GIT_CONTEXT_REFRESH_POLL_MS: u64 = 1_500;
 const AUTOSAVE_QUEUE_CAPACITY: usize = 1;
 const RAIL_WIDTH_DEFAULT_PX: i32 = 330;
 const RAIL_WIDTH_MIN_PX: i32 = 240;
@@ -193,49 +194,12 @@ pub fn App() -> Element {
         });
     }
 
-    {
-        let app_state = app_state;
-        let mut git_context = git_context;
-        let mut git_context_loading = git_context_loading;
-        use_future(move || async move {
-            let mut last_key = (String::new(), u64::MAX);
-
-            loop {
-                tokio::time::sleep(Duration::from_millis(GIT_CONTEXT_REFRESH_POLL_MS)).await;
-
-                let snapshot = app_state.read().clone();
-                let Some(group_id) = snapshot.active_group_id() else {
-                    if git_context.read().is_some() {
-                        git_context.set(None);
-                    }
-                    last_key = (String::new(), u64::MAX);
-                    continue;
-                };
-                let group_path = snapshot.group_path(group_id).unwrap_or(".").to_string();
-                let refresh_nonce = *git_refresh_nonce.read();
-                let next_key = (group_path.clone(), refresh_nonce);
-                if next_key == last_key {
-                    continue;
-                }
-
-                last_key = next_key;
-                git_context_loading.set(true);
-
-                match crate::orchestrator::git::load_repo_context(&group_path) {
-                    Ok(context) => {
-                        git_context.set(Some(context));
-                    }
-                    Err(_) => {
-                        git_context.set(Some(RepoContext::NotRepo {
-                            inspected_path: group_path,
-                        }));
-                    }
-                }
-
-                git_context_loading.set(false);
-            }
-        });
-    }
+    use_git_refresh_coordinator(
+        app_state,
+        git_context,
+        git_context_loading,
+        git_refresh_nonce,
+    );
 
     {
         let app_state = app_state;
