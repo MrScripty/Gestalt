@@ -85,6 +85,38 @@ fn restore_repairs_invalid_command_id_counter() {
     });
 }
 
+#[test]
+fn legacy_workspace_without_command_library_loads_with_defaults() {
+    with_workspace_path("insert-commands-legacy", |workspace_path| {
+        let legacy_workspace = PersistedWorkspaceV1::new(AppState::default(), Vec::new());
+        let mut payload =
+            serde_json::to_value(legacy_workspace).expect("workspace json value should serialize");
+
+        let Some(app_state) = payload.get_mut("app_state").and_then(|value| value.as_object_mut())
+        else {
+            panic!("app_state object should exist");
+        };
+        app_state.remove("command_library");
+
+        let json =
+            serde_json::to_string_pretty(&payload).expect("legacy workspace json should encode");
+        std::fs::write(&workspace_path, json).expect("legacy workspace should be written");
+
+        let loaded = persistence::load_workspace()
+            .expect("workspace load should succeed")
+            .expect("workspace should exist");
+        let restored = loaded.app_state.into_restored();
+        assert!(
+            restored.commands().is_empty(),
+            "missing command library should default to empty"
+        );
+        assert!(
+            restored.command_library.next_command_id >= 1,
+            "id allocator should be repaired"
+        );
+    });
+}
+
 fn with_workspace_path(test_name: &str, run: impl FnOnce(PathBuf)) {
     let _guard = ENV_LOCK.lock().expect("env lock");
     let nonce = SystemTime::now()
