@@ -78,7 +78,6 @@ pub(crate) fn terminal_shell(
         Some((anchor_session, row)) if anchor_session == session_id => row,
         _ => cursor_row,
     };
-    let round_bounds = terminal_round_bounds(&terminal.lines, round_anchor_row_global);
     let current_insert_mode = insert_mode_state.read().clone();
     let insert_mode_for_session = current_insert_mode
         .as_ref()
@@ -254,7 +253,9 @@ pub(crate) fn terminal_shell(
                     if text.eq_ignore_ascii_case("a") {
                         event.prevent_default();
                         event.stop_propagation();
-                        if let Some((start_row, end_row)) = round_bounds {
+                        if let Some((start_row, end_row)) =
+                            terminal_round_bounds(&terminal.lines, round_anchor_row_global)
+                        {
                             let body_id = body_id_for_round_select.clone();
                             spawn(async move {
                                 let _ = select_terminal_round(body_id, start_row, end_row).await;

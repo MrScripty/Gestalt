@@ -269,4 +269,7 @@ Recommendation:
 - Milestone 1 completed on 2026-03-01:
   - Instrumentation added in `src/bin/profile_terminal.rs`.
   - Instrumented baseline captured: `docs/perf-results/2026-03-01-082534-render-instrumentation-baseline.md`.
-- Next step is Milestone 2 (remove full-history scans in frequent render paths).
+- Milestone 2 completed on 2026-03-01:
+  - Removed render-path round-bound extraction and bounded orchestrator prompt scan depth.
+  - Measured result: `docs/perf-results/2026-03-01-084224-milestone-2-round-scan-removal.md`.
+- Next step is Milestone 3 (reduce row-render workload volume and repeated parsing cost).

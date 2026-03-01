@@ -3,6 +3,7 @@ use crate::terminal::TerminalManager;
 use std::collections::HashMap;
 
 const MAX_ROUND_LINES: usize = 8;
+const MAX_PROMPT_SCAN_LINES: usize = 2_048;
 
 /// Extracted round boundaries and text for a terminal buffer.
 #[derive(Debug, Clone, PartialEq)]
@@ -196,7 +197,8 @@ fn latest_round_from_lines(lines: &[String]) -> TerminalRound {
         .iter()
         .rposition(|line| !line.trim().is_empty())
         .unwrap_or(0);
-    let start_idx = (0..=last_non_empty)
+    let scan_floor = last_non_empty.saturating_sub(MAX_PROMPT_SCAN_LINES.saturating_sub(1));
+    let start_idx = (scan_floor..=last_non_empty)
         .rev()
         .find(|idx| {
             is_prompt_row(
@@ -206,7 +208,7 @@ fn latest_round_from_lines(lines: &[String]) -> TerminalRound {
                     .unwrap_or_default(),
             )
         })
-        .unwrap_or(0);
+        .unwrap_or(scan_floor);
     let end_idx = last_non_empty.max(start_idx);
 
     let total_round_lines = end_idx.saturating_sub(start_idx).saturating_add(1);

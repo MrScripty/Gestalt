@@ -340,7 +340,6 @@ fn spawn_autosave_worker(
 struct RenderPassProbe {
     ui_rows_rendered: u128,
     ui_row_render_us: u128,
-    round_bounds_extract_us: u128,
     orchestrator_round_extract_us: u128,
 }
 
@@ -389,12 +388,6 @@ fn simulate_render_pass(app_state: &AppState, runtime: &TerminalManager) -> Rend
         probe.ui_row_render_us = probe
             .ui_row_render_us
             .saturating_add(row_render_started.elapsed().as_micros());
-
-        let round_started = Instant::now();
-        let _ = terminal_round_bounds(&snapshot.lines, snapshot.cursor_row);
-        probe.round_bounds_extract_us = probe
-            .round_bounds_extract_us
-            .saturating_add(round_started.elapsed().as_micros());
 
         let cwd = runtime.session_cwd(session.id).unwrap_or_else(|| {
             app_state
@@ -463,14 +456,21 @@ fn profile_render_hold(
     };
 
     for _ in 0..iterations {
-        let started = Instant::now();
+        let render_started = Instant::now();
         let probe = simulate_render_pass(app_state, terminal_manager);
-        profile.hold_times_us.push(started.elapsed().as_micros());
+        profile
+            .hold_times_us
+            .push(render_started.elapsed().as_micros());
+
+        let round_started = Instant::now();
+        probe_round_bounds_extract(app_state, terminal_manager);
+        let round_bounds_extract_us = round_started.elapsed().as_micros();
+
         profile.ui_rows_rendered.push(probe.ui_rows_rendered);
         profile.ui_row_render_us.push(probe.ui_row_render_us);
         profile
             .round_bounds_extract_us
-            .push(probe.round_bounds_extract_us);
+            .push(round_bounds_extract_us);
         profile
             .orchestrator_round_extract_us
             .push(probe.orchestrator_round_extract_us);
@@ -536,6 +536,23 @@ fn emulate_terminal_row_render_work(rows: u16, lines: &[String]) -> usize {
     }
 
     rendered.len()
+}
+
+fn probe_round_bounds_extract(app_state: &AppState, runtime: &TerminalManager) {
+    let Some(group_id) = app_state.active_group_id() else {
+        return;
+    };
+    let (agents, runner) = app_state.workspace_sessions_for_group(group_id);
+    let mut sessions = agents;
+    if let Some(runner) = runner {
+        sessions.push(runner);
+    }
+
+    for session in &sessions {
+        if let Some(snapshot) = runtime.snapshot(session.id) {
+            let _ = terminal_round_bounds(&snapshot.lines, snapshot.cursor_row);
+        }
+    }
 }
 
 fn terminal_round_bounds(lines: &[String], cursor_row: u16) -> Option<(u16, u16)> {
