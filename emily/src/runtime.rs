@@ -77,8 +77,15 @@ impl<S: EmilyStore> EmilyRuntime<S> {
             text: request.text,
             metadata: request.metadata,
             embedding,
+            epsilon: None,
             confidence: 1.0,
+            outcome_factor: 0.5,
+            novelty_factor: 0.5,
+            stability_factor: 1.0,
             learning_weight: 1.0,
+            gate_score: None,
+            integrated: true,
+            quarantine_score: 0.0,
         }
     }
 }

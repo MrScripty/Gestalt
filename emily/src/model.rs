@@ -34,8 +34,15 @@ pub struct TextObject {
     pub text: String,
     pub metadata: Value,
     pub embedding: Option<Vec<f32>>,
+    pub epsilon: Option<f32>,
     pub confidence: f32,
+    pub outcome_factor: f32,
+    pub novelty_factor: f32,
+    pub stability_factor: f32,
     pub learning_weight: f32,
+    pub gate_score: Option<f32>,
+    pub integrated: bool,
+    pub quarantine_score: f32,
 }
 
 /// Object category is intentionally generic and host-agnostic.
