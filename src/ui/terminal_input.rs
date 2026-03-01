@@ -222,6 +222,18 @@ pub(crate) async fn measure_terminal_viewport(terminal_body_id: String) -> Optio
 const root = document.getElementById({terminal_body_id:?});
 if (!root) return "";
 
+if (root.dataset.viewportObserverInstalled !== "1") {{
+    root.dataset.viewportObserverInstalled = "1";
+    root._gestaltViewportDirty = true;
+    if (window.ResizeObserver) {{
+        const observer = new ResizeObserver(() => {{
+            root._gestaltViewportDirty = true;
+        }});
+        observer.observe(root);
+        root._gestaltViewportObserver = observer;
+    }}
+}}
+
 const style = window.getComputedStyle(root);
 const parsePx = (value, fallback) => {{
     const parsed = Number.parseFloat(value);
@@ -231,28 +243,55 @@ const parsePx = (value, fallback) => {{
 const paddingX = parsePx(style.paddingLeft, 0) + parsePx(style.paddingRight, 0);
 const paddingY = parsePx(style.paddingTop, 0) + parsePx(style.paddingBottom, 0);
 const lineHeight = Math.max(1, parsePx(style.lineHeight, 17));
-
-let charWidth = parsePx(style.getPropertyValue("--term-char-width"), 8.4);
-const probe = document.createElement("span");
-probe.textContent = "MMMMMMMMMM";
-probe.style.position = "absolute";
-probe.style.visibility = "hidden";
-probe.style.pointerEvents = "none";
-probe.style.whiteSpace = "pre";
-probe.style.font = style.font;
-probe.style.letterSpacing = style.letterSpacing;
-root.appendChild(probe);
-const probeWidth = probe.getBoundingClientRect().width / 10;
-root.removeChild(probe);
-if (Number.isFinite(probeWidth) && probeWidth > 0) {{
-    charWidth = probeWidth;
-}}
-charWidth = Math.max(1, charWidth);
+const styleKey = `${{style.font}}|${{style.letterSpacing}}|${{lineHeight}}|${{paddingX}}|${{paddingY}}`;
 
 const viewportWidth = Math.max(0, root.clientWidth - paddingX);
 const viewportHeight = Math.max(0, root.clientHeight - paddingY);
+
+const cached = root._gestaltViewportMeasureCache || null;
+if (cached) {{
+    const dimensionsChanged =
+        cached.viewportWidth !== viewportWidth || cached.viewportHeight !== viewportHeight;
+    const styleChanged = cached.styleKey !== styleKey;
+    const dirty = root._gestaltViewportDirty !== false;
+    if (!dirty && !dimensionsChanged && !styleChanged) {{
+        return "";
+    }}
+}}
+
+let charWidth = parsePx(style.getPropertyValue("--term-char-width"), 8.4);
+if (!cached || cached.styleKey !== styleKey || !(cached.charWidth > 0)) {{
+    const probe = document.createElement("span");
+    probe.textContent = "MMMMMMMMMM";
+    probe.style.position = "absolute";
+    probe.style.visibility = "hidden";
+    probe.style.pointerEvents = "none";
+    probe.style.whiteSpace = "pre";
+    probe.style.font = style.font;
+    probe.style.letterSpacing = style.letterSpacing;
+    root.appendChild(probe);
+    const probeWidth = probe.getBoundingClientRect().width / 10;
+    root.removeChild(probe);
+    if (Number.isFinite(probeWidth) && probeWidth > 0) {{
+        charWidth = probeWidth;
+    }}
+}} else {{
+    charWidth = cached.charWidth;
+}}
+charWidth = Math.max(1, charWidth);
+
 const cols = Math.max(8, Math.floor(viewportWidth / charWidth));
 const rows = Math.max(2, Math.floor(viewportHeight / lineHeight));
+
+root._gestaltViewportMeasureCache = {{
+    styleKey,
+    charWidth,
+    viewportWidth,
+    viewportHeight,
+    rows,
+    cols,
+}};
+root._gestaltViewportDirty = false;
 
 return `${{rows}},${{cols}}`;
 "#

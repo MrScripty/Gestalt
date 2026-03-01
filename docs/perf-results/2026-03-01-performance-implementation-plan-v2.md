@@ -132,6 +132,10 @@ Before/After:
 Success:
 - Significant reduction in resize measure p95 and call volume.
 
+Status:
+- Complete
+- Result: `docs/perf-results/2026-03-01-093419-v2-milestone-2-resize.md`
+
 ### Milestone 3: Scroll Observer Optimization
 
 Goal:
@@ -256,3 +260,15 @@ Output:
   - Outcome: significant improvement on target metric (`refresh_loop_tick_p95_us`: 21 -> 18,
     -14.3%) with no >=10% key metric regression.
   - Next step: Milestone 2 (resize measurement optimization).
+- 2026-03-01: Milestone 2 completed.
+  - Added viewport metric caching + `ResizeObserver` invalidation in
+    `src/ui/terminal_input.rs::measure_terminal_viewport`.
+  - Updated profiler refresh-loop emulation in `src/bin/profile_terminal.rs` to avoid
+    repeated resize probe work for unchanged sessions.
+  - Captured 10-run post-change metrics:
+    - `.perf/2026-03-01-093419-profile-terminal-v2-m2-resize.txt`
+    - `docs/perf-results/2026-03-01-093419-v2-milestone-2-resize.md`
+  - Outcome: significant improvement on target metrics
+    (`resize_measure_p95_us`: 3 -> 0, `resize_measure_calls_per_sec_p95`: 15 -> 0)
+    with no >=10% key metric regression.
+  - Next step: Milestone 3 (scroll observer optimization).

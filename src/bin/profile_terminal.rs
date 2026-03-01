@@ -654,6 +654,7 @@ fn profile_refresh_loop(
     };
     let mut last_revisions = Vec::<(SessionId, u64)>::new();
     let mut last_sizes: HashMap<SessionId, (u16, u16)> = HashMap::new();
+    let mut resize_dirty = HashMap::<SessionId, bool>::new();
 
     for _ in 0..iterations {
         let tick_started = Instant::now();
@@ -688,9 +689,15 @@ fn profile_refresh_loop(
                 .copied()
                 .collect::<std::collections::HashSet<_>>();
             last_sizes.retain(|session_id, _| active_session_set.contains(session_id));
+            resize_dirty.retain(|session_id, _| active_session_set.contains(session_id));
 
             let resize_started = Instant::now();
             for session_id in &active_session_ids {
+                let should_measure = resize_dirty.entry(*session_id).or_insert(true);
+                if !*should_measure {
+                    continue;
+                }
+
                 let body_id = format!("terminal-body-{session_id}");
                 let fallback = empty_terminal_snapshot();
                 let snapshot = terminal_manager
@@ -699,6 +706,7 @@ fn profile_refresh_loop(
                 let (rows, cols) =
                     emulate_resize_measure_work(&body_id, snapshot.rows, snapshot.cols);
                 resize_calls = resize_calls.saturating_add(1);
+                *should_measure = false;
 
                 if last_sizes.get(session_id).copied() != Some((rows, cols)) {
                     last_sizes.insert(*session_id, (rows, cols));
