@@ -18,6 +18,12 @@ pub(crate) enum InsertModeOutcome {
     Ignore,
 }
 
+pub(crate) enum TerminalKeyRoute {
+    OpenMode,
+    HandleMode(InsertModeOutcome),
+    Passthrough,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct KeyModifiers {
     pub ctrl: bool,
@@ -133,11 +139,56 @@ pub(crate) fn reduce_insert_mode_key(
     }
 }
 
+pub(crate) fn route_terminal_key(
+    mode: Option<&InsertModeState>,
+    key: &Key,
+    modifiers: KeyModifiers,
+    selection: InsertModeSelection,
+) -> TerminalKeyRoute {
+    if let Some(mode) = mode {
+        return TerminalKeyRoute::HandleMode(reduce_insert_mode_key(
+            mode, key, modifiers, selection,
+        ));
+    }
+
+    if is_insert_trigger_key(
+        key,
+        modifiers.ctrl,
+        modifiers.alt,
+        modifiers.shift,
+        modifiers.meta,
+    ) {
+        TerminalKeyRoute::OpenMode
+    } else {
+        TerminalKeyRoute::Passthrough
+    }
+}
+
+pub(crate) fn mode_after_focus(
+    mode: Option<InsertModeState>,
+    focused_session: SessionId,
+) -> Option<InsertModeState> {
+    match mode {
+        Some(mode) if mode.session_id != focused_session => None,
+        state => state,
+    }
+}
+
+pub(crate) fn mode_after_blur(
+    mode: Option<InsertModeState>,
+    blurred_session: SessionId,
+) -> Option<InsertModeState> {
+    match mode {
+        Some(mode) if mode.session_id == blurred_session => None,
+        state => state,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        InsertModeOutcome, InsertModeSelection, InsertModeState, KeyModifiers,
-        reduce_insert_mode_key,
+        InsertModeOutcome, InsertModeSelection, InsertModeState, KeyModifiers, TerminalKeyRoute,
+        mode_after_blur, mode_after_focus, reduce_insert_mode_key, route_terminal_key,
     };
     use dioxus::prelude::Key;
 
@@ -245,5 +296,123 @@ mod tests {
             InsertModeOutcome::Keep(next) => assert_eq!(next.highlighted_index, 1),
             _ => panic!("expected keep outcome"),
         }
+    }
+
+    #[test]
+    fn route_insert_opens_mode_when_closed() {
+        let route = route_terminal_key(
+            None,
+            &Key::Insert,
+            KeyModifiers {
+                ctrl: false,
+                alt: false,
+                shift: false,
+                meta: false,
+            },
+            InsertModeSelection {
+                selected_command_id: None,
+                match_count: 0,
+            },
+        );
+
+        assert!(matches!(route, TerminalKeyRoute::OpenMode));
+    }
+
+    #[test]
+    fn route_slash_passthrough_when_closed() {
+        let route = route_terminal_key(
+            None,
+            &Key::Character("/".to_string()),
+            KeyModifiers {
+                ctrl: false,
+                alt: false,
+                shift: false,
+                meta: false,
+            },
+            InsertModeSelection {
+                selected_command_id: None,
+                match_count: 0,
+            },
+        );
+
+        assert!(matches!(route, TerminalKeyRoute::Passthrough));
+    }
+
+    #[test]
+    fn route_ctrl_c_passthrough_when_closed() {
+        let route = route_terminal_key(
+            None,
+            &Key::Character("c".to_string()),
+            KeyModifiers {
+                ctrl: true,
+                alt: false,
+                shift: false,
+                meta: false,
+            },
+            InsertModeSelection {
+                selected_command_id: None,
+                match_count: 0,
+            },
+        );
+
+        assert!(matches!(route, TerminalKeyRoute::Passthrough));
+    }
+
+    #[test]
+    fn shift_insert_does_not_open_command_mode() {
+        let route = route_terminal_key(
+            None,
+            &Key::Insert,
+            KeyModifiers {
+                ctrl: false,
+                alt: false,
+                shift: true,
+                meta: false,
+            },
+            InsertModeSelection {
+                selected_command_id: None,
+                match_count: 0,
+            },
+        );
+
+        assert!(matches!(route, TerminalKeyRoute::Passthrough));
+    }
+
+    #[test]
+    fn route_keys_are_consumed_when_mode_open() {
+        let mode = InsertModeState {
+            session_id: 5,
+            query: "d".to_string(),
+            highlighted_index: 0,
+        };
+        let route = route_terminal_key(
+            Some(&mode),
+            &Key::Character("/".to_string()),
+            KeyModifiers {
+                ctrl: false,
+                alt: false,
+                shift: false,
+                meta: false,
+            },
+            InsertModeSelection {
+                selected_command_id: None,
+                match_count: 1,
+            },
+        );
+
+        assert!(matches!(route, TerminalKeyRoute::HandleMode(_)));
+    }
+
+    #[test]
+    fn focus_change_closes_mode_for_other_session() {
+        let mode = Some(InsertModeState {
+            session_id: 10,
+            query: String::new(),
+            highlighted_index: 0,
+        });
+
+        assert!(mode_after_focus(mode.clone(), 11).is_none());
+        assert!(mode_after_focus(mode.clone(), 10).is_some());
+        assert!(mode_after_blur(mode, 10).is_none());
     }
 }

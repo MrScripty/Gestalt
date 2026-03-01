@@ -92,7 +92,9 @@ fn legacy_workspace_without_command_library_loads_with_defaults() {
         let mut payload =
             serde_json::to_value(legacy_workspace).expect("workspace json value should serialize");
 
-        let Some(app_state) = payload.get_mut("app_state").and_then(|value| value.as_object_mut())
+        let Some(app_state) = payload
+            .get_mut("app_state")
+            .and_then(|value| value.as_object_mut())
         else {
             panic!("app_state object should exist");
         };

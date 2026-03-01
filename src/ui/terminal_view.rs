@@ -3,8 +3,8 @@ use crate::state::{AppState, SessionId, SessionStatus};
 use crate::terminal::{TerminalManager, TerminalSnapshot};
 use crate::ui::command_palette::{InsertCommandPalette, PaletteRow};
 use crate::ui::insert_command_mode::{
-    InsertModeOutcome, InsertModeSelection, InsertModeState, KeyModifiers, command_matches,
-    is_insert_trigger_key, reduce_insert_mode_key, selected_command_id,
+    InsertModeOutcome, InsertModeSelection, InsertModeState, KeyModifiers, TerminalKeyRoute,
+    command_matches, mode_after_blur, mode_after_focus, route_terminal_key, selected_command_id,
 };
 use crate::ui::terminal_input::{
     COPY_SELECTION_JS, READ_CLIPBOARD_JS, cursor_move_bytes, install_terminal_paste_bridge,
@@ -59,7 +59,6 @@ pub(crate) fn terminal_shell(
     let body_id_for_click = terminal_body_id.clone();
     let body_id_for_round_select = terminal_body_id.clone();
     let body_id_for_mount = terminal_body_id.clone();
-    let body_id_for_paste_shortcut = terminal_body_id.clone();
     let body_id_for_paste_event = terminal_body_id.clone();
     let terminal_manager_for_click = terminal_manager.clone();
     let terminal_manager_for_keydown = terminal_manager;
@@ -106,11 +105,7 @@ pub(crate) fn terminal_shell(
             onfocus: move |_| {
                 focused_terminal.set(Some(session_id));
                 let mode_snapshot = insert_mode_state.read().clone();
-                if let Some(mode) = mode_snapshot
-                    && mode.session_id != session_id
-                {
-                    insert_mode_state.set(None);
-                }
+                insert_mode_state.set(mode_after_focus(mode_snapshot, session_id));
             },
             onblur: move |_| {
                 let is_current = *focused_terminal.read() == Some(session_id);
@@ -118,11 +113,7 @@ pub(crate) fn terminal_shell(
                     focused_terminal.set(None);
                 }
                 let mode_snapshot = insert_mode_state.read().clone();
-                if let Some(mode) = mode_snapshot
-                    && mode.session_id == session_id
-                {
-                    insert_mode_state.set(None);
-                }
+                insert_mode_state.set(mode_after_blur(mode_snapshot, session_id));
             },
             onclick: move |event| {
                 focused_terminal.set(Some(session_id));
@@ -175,56 +166,61 @@ pub(crate) fn terminal_shell(
                     .as_ref()
                     .filter(|mode| mode.session_id == session_id)
                     .cloned();
-                if let Some(mode) = active_insert_mode {
-                    event.prevent_default();
-                    event.stop_propagation();
-
-                    let command_matches = command_matches(app_state.read().commands(), &mode.query);
-                    let selected_id =
-                        selected_command_id(&command_matches, mode.highlighted_index);
-                    match reduce_insert_mode_key(
-                        &mode,
-                        &key,
-                        KeyModifiers {
-                            ctrl,
-                            alt,
-                            shift,
-                            meta,
-                        },
-                        InsertModeSelection {
-                            selected_command_id: selected_id,
-                            match_count: command_matches.len(),
-                        },
-                    ) {
-                        InsertModeOutcome::Keep(next_mode) => {
-                            insert_mode_state.set(Some(next_mode));
-                        }
-                        InsertModeOutcome::Close => {
-                            insert_mode_state.set(None);
-                        }
-                        InsertModeOutcome::Submit(command_id) => {
-                            submit_insert_command(
-                                command_id,
-                                &terminal_manager_for_keydown,
-                                app_state,
-                                session_id,
-                            );
-                            insert_mode_state.set(None);
-                        }
-                        InsertModeOutcome::Ignore => {}
+                let command_matches = active_insert_mode
+                    .as_ref()
+                    .map(|mode| command_matches(app_state.read().commands(), &mode.query))
+                    .unwrap_or_default();
+                let selected_id = active_insert_mode
+                    .as_ref()
+                    .and_then(|mode| selected_command_id(&command_matches, mode.highlighted_index));
+                match route_terminal_key(
+                    active_insert_mode.as_ref(),
+                    &key,
+                    KeyModifiers {
+                        ctrl,
+                        alt,
+                        shift,
+                        meta,
+                    },
+                    InsertModeSelection {
+                        selected_command_id: selected_id,
+                        match_count: command_matches.len(),
+                    },
+                ) {
+                    TerminalKeyRoute::OpenMode => {
+                        event.prevent_default();
+                        event.stop_propagation();
+                        insert_mode_state.set(Some(InsertModeState {
+                            session_id,
+                            query: String::new(),
+                            highlighted_index: 0,
+                        }));
+                        return;
                     }
-                    return;
-                }
-
-                if is_insert_trigger_key(&key, ctrl, alt, shift, meta) {
-                    event.prevent_default();
-                    event.stop_propagation();
-                    insert_mode_state.set(Some(InsertModeState {
-                        session_id,
-                        query: String::new(),
-                        highlighted_index: 0,
-                    }));
-                    return;
+                    TerminalKeyRoute::HandleMode(outcome) => {
+                        event.prevent_default();
+                        event.stop_propagation();
+                        match outcome {
+                            InsertModeOutcome::Keep(next_mode) => {
+                                insert_mode_state.set(Some(next_mode));
+                            }
+                            InsertModeOutcome::Close => {
+                                insert_mode_state.set(None);
+                            }
+                            InsertModeOutcome::Submit(command_id) => {
+                                submit_insert_command(
+                                    command_id,
+                                    &terminal_manager_for_keydown,
+                                    app_state,
+                                    session_id,
+                                );
+                                insert_mode_state.set(None);
+                            }
+                            InsertModeOutcome::Ignore => {}
+                        }
+                        return;
+                    }
+                    TerminalKeyRoute::Passthrough => {}
                 }
 
                 if is_paste_shortcut(
@@ -234,17 +230,8 @@ pub(crate) fn terminal_shell(
                     shift,
                     meta,
                 ) {
-                    event.prevent_default();
-                    event.stop_propagation();
-                    let terminal_manager = terminal_manager_for_keydown.clone();
-                    let body_id = body_id_for_paste_shortcut.clone();
-                    paste_clipboard_into_terminal(
-                        terminal_manager,
-                        app_state,
-                        session_id,
-                        bracketed_paste,
-                        body_id,
-                    );
+                    // Let the platform dispatch `paste` so clipboard data is available via the
+                    // trusted paste event path.
                     return;
                 }
 
@@ -628,5 +615,38 @@ fn send_input_to_session(
         app_state
             .write()
             .set_session_status(session_id, SessionStatus::Error);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_paste_shortcut;
+    use dioxus::prelude::Key;
+
+    #[test]
+    fn recognizes_ctrl_v_as_paste() {
+        assert!(is_paste_shortcut(
+            &Key::Character("v".to_string()),
+            true,
+            false,
+            false,
+            false,
+        ));
+    }
+
+    #[test]
+    fn rejects_ctrl_alt_v_as_paste() {
+        assert!(!is_paste_shortcut(
+            &Key::Character("v".to_string()),
+            true,
+            true,
+            false,
+            false,
+        ));
+    }
+
+    #[test]
+    fn recognizes_shift_insert_as_paste() {
+        assert!(is_paste_shortcut(&Key::Insert, false, false, true, false));
     }
 }

@@ -25,6 +25,10 @@ const STACK_SPLIT_MIN_RATIO: f64 = 0.28;
 const STACK_SPLIT_MAX_RATIO: f64 = 0.72;
 const STACK_SPLIT_DRAG_SENSITIVITY_PX: f64 = 520.0;
 
+fn run_sidebar_style_for_panel(_panel: SidebarPanelKind, ratio: f64) -> String {
+    format!("--runner-top-ratio: {:.2}%;", ratio * 100.0)
+}
+
 #[component]
 pub(crate) fn WorkspaceMain(
     app_state: Signal<AppState>,
@@ -125,7 +129,7 @@ pub(crate) fn WorkspaceMain(
         (*runner_top_ratio.read()).clamp(STACK_SPLIT_MIN_RATIO, STACK_SPLIT_MAX_RATIO);
     let workspace_layout_style = format!("--runner-width: {runner_width}px;");
     let agent_stack_style = format!("--agent-top-ratio: {:.2}%;", agent_ratio * 100.0);
-    let run_sidebar_style = format!("--runner-top-ratio: {:.2}%;", sidebar_ratio * 100.0);
+    let run_sidebar_style = run_sidebar_style_for_panel(*sidebar_panel.read(), sidebar_ratio);
     let interaction = TerminalInteractionSignals {
         app_state,
         focused_terminal,
@@ -461,5 +465,22 @@ pub(crate) fn WorkspaceMain(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::run_sidebar_style_for_panel;
+    use crate::ui::sidebar_panel_host::SidebarPanelKind;
+
+    #[test]
+    fn sidebar_layout_style_is_panel_agnostic() {
+        let ratio = 0.57;
+        let local = run_sidebar_style_for_panel(SidebarPanelKind::LocalAgent, ratio);
+        let commands = run_sidebar_style_for_panel(SidebarPanelKind::Commands, ratio);
+        let git = run_sidebar_style_for_panel(SidebarPanelKind::Git, ratio);
+
+        assert_eq!(local, commands);
+        assert_eq!(local, git);
     }
 }

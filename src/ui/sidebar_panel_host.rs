@@ -15,6 +15,13 @@ pub(crate) enum SidebarPanelKind {
     Git,
 }
 
+pub(crate) fn select_sidebar_panel(
+    _current: SidebarPanelKind,
+    requested: SidebarPanelKind,
+) -> SidebarPanelKind {
+    requested
+}
+
 #[component]
 pub(crate) fn SidebarPanelHost(
     app_state: Signal<AppState>,
@@ -102,8 +109,28 @@ fn panel_button(
             role: "tab",
             title: "{title}",
             aria_selected: kind == active_panel,
-            onclick: move |_| sidebar_panel.set(kind),
+            onclick: move |_| sidebar_panel.set(select_sidebar_panel(active_panel, kind)),
             "{label}"
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SidebarPanelKind, select_sidebar_panel};
+
+    #[test]
+    fn switcher_supports_toggling_across_all_panels() {
+        let panels = [
+            SidebarPanelKind::LocalAgent,
+            SidebarPanelKind::Commands,
+            SidebarPanelKind::Git,
+        ];
+
+        for current in panels {
+            for requested in panels {
+                assert_eq!(select_sidebar_panel(current, requested), requested);
+            }
         }
     }
 }

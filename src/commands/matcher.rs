@@ -109,6 +109,7 @@ fn contiguous_indices(start: Option<usize>, needle: &str) -> Vec<usize> {
 mod tests {
     use super::rank_commands;
     use crate::commands::model::InsertCommand;
+    use std::time::{Duration, Instant};
 
     fn cmd(id: u32, name: &str, prompt: &str, updated_at_unix: u64) -> InsertCommand {
         InsertCommand {
@@ -157,5 +158,30 @@ mod tests {
         assert_eq!(matches.len(), 2);
         assert_eq!(matches[0].command_id, 3);
         assert_eq!(matches[1].command_id, 2);
+    }
+
+    #[test]
+    fn large_library_matching_is_responsive() {
+        let commands = (0..1_200_u32)
+            .map(|index| InsertCommand {
+                id: index + 1,
+                name: format!("command-{index}"),
+                prompt: format!("echo command {index}"),
+                description: "bulk generated command".to_string(),
+                tags: vec!["generated".to_string(), "perf".to_string()],
+                updated_at_unix: u64::from(index),
+            })
+            .collect::<Vec<_>>();
+
+        let started = Instant::now();
+        let matches = rank_commands(&commands, "command-99", 8);
+        let elapsed = started.elapsed();
+
+        assert!(
+            elapsed <= Duration::from_millis(500),
+            "matching took too long: {:?}",
+            elapsed
+        );
+        assert!(!matches.is_empty());
     }
 }
