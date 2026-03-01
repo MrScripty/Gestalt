@@ -229,6 +229,10 @@ Tasks:
 Output:
 - `docs/perf-results/2026-03-01-<ts>-v2-final-comparison.md`
 
+Status:
+- Complete
+- Result: `docs/perf-results/2026-03-01-122122-v2-final-comparison.md`
+
 ## Verification Gates (Per Milestone)
 
 - `cargo fmt`
@@ -343,3 +347,12 @@ Output:
   - Note: `full_total_send_p95_us` increased by 3us (26 -> 29, +11.5%); treat as
     minor drift and keep monitoring in final consolidated rerun.
   - Next step: Milestone 7 (final consolidated rerun + recommendation update).
+- 2026-03-01: Milestone 7 completed.
+  - Captured final 10-run consolidated metrics on post-M6 code:
+    - `.perf/2026-03-01-122122-profile-terminal-v2-final.txt`
+    - `docs/perf-results/2026-03-01-122122-v2-final-comparison.md`
+  - Updated recommendations based on measured outcomes:
+    - `docs/PERFORMANCE-RECOMMENDATIONS.md`
+  - Outcome: significant net wins on refresh loop, resize measurement, scroll callback
+    pressure, autosave fingerprinting, and git watcher poll cost; Milestone 4
+    remains reverted due regression.

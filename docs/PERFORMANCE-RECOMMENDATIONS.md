@@ -196,3 +196,72 @@ Data sources:
 5. Benchmark protocol standardization is incomplete for probe comparability.
    Impact: some metric probe semantics changed between milestones (`round_bounds_extract`) and required manual interpretation.
    Recommendation: require probe-definition changelog and comparability notes in every perf milestone report.
+
+## 2026-03-01 v2 Execution Update (Current)
+
+Data sources:
+- Baseline: `docs/perf-results/2026-03-01-091848-v2-milestone-0-baseline.md`
+- Milestone 1: `docs/perf-results/2026-03-01-092907-v2-milestone-1-refresh-loop.md`
+- Milestone 2: `docs/perf-results/2026-03-01-093419-v2-milestone-2-resize.md`
+- Milestone 3: `docs/perf-results/2026-03-01-101557-v2-milestone-3-scroll.md`
+- Milestone 4 regression: `docs/perf-results/2026-03-01-114353-v2-milestone-4-regression.md`
+- Milestone 5: `docs/perf-results/2026-03-01-120811-v2-milestone-5-autosave.md`
+- Milestone 6: `docs/perf-results/2026-03-01-121706-v2-milestone-6-git-watcher.md`
+- Final comparison: `docs/perf-results/2026-03-01-122122-v2-final-comparison.md`
+
+### Net p95 Delta (v2 Baseline -> v2 Final)
+
+| Metric | Baseline | Final | Delta | Result |
+| --- | --- | --- | --- | --- |
+| `refresh_loop_tick_p95_us` | `21` | `15` | `-28.6%` | Significant improvement |
+| `resize_measure_p95_us` | `3` | `0` | `-100.0%` | Significant improvement |
+| `scroll_observer_callbacks_per_sec_p95` | `90` | `45` | `-50.0%` | Significant improvement |
+| `autosave_fingerprint_p95_us` | `41785` | `0` | `-100.0%` | Significant improvement |
+| `git_watcher_poll_cost_p95_us` | `10248` | `4486` | `-56.2%` | Significant improvement |
+| `autosave_pass_p95_us` | `1837` | `1771` | `-3.6%` | Neutral improvement |
+| `render_pass_p95_us` | `4036` | `4149` | `+2.8%` | Neutral drift |
+| `baseline_total_send_p95_us` | `26` | `27` | `+3.8%` | Neutral |
+| `render_total_send_p95_us` | `27` | `27` | `0.0%` | Neutral |
+| `full_total_send_p95_us` | `30` | `26` | `-13.3%` | Significant improvement |
+
+### What Worked (v2)
+
+1. Removing poll-loop full-state clone pressure produced measurable refresh-loop gains.
+2. Resize metric caching plus observer invalidation eliminated resize probe cost.
+3. Scroll observer coalescing reduced callback pressure by half.
+4. Moving autosave fingerprinting out of the UI path removed large periodic autosave overhead.
+5. Root-based git watcher fingerprinting significantly reduced repo poll cost.
+
+### What Did Not Work (v2)
+
+1. Milestone 4 render-path clone reduction attempt regressed render and autosave p95 and had to be reverted.
+2. Send-latency metrics remain noisy and should be treated as secondary guardrails, not primary optimization targets.
+
+### Standards Shortcomings Confirmed By v2 Data
+
+1. High-frequency path constraints are not explicit enough in coding/frontend standards.
+   Impact: clone-heavy work can enter refresh/render loops.
+   Recommendation: require explicit no-full-state-clone rule for loops <=1000ms and render paths; require ID/view projections instead.
+
+2. Performance budgets are not mandatory in standards/CI.
+   Impact: major regressions are detected manually instead of automatically.
+   Recommendation: add required p95 budgets for `refresh_loop_tick`, `render_pass`, `autosave_pass`, and `git_watcher_poll_cost`, with CI threshold checks.
+
+3. Probe comparability policy is underspecified.
+   Impact: cross-milestone analysis can become ambiguous when probe semantics evolve.
+   Recommendation: require metric schema versioning and a comparability note in each perf results file.
+
+4. Refactor-risk controls for performance-sensitive code are too weak.
+   Impact: Milestone 4 looked structurally cleaner but produced a large regression.
+   Recommendation: require pre-merge A/B perf capture for changes touching render snapshot/build logic.
+
+5. Standards do not formally encode planned-architecture exceptions.
+   Impact: teams can spend effort optimizing bottlenecks that are about to be replaced (terminal clone/merge before SurrealDB migration).
+   Recommendation: add an explicit "near-term replacement exemption" rule with a time-box and documented rationale.
+
+### Updated Priority Queue
+
+1. Preserve and guard the v2 wins with CI perf budgets.
+2. Postpone deep terminal clone/merge optimization until SurrealDB history migration lands.
+3. Re-approach render-path snapshot optimization only with tight A/B benchmarking and rollback criteria.
+4. Keep profiler metrics from v2 as permanent regression checks.
