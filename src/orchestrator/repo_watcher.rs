@@ -29,12 +29,7 @@ impl Drop for RepoWatcherHandle {
 
 /// Starts an active-group repository monitor that emits pub/sub events on change.
 pub fn start_active_repo_watcher(group_path: &str) -> Option<RepoWatcherHandle> {
-    if crate::git::repo_change_fingerprint(group_path)
-        .ok()
-        .is_none()
-    {
-        return None;
-    }
+    crate::git::repo_change_fingerprint(group_path).ok()?;
 
     let watched_group_path = group_path.to_string();
     let (stop_tx, stop_rx) = channel::<()>();

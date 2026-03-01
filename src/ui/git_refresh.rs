@@ -110,7 +110,8 @@ pub(crate) fn use_git_refresh_coordinator(
 
             let debounced_due = watcher_debounce
                 .iter()
-                .filter_map(|(path, due)| (*due <= tick_counter).then(|| path.clone()))
+                .filter(|(_, due)| **due <= tick_counter)
+                .map(|(path, _)| path.clone())
                 .collect::<Vec<_>>();
             for path in debounced_due {
                 watcher_debounce.remove(&path);
