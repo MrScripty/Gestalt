@@ -13,6 +13,14 @@ struct TerminalPaneData {
     is_runtime_ready: bool,
 }
 
+const RUNNER_WIDTH_MIN_PX: i32 = 260;
+const RUNNER_WIDTH_MAX_PX: i32 = 760;
+const RUNNER_WIDTH_STEP_PX: i32 = 16;
+const STACK_SPLIT_STEP_RATIO: f64 = 0.03;
+const STACK_SPLIT_MIN_RATIO: f64 = 0.28;
+const STACK_SPLIT_MAX_RATIO: f64 = 0.72;
+const STACK_SPLIT_DRAG_SENSITIVITY_PX: f64 = 520.0;
+
 #[component]
 pub(crate) fn WorkspaceMain(
     app_state: Signal<AppState>,
@@ -23,6 +31,9 @@ pub(crate) fn WorkspaceMain(
     local_agent_feedback: Signal<String>,
     persistence_feedback: Signal<String>,
     refresh_tick: Signal<u64>,
+    runner_width_px: Signal<i32>,
+    agent_top_ratio: Signal<f64>,
+    runner_top_ratio: Signal<f64>,
 ) -> Element {
     let _ = *refresh_tick.read();
     let snapshot = app_state.read().clone();
@@ -93,12 +104,68 @@ pub(crate) fn WorkspaceMain(
 
     let mut local_agent_command = local_agent_command;
     let mut local_agent_feedback = local_agent_feedback;
+    let mut runner_width_px = runner_width_px;
+    let mut agent_top_ratio = agent_top_ratio;
+    let mut runner_top_ratio = runner_top_ratio;
     let local_agent_command_value = local_agent_command.read().clone();
     let local_agent_feedback_value = local_agent_feedback.read().clone();
     let persistence_feedback_value = persistence_feedback.read().clone();
+    let mut runner_drag_start = use_signal(|| None::<(f64, i32)>);
+    let mut agent_drag_start = use_signal(|| None::<(f64, f64)>);
+    let mut sidebar_drag_start = use_signal(|| None::<(f64, f64)>);
+
+    let runner_width = (*runner_width_px.read()).clamp(RUNNER_WIDTH_MIN_PX, RUNNER_WIDTH_MAX_PX);
+    let agent_ratio = (*agent_top_ratio.read()).clamp(STACK_SPLIT_MIN_RATIO, STACK_SPLIT_MAX_RATIO);
+    let sidebar_ratio =
+        (*runner_top_ratio.read()).clamp(STACK_SPLIT_MIN_RATIO, STACK_SPLIT_MAX_RATIO);
+    let workspace_layout_style = format!("--runner-width: {runner_width}px;");
+    let agent_stack_style = format!("--agent-top-ratio: {:.2}%;", agent_ratio * 100.0);
+    let run_sidebar_style = format!("--runner-top-ratio: {:.2}%;", sidebar_ratio * 100.0);
+    let workspace_class = if runner_drag_start.read().is_some()
+        || agent_drag_start.read().is_some()
+        || sidebar_drag_start.read().is_some()
+    {
+        "workspace resizing"
+    } else {
+        "workspace"
+    };
 
     rsx! {
-        main { class: "workspace",
+        main {
+            class: "{workspace_class}",
+            onmousemove: move |event| {
+                let pointer = event.data().client_coordinates();
+
+                if let Some((start_x, start_width)) = *runner_drag_start.read() {
+                    let delta_x = pointer.x - start_x;
+                    let next_width = (f64::from(start_width) - delta_x).round() as i32;
+                    runner_width_px.set(next_width.clamp(RUNNER_WIDTH_MIN_PX, RUNNER_WIDTH_MAX_PX));
+                }
+
+                if let Some((start_y, start_ratio)) = *agent_drag_start.read() {
+                    let delta_y = pointer.y - start_y;
+                    let next_ratio = (start_ratio + (delta_y / STACK_SPLIT_DRAG_SENSITIVITY_PX))
+                        .clamp(STACK_SPLIT_MIN_RATIO, STACK_SPLIT_MAX_RATIO);
+                    agent_top_ratio.set(next_ratio);
+                }
+
+                if let Some((start_y, start_ratio)) = *sidebar_drag_start.read() {
+                    let delta_y = pointer.y - start_y;
+                    let next_ratio = (start_ratio + (delta_y / STACK_SPLIT_DRAG_SENSITIVITY_PX))
+                        .clamp(STACK_SPLIT_MIN_RATIO, STACK_SPLIT_MAX_RATIO);
+                    runner_top_ratio.set(next_ratio);
+                }
+            },
+            onmouseup: move |_| {
+                runner_drag_start.set(None);
+                agent_drag_start.set(None);
+                sidebar_drag_start.set(None);
+            },
+            onmouseleave: move |_| {
+                runner_drag_start.set(None);
+                agent_drag_start.set(None);
+                sidebar_drag_start.set(None);
+            },
             header { class: "workspace-head",
                 div {
                     h2 { "Workspace" }
@@ -124,11 +191,17 @@ pub(crate) fn WorkspaceMain(
             if let Some(group_id) = active_group_id {
                 {
                     let group_name = snapshot.group_label(group_id);
+                    let has_agent_split = active_agents.len() > 1;
+                    let agent_stack_class = if has_agent_split {
+                        "agent-stack split-enabled"
+                    } else {
+                        "agent-stack"
+                    };
 
                     rsx! {
-                        div { class: "workspace-layout",
-                            div { class: "agent-stack",
-                                for session in active_agents {
+                        div { class: "workspace-layout", style: "{workspace_layout_style}",
+                            div { class: "{agent_stack_class}", style: "{agent_stack_style}",
+                                for (index, session) in active_agents.into_iter().enumerate() {
                                     {
                                         let session_id = session.id;
                                         let selected = snapshot.selected_session == Some(session_id);
@@ -190,12 +263,72 @@ pub(crate) fn WorkspaceMain(
                                                     round_anchor,
                                                 )}
                                             }
+
+                                            if has_agent_split && index == 0 {
+                                                button {
+                                                    class: "panel-splitter panel-splitter-horizontal terminal-row-splitter",
+                                                    r#type: "button",
+                                                    aria_label: "Resize agent terminals",
+                                                    onmousedown: move |event| {
+                                                        event.prevent_default();
+                                                        let start_y = event.data().client_coordinates().y;
+                                                        agent_drag_start.set(Some((start_y, *agent_top_ratio.read())));
+                                                    },
+                                                    onkeydown: move |event| {
+                                                        match event.key() {
+                                                            Key::ArrowUp => {
+                                                                event.prevent_default();
+                                                                let next = *agent_top_ratio.read() - STACK_SPLIT_STEP_RATIO;
+                                                                agent_top_ratio.set(
+                                                                    next.clamp(STACK_SPLIT_MIN_RATIO, STACK_SPLIT_MAX_RATIO),
+                                                                );
+                                                            }
+                                                            Key::ArrowDown => {
+                                                                event.prevent_default();
+                                                                let next = *agent_top_ratio.read() + STACK_SPLIT_STEP_RATIO;
+                                                                agent_top_ratio.set(
+                                                                    next.clamp(STACK_SPLIT_MIN_RATIO, STACK_SPLIT_MAX_RATIO),
+                                                                );
+                                                            }
+                                                            _ => {}
+                                                        }
+                                                    },
+                                                }
+                                            }
                                         }
                                     }
                                 }
                             }
 
-                            aside { class: "run-sidebar",
+                            button {
+                                class: "panel-splitter panel-splitter-vertical workspace-divider",
+                                r#type: "button",
+                                aria_label: "Resize run sidebar",
+                                onmousedown: move |event| {
+                                    event.prevent_default();
+                                    let start_x = event.data().client_coordinates().x;
+                                    runner_drag_start.set(Some((start_x, *runner_width_px.read())));
+                                },
+                                onkeydown: move |event| {
+                                    match event.key() {
+                                        Key::ArrowLeft => {
+                                            event.prevent_default();
+                                            let next = *runner_width_px.read() + RUNNER_WIDTH_STEP_PX;
+                                            runner_width_px
+                                                .set(next.clamp(RUNNER_WIDTH_MIN_PX, RUNNER_WIDTH_MAX_PX));
+                                        }
+                                        Key::ArrowRight => {
+                                            event.prevent_default();
+                                            let next = *runner_width_px.read() - RUNNER_WIDTH_STEP_PX;
+                                            runner_width_px
+                                                .set(next.clamp(RUNNER_WIDTH_MIN_PX, RUNNER_WIDTH_MAX_PX));
+                                        }
+                                        _ => {}
+                                    }
+                                },
+                            }
+
+                            aside { class: "run-sidebar split-enabled", style: "{run_sidebar_style}",
                                 if let Some(session) = active_runner {
                                     {
                                         let session_id = session.id;
@@ -265,6 +398,36 @@ pub(crate) fn WorkspaceMain(
                                         h3 { "No Run Pane" }
                                         p { "Create or move a RUN tab into this group." }
                                     }
+                                }
+
+                                button {
+                                    class: "panel-splitter panel-splitter-horizontal terminal-row-splitter",
+                                    r#type: "button",
+                                    aria_label: "Resize run and orchestrator panes",
+                                    onmousedown: move |event| {
+                                        event.prevent_default();
+                                        let start_y = event.data().client_coordinates().y;
+                                        sidebar_drag_start.set(Some((start_y, *runner_top_ratio.read())));
+                                    },
+                                    onkeydown: move |event| {
+                                        match event.key() {
+                                            Key::ArrowUp => {
+                                                event.prevent_default();
+                                                let next = *runner_top_ratio.read() - STACK_SPLIT_STEP_RATIO;
+                                                runner_top_ratio.set(
+                                                    next.clamp(STACK_SPLIT_MIN_RATIO, STACK_SPLIT_MAX_RATIO),
+                                                );
+                                            }
+                                            Key::ArrowDown => {
+                                                event.prevent_default();
+                                                let next = *runner_top_ratio.read() + STACK_SPLIT_STEP_RATIO;
+                                                runner_top_ratio.set(
+                                                    next.clamp(STACK_SPLIT_MIN_RATIO, STACK_SPLIT_MAX_RATIO),
+                                                );
+                                            }
+                                            _ => {}
+                                        }
+                                    },
                                 }
 
                                 if let Some(group_orchestrator) = orchestrator_snapshot.clone() {

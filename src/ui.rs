@@ -24,6 +24,13 @@ const TERMINAL_REFRESH_POLL_MS: u64 = 33;
 const TERMINAL_RESIZE_POLL_MS: u64 = 180;
 const AUTOSAVE_POLL_MS: u64 = 1_200;
 const AUTOSAVE_QUEUE_CAPACITY: usize = 1;
+const RAIL_WIDTH_DEFAULT_PX: i32 = 330;
+const RAIL_WIDTH_MIN_PX: i32 = 240;
+const RAIL_WIDTH_MAX_PX: i32 = 620;
+const RAIL_SPLIT_STEP_PX: i32 = 16;
+const SHELL_SPLITTER_SIZE_PX: i32 = 8;
+const RUNNER_WIDTH_DEFAULT_PX: i32 = 340;
+const SPLIT_RATIO_DEFAULT: f64 = 0.5;
 
 /// Root desktop UI component.
 #[component]
@@ -66,6 +73,11 @@ pub fn App() -> Element {
     let local_agent_feedback = use_signal(String::new);
     let renaming_tab = use_signal(|| None::<SessionId>);
     let rename_draft = use_signal(String::new);
+    let mut rail_width_px = use_signal(|| RAIL_WIDTH_DEFAULT_PX);
+    let mut rail_drag_start = use_signal(|| None::<(f64, i32)>);
+    let runner_width_px = use_signal(|| RUNNER_WIDTH_DEFAULT_PX);
+    let agent_top_ratio = use_signal(|| SPLIT_RATIO_DEFAULT);
+    let runner_top_ratio = use_signal(|| SPLIT_RATIO_DEFAULT);
 
     {
         let mut refresh_tick = refresh_tick;
@@ -315,10 +327,38 @@ pub fn App() -> Element {
         }
     }
 
+    let shell_style = format!(
+        "--rail-width: {}px; --splitter-size: {}px;",
+        *rail_width_px.read(),
+        SHELL_SPLITTER_SIZE_PX
+    );
+    let shell_class = if rail_drag_start.read().is_some() {
+        "shell resizing"
+    } else {
+        "shell"
+    };
+
     rsx! {
         style { "{STYLE}" }
 
-        div { class: "shell",
+        div {
+            class: "{shell_class}",
+            style: "{shell_style}",
+            onmousemove: move |event| {
+                let Some((start_x, start_width)) = *rail_drag_start.read() else {
+                    return;
+                };
+
+                let pointer_x = event.data().client_coordinates().x;
+                let next_width = (f64::from(start_width) + (pointer_x - start_x)).round() as i32;
+                rail_width_px.set(next_width.clamp(RAIL_WIDTH_MIN_PX, RAIL_WIDTH_MAX_PX));
+            },
+            onmouseup: move |_| {
+                rail_drag_start.set(None);
+            },
+            onmouseleave: move |_| {
+                rail_drag_start.set(None);
+            },
             TabRail {
                 app_state: app_state,
                 terminal_manager: terminal_manager,
@@ -326,6 +366,31 @@ pub fn App() -> Element {
                 new_group_path: new_group_path,
                 renaming_tab: renaming_tab,
                 rename_draft: rename_draft,
+            }
+            button {
+                class: "panel-splitter panel-splitter-vertical shell-splitter",
+                r#type: "button",
+                aria_label: "Resize tab rail",
+                onmousedown: move |event| {
+                    event.prevent_default();
+                    let start_x = event.data().client_coordinates().x;
+                    rail_drag_start.set(Some((start_x, *rail_width_px.read())));
+                },
+                onkeydown: move |event| {
+                    match event.key() {
+                        Key::ArrowLeft => {
+                            event.prevent_default();
+                            let next = *rail_width_px.read() - RAIL_SPLIT_STEP_PX;
+                            rail_width_px.set(next.clamp(RAIL_WIDTH_MIN_PX, RAIL_WIDTH_MAX_PX));
+                        }
+                        Key::ArrowRight => {
+                            event.prevent_default();
+                            let next = *rail_width_px.read() + RAIL_SPLIT_STEP_PX;
+                            rail_width_px.set(next.clamp(RAIL_WIDTH_MIN_PX, RAIL_WIDTH_MAX_PX));
+                        }
+                        _ => {}
+                    }
+                },
             }
 
             WorkspaceMain {
@@ -337,6 +402,9 @@ pub fn App() -> Element {
                 local_agent_feedback: local_agent_feedback,
                 persistence_feedback: persistence_feedback,
                 refresh_tick: refresh_tick,
+                runner_width_px: runner_width_px,
+                agent_top_ratio: agent_top_ratio,
+                runner_top_ratio: runner_top_ratio,
             }
         }
     }

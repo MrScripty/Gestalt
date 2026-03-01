@@ -12,6 +12,10 @@
   min-width: 0;
 }
 
+.workspace.resizing {
+  user-select: none;
+}
+
 .workspace-head {
   display: flex;
   justify-content: space-between;
@@ -60,11 +64,15 @@
 }
 
 .workspace-layout {
+  --workspace-splitter-size: 8px;
+  --runner-width: 340px;
+  --agent-top-ratio: 50%;
+  --runner-top-ratio: 50%;
   flex: 1;
   min-height: 0;
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 340px;
+  grid-template-columns: minmax(0, 1fr) var(--workspace-splitter-size) minmax(260px, var(--runner-width));
   gap: 10px;
 }
 
@@ -76,12 +84,37 @@
   gap: 10px;
 }
 
+.agent-stack.split-enabled {
+  grid-template-rows:
+    minmax(180px, var(--agent-top-ratio))
+    var(--workspace-splitter-size)
+    minmax(180px, 1fr);
+  gap: 0;
+}
+
 .run-sidebar {
   min-height: 0;
   min-width: 0;
   display: grid;
   grid-template-rows: minmax(240px, 1fr) minmax(240px, 1fr);
   gap: 10px;
+}
+
+.run-sidebar.split-enabled {
+  grid-template-rows:
+    minmax(220px, var(--runner-top-ratio))
+    var(--workspace-splitter-size)
+    minmax(220px, 1fr);
+  gap: 0;
+}
+
+.workspace-divider {
+  min-height: 120px;
+}
+
+.terminal-row-splitter {
+  min-height: var(--workspace-splitter-size);
+  border-radius: 0;
 }
 
 .terminal-card {
@@ -431,6 +464,10 @@
     grid-template-columns: 1fr;
   }
 
+  .workspace-divider {
+    display: none;
+  }
+
   .run-sidebar {
     min-height: 320px;
     grid-template-rows: repeat(2, minmax(280px, 1fr));
@@ -440,6 +477,10 @@
 @media (max-width: 1080px) {
   .shell {
     grid-template-columns: 1fr;
+  }
+
+  .shell-splitter {
+    display: none;
   }
 
   .tab-rail {

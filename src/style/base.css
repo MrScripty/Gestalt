@@ -34,15 +34,22 @@ body {
 }
 
 .shell {
+  --rail-width: 330px;
+  --splitter-size: 8px;
   height: 100vh;
   min-height: 0;
   max-height: 100vh;
   display: grid;
-  grid-template-columns: 330px 1fr;
-  gap: 16px;
+  grid-template-columns: minmax(220px, var(--rail-width)) var(--splitter-size) minmax(0, 1fr);
+  gap: 10px;
   padding: 16px;
   overflow: hidden;
   animation: fade-up 260ms ease-out;
+}
+
+.shell.resizing {
+  user-select: none;
+  cursor: col-resize;
 }
 
 .tab-rail {
@@ -54,6 +61,37 @@ body {
   gap: 12px;
   padding: 14px;
   overflow: hidden;
+}
+
+.panel-splitter {
+  border: 1px solid #335a62;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #2a4e56, #214148);
+  box-shadow: inset 0 0 0 1px #6295a0;
+  padding: 0;
+}
+
+.panel-splitter:hover {
+  background: linear-gradient(180deg, #2f5962, #26484f);
+}
+
+.panel-splitter:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.panel-splitter-vertical {
+  width: 100%;
+  height: 100%;
+  min-height: 48px;
+  cursor: col-resize;
+}
+
+.panel-splitter-horizontal {
+  width: 100%;
+  height: 100%;
+  min-width: 48px;
+  cursor: row-resize;
 }
 
 .brand h1 {
