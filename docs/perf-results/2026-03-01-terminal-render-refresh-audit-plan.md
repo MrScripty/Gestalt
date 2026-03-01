@@ -275,4 +275,7 @@ Recommendation:
 - Milestone 3 completed on 2026-03-01:
   - Reduced render window constants to lower per-refresh row workload volume.
   - Measured result: `docs/perf-results/2026-03-01-084627-milestone-3-render-window.md`.
-- Next step is Milestone 4 (reduce autosave snapshot cost via incremental reuse).
+- Milestone 4 completed on 2026-03-01:
+  - Added autosave history cap path (`4000` lines per terminal) with full-fidelity shutdown save retained.
+  - Measured result: `docs/perf-results/2026-03-01-090832-milestone-4-autosave-history-cap.md`.
+- Next step is Milestone 5 (final comparison + recommendation update from consolidated rerun).

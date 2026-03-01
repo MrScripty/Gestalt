@@ -38,6 +38,7 @@ const TERMINAL_REFRESH_POLL_MS: u64 = 33;
 const TERMINAL_RESIZE_POLL_MS: u64 = 180;
 const TERMINAL_STARTUP_SYNC_POLL_MS: u64 = 250;
 const AUTOSAVE_POLL_MS: u64 = 1_200;
+const AUTOSAVE_PERSISTED_HISTORY_LINES: usize = 4_000;
 const AUTOSAVE_QUEUE_CAPACITY: usize = 1;
 const RAIL_WIDTH_DEFAULT_PX: i32 = 330;
 const RAIL_WIDTH_MIN_PX: i32 = 240;
@@ -331,8 +332,11 @@ pub fn App() -> Element {
                         continue;
                     }
 
-                    let workspace =
-                        persistence::build_workspace_snapshot(&state, &terminal_manager);
+                    let workspace = persistence::build_workspace_snapshot_with_history_limit(
+                        &state,
+                        &terminal_manager,
+                        AUTOSAVE_PERSISTED_HISTORY_LINES,
+                    );
 
                     let Ok(fingerprint) = workspace.stable_fingerprint() else {
                         persistence_feedback

@@ -18,6 +18,7 @@ const ASSERT_LOCK_WAIT_P95_US: u128 = 200;
 const ASSERT_RENDER_TOTAL_P95_US: u128 = 1_000;
 const ASSERT_FULL_TOTAL_P95_US: u128 = 1_500;
 const JSON_PREFIX: &str = "GESTALT_PROFILE_JSON:";
+const AUTOSAVE_PERSISTED_HISTORY_LINES: usize = 4_000;
 const RENDER_WINDOW_MULTIPLIER: usize = 8;
 const RENDER_WINDOW_MIN_ROWS: usize = 256;
 
@@ -326,7 +327,11 @@ fn spawn_autosave_worker(
     thread::spawn(move || {
         while !stop.load(Ordering::Relaxed) {
             let tick = Instant::now();
-            let _ = persistence::build_workspace_snapshot(&app_state, &terminal_manager);
+            let _ = persistence::build_workspace_snapshot_with_history_limit(
+                &app_state,
+                &terminal_manager,
+                AUTOSAVE_PERSISTED_HISTORY_LINES,
+            );
 
             let spent = tick.elapsed();
             if spent < Duration::from_millis(1_200) {
@@ -496,7 +501,11 @@ fn profile_autosave_hold(
 
     for _ in 0..iterations {
         let started = Instant::now();
-        let workspace = persistence::build_workspace_snapshot(app_state, terminal_manager);
+        let workspace = persistence::build_workspace_snapshot_with_history_limit(
+            app_state,
+            terminal_manager,
+            AUTOSAVE_PERSISTED_HISTORY_LINES,
+        );
         profile.hold_times_us.push(started.elapsed().as_micros());
         let line_total = workspace
             .terminals

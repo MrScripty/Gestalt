@@ -261,28 +261,41 @@ impl TerminalManager {
 
     /// Returns a persistence-friendly snapshot for the given session.
     pub fn snapshot_for_persist(&self, session_id: SessionId) -> Option<PersistedTerminalState> {
+        self.snapshot_for_persist_limited(session_id, MAX_PERSISTED_HISTORY_LINES)
+    }
+
+    /// Returns a persistence snapshot with a caller-provided history cap.
+    pub fn snapshot_for_persist_limited(
+        &self,
+        session_id: SessionId,
+        max_history_lines: usize,
+    ) -> Option<PersistedTerminalState> {
         if let Some(runtime) = self.session_runtime(session_id) {
-            let parser = runtime.parser.lock();
-            let screen = parser.screen();
-            let (rows, cols) = screen.size();
-            let (cursor_row, cursor_col) = screen.cursor_position();
             let snapshot = runtime.snapshot_cache.read().clone();
-            let lines = normalized_history_lines(&snapshot.lines);
+            let lines = normalized_history_lines_limited(&snapshot.lines, max_history_lines);
 
             return Some(PersistedTerminalState {
                 session_id,
                 cwd: runtime.cwd.read().clone(),
-                rows,
-                cols,
-                cursor_row,
-                cursor_col,
-                hide_cursor: screen.hide_cursor(),
-                bracketed_paste: screen.bracketed_paste(),
+                rows: snapshot.rows,
+                cols: snapshot.cols,
+                cursor_row: snapshot.cursor_row,
+                cursor_col: snapshot.cursor_col,
+                hide_cursor: snapshot.hide_cursor,
+                bracketed_paste: snapshot.bracketed_paste,
                 lines,
             });
         }
 
-        self.pending_restore.lock().get(&session_id).cloned()
+        self.pending_restore
+            .lock()
+            .get(&session_id)
+            .cloned()
+            .map(|mut persisted| {
+                persisted.lines =
+                    normalized_history_lines_limited(&persisted.lines, max_history_lines);
+                persisted
+            })
     }
 
     /// Resizes a running PTY and updates parser dimensions.
@@ -443,7 +456,11 @@ fn shell_quote(input: &str) -> String {
 }
 
 fn normalized_history_lines(lines: &[String]) -> Vec<String> {
-    let start = lines.len().saturating_sub(MAX_PERSISTED_HISTORY_LINES);
+    normalized_history_lines_limited(lines, MAX_PERSISTED_HISTORY_LINES)
+}
+
+fn normalized_history_lines_limited(lines: &[String], max_history_lines: usize) -> Vec<String> {
+    let start = lines.len().saturating_sub(max_history_lines);
     lines
         .iter()
         .skip(start)
