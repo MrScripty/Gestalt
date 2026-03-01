@@ -5,12 +5,14 @@
 
 pub mod api;
 pub mod error;
+pub mod inference;
 pub mod model;
 pub mod runtime;
 pub mod store;
 
 pub use api::EmilyApi;
 pub use error::EmilyError;
+pub use inference::{EmbeddingProvider, NoopEmbeddingProvider};
 pub use model::{
     ContextItem, ContextPacket, ContextQuery, DatabaseLocator, HealthSnapshot, HistoryPage,
     HistoryPageRequest, IngestTextRequest, MemoryPolicy, TextEdge, TextEdgeType, TextObject,

@@ -1,5 +1,6 @@
 use crate::api::EmilyApi;
 use crate::error::EmilyError;
+use crate::inference::EmbeddingProvider;
 use crate::model::{
     ContextPacket, ContextQuery, DatabaseLocator, HealthSnapshot, HistoryPage, HistoryPageRequest,
     IngestTextRequest, MemoryPolicy, TextObject,
@@ -19,6 +20,7 @@ struct RuntimeState {
 /// Default in-process Emily runtime.
 pub struct EmilyRuntime<S: EmilyStore> {
     store: Arc<S>,
+    embedding_provider: Option<Arc<dyn EmbeddingProvider>>,
     state: RwLock<RuntimeState>,
     policy: RwLock<MemoryPolicy>,
     ingest_queue_depth: Mutex<usize>,
@@ -26,8 +28,16 @@ pub struct EmilyRuntime<S: EmilyStore> {
 
 impl<S: EmilyStore> EmilyRuntime<S> {
     pub fn new(store: Arc<S>) -> Self {
+        Self::with_embedding_provider(store, None)
+    }
+
+    pub fn with_embedding_provider(
+        store: Arc<S>,
+        embedding_provider: Option<Arc<dyn EmbeddingProvider>>,
+    ) -> Self {
         Self {
             store,
+            embedding_provider,
             state: RwLock::new(RuntimeState {
                 db_locator: None,
                 dropped_ingest_events: 0,
@@ -56,7 +66,7 @@ impl<S: EmilyStore> EmilyRuntime<S> {
         Ok(())
     }
 
-    fn build_text_object(request: IngestTextRequest) -> TextObject {
+    fn build_text_object(request: IngestTextRequest, embedding: Option<Vec<f32>>) -> TextObject {
         TextObject {
             id: Uuid::new_v4(),
             stream_id: request.stream_id,
@@ -66,7 +76,7 @@ impl<S: EmilyStore> EmilyRuntime<S> {
             ts_unix_ms: request.ts_unix_ms,
             text: request.text,
             metadata: request.metadata,
-            embedding: None,
+            embedding,
             confidence: 1.0,
             learning_weight: 1.0,
         }
@@ -111,7 +121,18 @@ impl<S: EmilyStore> EmilyApi for EmilyRuntime<S> {
             ));
         }
 
-        let object = Self::build_text_object(request);
+        let embedding = if let Some(provider) = &self.embedding_provider {
+            let vector = provider.embed_text(&request.text).await?;
+            if vector.is_empty() {
+                None
+            } else {
+                Some(vector)
+            }
+        } else {
+            None
+        };
+
+        let object = Self::build_text_object(request, embedding);
         self.store.insert_text_object(&object).await?;
         Ok(object)
     }
