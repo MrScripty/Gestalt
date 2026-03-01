@@ -2,6 +2,8 @@ use crate::state::{AppState, GroupId, SessionId, SessionRole, SessionStatus};
 use crate::terminal::TerminalManager;
 use std::collections::HashMap;
 
+const MAX_ROUND_LINES: usize = 8;
+
 /// Extracted round boundaries and text for a terminal buffer.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TerminalRound {
@@ -47,10 +49,10 @@ pub struct SessionWriteResult {
 }
 
 /// Lightweight runtime data used to build orchestrator snapshots.
-#[derive(Debug, Clone)]
-pub struct SessionRuntimeView {
-    pub lines: Vec<String>,
-    pub cwd: String,
+#[derive(Debug, Clone, Copy)]
+pub struct SessionRuntimeView<'a> {
+    pub lines: &'a [String],
+    pub cwd: &'a str,
     pub is_runtime_ready: bool,
 }
 
@@ -100,7 +102,7 @@ pub fn snapshot_group_from_runtime(
     app_state: &AppState,
     group_id: GroupId,
     focused_session: Option<SessionId>,
-    runtime_by_session: &HashMap<SessionId, SessionRuntimeView>,
+    runtime_by_session: &HashMap<SessionId, SessionRuntimeView<'_>>,
 ) -> GroupOrchestratorSnapshot {
     let group_path = app_state.group_path(group_id).unwrap_or(".").to_string();
     let terminals = app_state
@@ -108,10 +110,10 @@ pub fn snapshot_group_from_runtime(
         .into_iter()
         .map(|session| {
             let runtime = runtime_by_session.get(&session.id);
-            let lines = runtime
+            let latest_round = runtime
                 .as_ref()
-                .map(|runtime| runtime.lines.clone())
-                .unwrap_or_default();
+                .map(|runtime| latest_round_from_lines(runtime.lines))
+                .unwrap_or_else(|| latest_round_from_lines(&[]));
 
             GroupTerminalState {
                 session_id: session.id,
@@ -120,7 +122,7 @@ pub fn snapshot_group_from_runtime(
                 status: session.status,
                 cwd: runtime
                     .as_ref()
-                    .map(|runtime| runtime.cwd.clone())
+                    .map(|runtime| runtime.cwd.to_string())
                     .unwrap_or_else(|| group_path.clone()),
                 is_selected: app_state.selected_session == Some(session.id),
                 is_focused: focused_session == Some(session.id),
@@ -128,7 +130,7 @@ pub fn snapshot_group_from_runtime(
                     .as_ref()
                     .map(|runtime| runtime.is_runtime_ready)
                     .unwrap_or(false),
-                latest_round: latest_round_from_lines(&lines),
+                latest_round,
             }
         })
         .collect();
@@ -207,7 +209,18 @@ fn latest_round_from_lines(lines: &[String]) -> TerminalRound {
         .unwrap_or(0);
     let end_idx = last_non_empty.max(start_idx);
 
-    let mut round_lines: Vec<String> = lines[start_idx..=end_idx].to_vec();
+    let total_round_lines = end_idx.saturating_sub(start_idx).saturating_add(1);
+    let mut round_lines: Vec<String> = lines[start_idx..=end_idx]
+        .iter()
+        .take(MAX_ROUND_LINES)
+        .cloned()
+        .collect();
+    if total_round_lines > MAX_ROUND_LINES {
+        round_lines.push(format!(
+            "... {} additional lines omitted",
+            total_round_lines - MAX_ROUND_LINES
+        ));
+    }
     if round_lines.is_empty() {
         round_lines.push(String::new());
     }

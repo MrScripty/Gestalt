@@ -64,7 +64,7 @@ struct TerminalRuntime {
     parser: Arc<Mutex<Parser>>,
     scrollback: Arc<RwLock<ScrollbackBuffer>>,
     cwd: RwLock<String>,
-    snapshot_cache: Arc<RwLock<TerminalSnapshot>>,
+    snapshot_cache: Arc<RwLock<Arc<TerminalSnapshot>>>,
     snapshot_revision: Arc<AtomicU64>,
 }
 
@@ -164,7 +164,7 @@ impl TerminalManager {
             let scrollback_lines = scrollback.read().lines.clone();
             terminal_snapshot_from_parser(&parser, &scrollback_lines)
         };
-        let snapshot_cache = Arc::new(RwLock::new(initial_snapshot));
+        let snapshot_cache = Arc::new(RwLock::new(Arc::new(initial_snapshot)));
         let snapshot_revision = Arc::new(AtomicU64::new(1));
         spawn_reader_thread(
             reader,
@@ -249,6 +249,12 @@ impl TerminalManager {
 
     /// Returns the latest cached terminal snapshot for a session.
     pub fn snapshot(&self, session_id: SessionId) -> Option<TerminalSnapshot> {
+        self.snapshot_shared(session_id)
+            .map(|snapshot| snapshot.as_ref().clone())
+    }
+
+    /// Returns a shared reference-counted terminal snapshot for a session.
+    pub fn snapshot_shared(&self, session_id: SessionId) -> Option<Arc<TerminalSnapshot>> {
         let runtime = self.session_runtime(session_id)?;
         Some(runtime.snapshot_cache.read().clone())
     }
@@ -260,7 +266,8 @@ impl TerminalManager {
             let screen = parser.screen();
             let (rows, cols) = screen.size();
             let (cursor_row, cursor_col) = screen.cursor_position();
-            let lines = normalized_history_lines(&runtime.snapshot_cache.read().lines);
+            let snapshot = runtime.snapshot_cache.read().clone();
+            let lines = normalized_history_lines(&snapshot.lines);
 
             return Some(PersistedTerminalState {
                 session_id,
@@ -306,7 +313,7 @@ impl TerminalManager {
         parser.set_size(rows, cols);
         let scrollback_lines = runtime.scrollback.read().lines.clone();
         let snapshot = terminal_snapshot_from_parser(&parser, &scrollback_lines);
-        *runtime.snapshot_cache.write() = snapshot;
+        *runtime.snapshot_cache.write() = Arc::new(snapshot);
         runtime.snapshot_revision.fetch_add(1, Ordering::Relaxed);
 
         Ok(())
@@ -370,7 +377,7 @@ fn spawn_reader_thread(
     mut reader: Box<dyn Read + Send>,
     parser: Arc<Mutex<Parser>>,
     scrollback: Arc<RwLock<ScrollbackBuffer>>,
-    snapshot_cache: Arc<RwLock<TerminalSnapshot>>,
+    snapshot_cache: Arc<RwLock<Arc<TerminalSnapshot>>>,
     snapshot_revision: Arc<AtomicU64>,
 ) {
     thread::spawn(move || {
@@ -392,7 +399,7 @@ fn spawn_reader_thread(
 
                         terminal_snapshot_from_parser(&parser, &scrollback_lines)
                     };
-                    *snapshot_cache.write() = snapshot;
+                    *snapshot_cache.write() = Arc::new(snapshot);
                     snapshot_revision.fetch_add(1, Ordering::Relaxed);
                 }
                 Err(_) => break,

@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 #[derive(Clone)]
 struct TerminalPaneData {
-    terminal: TerminalSnapshot,
+    terminal: Arc<TerminalSnapshot>,
     cwd: String,
     is_runtime_ready: bool,
 }
@@ -74,9 +74,10 @@ pub(crate) fn WorkspaceMain(
         let mut panes = HashMap::new();
         let runtime = terminal_manager.read().clone();
         for session in &active_group_sessions {
-            let runtime_snapshot = runtime.snapshot(session.id);
+            let runtime_snapshot = runtime.snapshot_shared(session.id);
             let is_runtime_ready = runtime_snapshot.is_some();
-            let terminal = runtime_snapshot.unwrap_or_else(pending_terminal_snapshot);
+            let terminal =
+                runtime_snapshot.unwrap_or_else(|| Arc::new(pending_terminal_snapshot()));
             let cwd = runtime.session_cwd(session.id).unwrap_or_else(|| {
                 snapshot
                     .group_path(session.group_id)
@@ -101,8 +102,8 @@ pub(crate) fn WorkspaceMain(
             (
                 *session_id,
                 orchestrator::SessionRuntimeView {
-                    lines: pane.terminal.lines.clone(),
-                    cwd: pane.cwd.clone(),
+                    lines: &pane.terminal.lines,
+                    cwd: pane.cwd.as_str(),
                     is_runtime_ready: pane.is_runtime_ready,
                 },
             )
@@ -256,7 +257,7 @@ pub(crate) fn WorkspaceMain(
                                             .get(&session_id)
                                             .cloned()
                                             .unwrap_or_else(|| TerminalPaneData {
-                                                terminal: pending_terminal_snapshot(),
+                                                terminal: Arc::new(pending_terminal_snapshot()),
                                                 cwd: snapshot
                                                     .group_path(session.group_id)
                                                     .unwrap_or(".")
@@ -382,7 +383,7 @@ pub(crate) fn WorkspaceMain(
                                             .get(&session_id)
                                             .cloned()
                                             .unwrap_or_else(|| TerminalPaneData {
-                                                terminal: pending_terminal_snapshot(),
+                                                terminal: Arc::new(pending_terminal_snapshot()),
                                                 cwd: snapshot
                                                     .group_path(session.group_id)
                                                     .unwrap_or(".")

@@ -26,7 +26,7 @@ pub(crate) struct TerminalInteractionSignals {
 pub(crate) fn terminal_shell(
     session_id: SessionId,
     terminal_is_focused: bool,
-    terminal: TerminalSnapshot,
+    terminal: Arc<TerminalSnapshot>,
     terminal_manager: Arc<TerminalManager>,
     interaction: TerminalInteractionSignals,
 ) -> Element {
