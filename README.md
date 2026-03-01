@@ -15,16 +15,27 @@ It is built with Dioxus Desktop (`0.7.x`) and uses real PTY sessions + VT100 par
 - Real interactive terminals (PTY-backed)
 - Inline tab renaming
 - Round-aware selection helpers (`Ctrl+A` for command/output block selection)
-- Local Agent pane for group orchestration controls
-- Contextual Git side panel per active path-group (branches, commits, staging, commit/tag/checkout/worktree actions)
+- Insert command mode (`Insert` opens autocomplete, `Enter` inserts prompt text without running it)
+- Sidebar panel switcher in the run sidebar (`Agent`, `Commands`, `Git`)
+- Commands panel for creating/editing/deleting reusable prompt snippets
+- Local Agent panel for group orchestration controls
+- Contextual Git panel per active path-group (branches, commits, staging, commit/tag/checkout/worktree actions)
 
 ## Architecture
 
 - UI: Dioxus Desktop + CSS layout (`src/ui.rs`, `src/ui/`, `src/style/`)
-- Session/Group state: `src/state.rs`
+- Session/Group/Command state: `src/state.rs`
 - Terminal runtime: PTY + VT100 (`src/terminal.rs`)
-- Orchestration scaffolding: `src/orchestrator.rs`
+- Orchestration scaffolding: `src/orchestrator/`
 - Workspace persistence: atomic save/load + schema versioning (`src/persistence/`)
+
+## Insert Commands Workflow
+
+1. Focus any terminal pane.
+2. Press `Insert` to enter command mode.
+3. Type to filter commands and use arrow keys to change selection.
+4. Press `Enter` to paste the selected command prompt into the terminal input line.
+5. Press `Esc` or `Insert` to exit command mode without inserting.
 
 ## Documentation
 
