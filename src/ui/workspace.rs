@@ -1,9 +1,11 @@
 use crate::orchestrator::{self, GroupOrchestratorSnapshot};
 use crate::state::{AppState, SessionId, SessionStatus};
 use crate::terminal::{TerminalManager, TerminalSnapshot};
-use crate::ui::git_panel::GitPanel;
-use crate::ui::local_agent_panel::LocalAgentPanel;
-use crate::ui::terminal_view::{pending_terminal_snapshot, terminal_shell};
+use crate::ui::insert_command_mode::InsertModeState;
+use crate::ui::sidebar_panel_host::{SidebarPanelHost, SidebarPanelKind};
+use crate::ui::terminal_view::{
+    TerminalInteractionSignals, pending_terminal_snapshot, terminal_shell,
+};
 use dioxus::prelude::*;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -39,6 +41,8 @@ pub(crate) fn WorkspaceMain(
     git_context: Signal<Option<crate::git::RepoContext>>,
     git_context_loading: Signal<bool>,
     git_refresh_nonce: Signal<u64>,
+    sidebar_panel: Signal<SidebarPanelKind>,
+    insert_mode_state: Signal<Option<InsertModeState>>,
 ) -> Element {
     let _ = *refresh_tick.read();
     let snapshot = app_state.read().clone();
@@ -122,6 +126,12 @@ pub(crate) fn WorkspaceMain(
     let workspace_layout_style = format!("--runner-width: {runner_width}px;");
     let agent_stack_style = format!("--agent-top-ratio: {:.2}%;", agent_ratio * 100.0);
     let run_sidebar_style = format!("--runner-top-ratio: {:.2}%;", sidebar_ratio * 100.0);
+    let interaction = TerminalInteractionSignals {
+        app_state,
+        focused_terminal,
+        round_anchor,
+        insert_mode_state,
+    };
     let workspace_class = if runner_drag_start.read().is_some()
         || agent_drag_start.read().is_some()
         || sidebar_drag_start.read().is_some()
@@ -259,9 +269,7 @@ pub(crate) fn WorkspaceMain(
                                                     terminal_is_focused,
                                                     terminal,
                                                     terminal_manager_for_input,
-                                                    app_state,
-                                                    focused_terminal,
-                                                    round_anchor,
+                                                    interaction,
                                                 )}
                                             }
 
@@ -387,9 +395,7 @@ pub(crate) fn WorkspaceMain(
                                                     terminal_is_focused,
                                                     terminal,
                                                     terminal_manager_for_input,
-                                                    app_state,
-                                                    focused_terminal,
-                                                    round_anchor,
+                                                    interaction,
                                                 )}
                                             }
                                         }
@@ -404,7 +410,7 @@ pub(crate) fn WorkspaceMain(
                                 button {
                                     class: "panel-splitter panel-splitter-horizontal terminal-row-splitter",
                                     r#type: "button",
-                                    aria_label: "Resize run and orchestrator panes",
+                                    aria_label: "Resize run and sidebar panes",
                                     onmousedown: move |event| {
                                         event.prevent_default();
                                         let start_y = event.data().client_coordinates().y;
@@ -431,26 +437,18 @@ pub(crate) fn WorkspaceMain(
                                     },
                                 }
 
-                                div { class: "side-tools",
-                                    if let Some(group_orchestrator) = orchestrator_snapshot.clone() {
-                                        LocalAgentPanel {
-                                            app_state: app_state,
-                                            terminal_manager: terminal_manager,
-                                            group_id: group_id,
-                                            group_orchestrator: group_orchestrator,
-                                            local_agent_command: local_agent_command,
-                                            local_agent_feedback: local_agent_feedback,
-                                        }
-                                    }
-
-                                    GitPanel {
-                                        app_state: app_state,
-                                        terminal_manager: terminal_manager,
-                                        active_group_path: active_path.clone(),
-                                        repo_context: git_context,
-                                        repo_loading: git_context_loading,
-                                        git_refresh_nonce: git_refresh_nonce,
-                                    }
+                                SidebarPanelHost {
+                                    app_state: app_state,
+                                    terminal_manager: terminal_manager,
+                                    group_id: group_id,
+                                    group_orchestrator: orchestrator_snapshot.clone(),
+                                    local_agent_command: local_agent_command,
+                                    local_agent_feedback: local_agent_feedback,
+                                    active_group_path: active_path.clone(),
+                                    repo_context: git_context,
+                                    repo_loading: git_context_loading,
+                                    git_refresh_nonce: git_refresh_nonce,
+                                    sidebar_panel: sidebar_panel,
                                 }
                             }
                         }

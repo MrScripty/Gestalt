@@ -1,7 +1,11 @@
 mod autosave;
+mod command_palette;
+mod commands_panel;
 mod git_helpers;
 mod git_panel;
+mod insert_command_mode;
 mod local_agent_panel;
+mod sidebar_panel_host;
 mod tab_rail;
 mod terminal_input;
 mod terminal_view;
@@ -12,6 +16,8 @@ use crate::persistence;
 use crate::state::{SessionId, SessionStatus};
 use crate::terminal::{PersistedTerminalState, TerminalManager};
 use crate::ui::autosave::{AutosaveRequest, AutosaveSignature, AutosaveWorker};
+use crate::ui::insert_command_mode::InsertModeState;
+use crate::ui::sidebar_panel_host::SidebarPanelKind;
 use crate::ui::tab_rail::TabRail;
 use crate::ui::terminal_input::measure_terminal_viewport;
 use crate::ui::workspace::WorkspaceMain;
@@ -23,7 +29,8 @@ use std::time::Duration;
 const STYLE: &str = concat!(
     include_str!("style/base.css"),
     include_str!("style/workspace.css"),
-    include_str!("style/git_panel.css")
+    include_str!("style/git_panel.css"),
+    include_str!("style/commands_panel.css")
 );
 const TERMINAL_REFRESH_POLL_MS: u64 = 33;
 const TERMINAL_RESIZE_POLL_MS: u64 = 180;
@@ -87,6 +94,8 @@ pub fn App() -> Element {
     let git_context = use_signal(|| None::<RepoContext>);
     let git_context_loading = use_signal(|| false);
     let git_refresh_nonce = use_signal(|| 0_u64);
+    let sidebar_panel = use_signal(|| SidebarPanelKind::LocalAgent);
+    let insert_mode_state = use_signal(|| None::<InsertModeState>);
 
     {
         let mut refresh_tick = refresh_tick;
@@ -461,6 +470,8 @@ pub fn App() -> Element {
                 git_context: git_context,
                 git_context_loading: git_context_loading,
                 git_refresh_nonce: git_refresh_nonce,
+                sidebar_panel: sidebar_panel,
+                insert_mode_state: insert_mode_state,
             }
         }
     }

@@ -1,5 +1,11 @@
+use crate::commands::CommandId;
 use crate::state::{AppState, SessionId, SessionStatus};
 use crate::terminal::{TerminalManager, TerminalSnapshot};
+use crate::ui::command_palette::{InsertCommandPalette, PaletteRow};
+use crate::ui::insert_command_mode::{
+    InsertModeOutcome, InsertModeSelection, InsertModeState, KeyModifiers, command_matches,
+    is_insert_trigger_key, reduce_insert_mode_key, selected_command_id,
+};
 use crate::ui::terminal_input::{
     COPY_SELECTION_JS, READ_CLIPBOARD_JS, cursor_move_bytes, install_terminal_paste_bridge,
     install_terminal_scroll_behavior, key_event_to_bytes, map_click_to_terminal_cell,
@@ -9,15 +15,25 @@ use dioxus::document;
 use dioxus::prelude::*;
 use std::sync::Arc;
 
+#[derive(Clone, Copy)]
+pub(crate) struct TerminalInteractionSignals {
+    pub app_state: Signal<AppState>,
+    pub focused_terminal: Signal<Option<SessionId>>,
+    pub round_anchor: Signal<Option<(SessionId, u16)>>,
+    pub insert_mode_state: Signal<Option<InsertModeState>>,
+}
+
 pub(crate) fn terminal_shell(
     session_id: SessionId,
     terminal_is_focused: bool,
     terminal: TerminalSnapshot,
     terminal_manager: Arc<TerminalManager>,
-    app_state: Signal<AppState>,
-    mut focused_terminal: Signal<Option<SessionId>>,
-    mut round_anchor: Signal<Option<(SessionId, u16)>>,
+    interaction: TerminalInteractionSignals,
 ) -> Element {
+    let app_state = interaction.app_state;
+    let mut focused_terminal = interaction.focused_terminal;
+    let mut round_anchor = interaction.round_anchor;
+    let mut insert_mode_state = interaction.insert_mode_state;
     let shell_class = if terminal_is_focused {
         "terminal-shell focused"
     } else {
@@ -53,6 +69,35 @@ pub(crate) fn terminal_shell(
         _ => cursor_row,
     };
     let round_bounds = terminal_round_bounds(&terminal.lines, round_anchor_row);
+    let current_insert_mode = insert_mode_state.read().clone();
+    let insert_mode_for_session = current_insert_mode
+        .as_ref()
+        .filter(|mode| mode.session_id == session_id)
+        .cloned();
+    let command_matches_for_palette = insert_mode_for_session
+        .as_ref()
+        .map(|mode| command_matches(app_state.read().commands(), &mode.query))
+        .unwrap_or_default();
+    let palette_highlight = insert_mode_for_session
+        .as_ref()
+        .map(|mode| {
+            mode.highlighted_index
+                .min(command_matches_for_palette.len().saturating_sub(1))
+        })
+        .unwrap_or(0);
+    let palette_rows = command_matches_for_palette
+        .iter()
+        .filter_map(|entry| {
+            app_state
+                .read()
+                .command_by_id(entry.command_id)
+                .map(|command| PaletteRow {
+                    name: command.name.clone(),
+                    description: command.description.clone(),
+                    prompt_preview: prompt_preview(&command.prompt),
+                })
+        })
+        .collect::<Vec<_>>();
 
     rsx! {
         div {
@@ -60,11 +105,23 @@ pub(crate) fn terminal_shell(
             tabindex: "0",
             onfocus: move |_| {
                 focused_terminal.set(Some(session_id));
+                let mode_snapshot = insert_mode_state.read().clone();
+                if let Some(mode) = mode_snapshot
+                    && mode.session_id != session_id
+                {
+                    insert_mode_state.set(None);
+                }
             },
             onblur: move |_| {
                 let is_current = *focused_terminal.read() == Some(session_id);
                 if is_current {
                     focused_terminal.set(None);
+                }
+                let mode_snapshot = insert_mode_state.read().clone();
+                if let Some(mode) = mode_snapshot
+                    && mode.session_id == session_id
+                {
+                    insert_mode_state.set(None);
                 }
             },
             onclick: move |event| {
@@ -108,12 +165,74 @@ pub(crate) fn terminal_shell(
                 let data = event.data();
                 let key = data.key();
                 let modifiers = data.modifiers();
+                let ctrl = modifiers.ctrl();
+                let alt = modifiers.alt();
+                let shift = modifiers.shift();
+                let meta = modifiers.meta();
+
+                let active_insert_mode = insert_mode_state
+                    .read()
+                    .as_ref()
+                    .filter(|mode| mode.session_id == session_id)
+                    .cloned();
+                if let Some(mode) = active_insert_mode {
+                    event.prevent_default();
+                    event.stop_propagation();
+
+                    let command_matches = command_matches(app_state.read().commands(), &mode.query);
+                    let selected_id =
+                        selected_command_id(&command_matches, mode.highlighted_index);
+                    match reduce_insert_mode_key(
+                        &mode,
+                        &key,
+                        KeyModifiers {
+                            ctrl,
+                            alt,
+                            shift,
+                            meta,
+                        },
+                        InsertModeSelection {
+                            selected_command_id: selected_id,
+                            match_count: command_matches.len(),
+                        },
+                    ) {
+                        InsertModeOutcome::Keep(next_mode) => {
+                            insert_mode_state.set(Some(next_mode));
+                        }
+                        InsertModeOutcome::Close => {
+                            insert_mode_state.set(None);
+                        }
+                        InsertModeOutcome::Submit(command_id) => {
+                            submit_insert_command(
+                                command_id,
+                                &terminal_manager_for_keydown,
+                                app_state,
+                                session_id,
+                            );
+                            insert_mode_state.set(None);
+                        }
+                        InsertModeOutcome::Ignore => {}
+                    }
+                    return;
+                }
+
+                if is_insert_trigger_key(&key, ctrl, alt, shift, meta) {
+                    event.prevent_default();
+                    event.stop_propagation();
+                    insert_mode_state.set(Some(InsertModeState {
+                        session_id,
+                        query: String::new(),
+                        highlighted_index: 0,
+                    }));
+                    return;
+                }
+
                 if is_paste_shortcut(
                     &key,
-                    modifiers.ctrl(),
-                    modifiers.alt(),
-                    modifiers.shift(),
-                    modifiers.meta(),
+                    ctrl,
+                    alt,
+                    shift,
+                    meta,
                 ) {
                     event.prevent_default();
                     event.stop_propagation();
@@ -129,7 +248,7 @@ pub(crate) fn terminal_shell(
                     return;
                 }
 
-                if modifiers.ctrl() && !modifiers.alt() && let Key::Character(text) = &key {
+                if ctrl && !alt && let Key::Character(text) = &key {
                     if text.eq_ignore_ascii_case("a") {
                         event.prevent_default();
                         event.stop_propagation();
@@ -178,6 +297,11 @@ pub(crate) fn terminal_shell(
             onpaste: move |event| {
                 event.prevent_default();
                 event.stop_propagation();
+                if let Some(mode) = insert_mode_state.read().clone()
+                    && mode.session_id == session_id
+                {
+                    return;
+                }
                 let terminal_manager = terminal_manager_for_paste.clone();
                 let body_id = body_id_for_paste_event.clone();
                 paste_clipboard_into_terminal(
@@ -218,6 +342,14 @@ pub(crate) fn terminal_shell(
                             }
                         }
                     }
+                }
+            }
+
+            if let Some(mode) = insert_mode_for_session {
+                InsertCommandPalette {
+                    query: mode.query,
+                    highlighted_index: palette_highlight,
+                    rows: palette_rows,
                 }
             }
         }
@@ -382,6 +514,45 @@ fn paste_clipboard_into_terminal(
         };
         send_input_to_session(&terminal_manager, app_state, session_id, &payload);
     });
+}
+
+fn submit_insert_command(
+    command_id: CommandId,
+    terminal_manager: &Arc<TerminalManager>,
+    app_state: Signal<AppState>,
+    session_id: SessionId,
+) {
+    let command_prompt = app_state
+        .read()
+        .command_by_id(command_id)
+        .map(|command| command.prompt.clone())
+        .unwrap_or_default();
+    if command_prompt.is_empty() {
+        return;
+    }
+
+    send_input_to_session(
+        terminal_manager,
+        app_state,
+        session_id,
+        command_prompt.as_bytes(),
+    );
+}
+
+fn prompt_preview(prompt: &str) -> String {
+    let normalized = prompt.trim().replace('\n', " ");
+    let mut chars = normalized.chars();
+    let mut preview = String::new();
+    for _ in 0..72 {
+        let Some(ch) = chars.next() else {
+            return normalized;
+        };
+        preview.push(ch);
+    }
+    if chars.next().is_some() {
+        preview.push_str("...");
+    }
+    preview
 }
 
 fn terminal_round_bounds(lines: &[String], cursor_row: u16) -> Option<(u16, u16)> {
