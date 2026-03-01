@@ -1,3 +1,4 @@
+use crate::commands::{CommandId, CommandLibrary, InsertCommand};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -105,6 +106,8 @@ pub struct Session {
 pub struct AppState {
     pub sessions: Vec<Session>,
     pub groups: Vec<TabGroup>,
+    #[serde(default)]
+    pub command_library: CommandLibrary,
     pub selected_session: Option<SessionId>,
     next_session_id: SessionId,
     next_group_id: GroupId,
@@ -129,6 +132,7 @@ impl AppState {
         Self {
             sessions: Vec::new(),
             groups: Vec::new(),
+            command_library: CommandLibrary::default(),
             selected_session: None,
             next_session_id: 1,
             next_group_id: 1,
@@ -154,6 +158,7 @@ impl AppState {
 
     /// Repairs invalid relationships after loading persisted state.
     pub fn repair_after_restore(&mut self) {
+        self.command_library.repair_after_restore();
         self.groups.retain(|group| !group.path.trim().is_empty());
 
         if self.groups.is_empty() {
@@ -258,6 +263,40 @@ impl AppState {
         self.mark_dirty();
 
         id
+    }
+
+    /// Removes a group and every session assigned to it.
+    pub fn remove_group(&mut self, group_id: GroupId) -> Vec<SessionId> {
+        let group_exists = self.groups.iter().any(|group| group.id == group_id);
+        if !group_exists {
+            return Vec::new();
+        }
+
+        self.groups.retain(|group| group.id != group_id);
+
+        let removed_session_ids = self
+            .sessions
+            .iter()
+            .filter(|session| session.group_id == group_id)
+            .map(|session| session.id)
+            .collect::<Vec<_>>();
+
+        if !removed_session_ids.is_empty() {
+            let removed_ids: std::collections::HashSet<SessionId> =
+                removed_session_ids.iter().copied().collect();
+            self.sessions
+                .retain(|session| !removed_ids.contains(&session.id));
+
+            if self
+                .selected_session
+                .is_some_and(|selected| removed_ids.contains(&selected))
+            {
+                self.selected_session = self.sessions.first().map(|session| session.id);
+            }
+        }
+
+        self.mark_dirty();
+        removed_session_ids
     }
 
     /// Adds a new agent session with an auto-generated title.
@@ -539,5 +578,55 @@ impl AppState {
             .find(|group| group.id == group_id)
             .map(TabGroup::label)
             .unwrap_or_else(|| "Unknown".to_string())
+    }
+
+    /// Returns all insert commands in insertion order.
+    pub fn commands(&self) -> &[InsertCommand] {
+        &self.command_library.commands
+    }
+
+    /// Returns a command by identifier.
+    pub fn command_by_id(&self, command_id: CommandId) -> Option<&InsertCommand> {
+        self.command_library.command(command_id)
+    }
+
+    /// Creates an insert command and returns its identifier.
+    pub fn create_insert_command(
+        &mut self,
+        name: String,
+        prompt: String,
+        description: String,
+        tags: Vec<String>,
+    ) -> CommandId {
+        let id = self.command_library.create(name, prompt, description, tags);
+        self.mark_dirty();
+        id
+    }
+
+    /// Updates an existing insert command. Returns true on mutation.
+    pub fn update_insert_command(
+        &mut self,
+        command_id: CommandId,
+        name: String,
+        prompt: String,
+        description: String,
+        tags: Vec<String>,
+    ) -> bool {
+        let updated = self
+            .command_library
+            .update(command_id, name, prompt, description, tags);
+        if updated {
+            self.mark_dirty();
+        }
+        updated
+    }
+
+    /// Deletes an existing insert command. Returns true when removed.
+    pub fn delete_insert_command(&mut self, command_id: CommandId) -> bool {
+        let removed = self.command_library.delete(command_id);
+        if removed {
+            self.mark_dirty();
+        }
+        removed
     }
 }

@@ -1,3 +1,5 @@
+/// Insert-command models, matching, and validation helpers.
+pub mod commands;
 /// Git repository query and mutation services.
 pub mod git;
 /// Group orchestration snapshot and broadcast helpers.

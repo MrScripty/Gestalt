@@ -151,3 +151,92 @@ fn swap_session_with_bottom_slot_brings_hidden_tab_into_bottom_pane() {
     assert_eq!(agents[1].id, hidden_id);
     assert_eq!(state.selected_session, Some(hidden_id));
 }
+
+#[test]
+fn remove_group_drops_group_and_associated_sessions() {
+    let mut state = AppState::default();
+    let (remove_group_id, remove_group_sessions) =
+        state.create_group_with_defaults("/tmp".to_string());
+    let group_sessions = state.sessions_in_group(remove_group_id);
+    let removed_session_ids = group_sessions
+        .iter()
+        .map(|session| session.id)
+        .collect::<Vec<_>>();
+    assert_eq!(removed_session_ids.len(), remove_group_sessions.len());
+
+    let removed = state.remove_group(remove_group_id);
+
+    assert_eq!(removed, removed_session_ids);
+    assert!(state.groups.iter().all(|group| group.id != remove_group_id));
+    assert!(
+        state
+            .sessions
+            .iter()
+            .all(|session| session.group_id != remove_group_id)
+    );
+}
+
+#[test]
+fn remove_group_updates_selected_session_when_selection_is_removed() {
+    let mut state = AppState::default();
+    let initial_group_id = state.groups[0].id;
+    let (remove_group_id, remove_group_sessions) =
+        state.create_group_with_defaults("/tmp".to_string());
+    let selected = remove_group_sessions[0];
+    state.select_session(selected);
+
+    let removed = state.remove_group(remove_group_id);
+
+    assert!(removed.contains(&selected));
+    assert_eq!(
+        state.selected_session,
+        state.sessions.first().map(|session| session.id)
+    );
+    assert!(
+        state
+            .sessions
+            .iter()
+            .all(|session| session.group_id == initial_group_id)
+    );
+}
+
+#[test]
+fn insert_command_crud_updates_state() {
+    let mut state = AppState::default();
+    let before_revision = state.revision();
+
+    let command_id = state.create_insert_command(
+        "Build".to_string(),
+        "cargo build".to_string(),
+        "Build the project".to_string(),
+        vec!["cargo".to_string(), "build".to_string()],
+    );
+    assert_eq!(state.commands().len(), 1);
+    assert!(state.revision() > before_revision);
+
+    let updated = state.update_insert_command(
+        command_id,
+        "Build Release".to_string(),
+        "cargo build --release".to_string(),
+        "Build release artifacts".to_string(),
+        vec!["cargo".to_string(), "release".to_string()],
+    );
+    assert!(updated);
+    let command = state
+        .command_by_id(command_id)
+        .expect("command should exist after update");
+    assert_eq!(command.name, "Build Release");
+
+    let removed = state.delete_insert_command(command_id);
+    assert!(removed);
+    assert!(state.commands().is_empty());
+}
+
+#[test]
+fn restore_repairs_command_library_defaults() {
+    let mut state = AppState::default();
+    state.command_library.next_command_id = 0;
+
+    let restored = state.into_restored();
+    assert!(restored.command_library.next_command_id >= 1);
+}

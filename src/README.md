@@ -1,13 +1,14 @@
 # src
 
 ## Purpose
-Application source modules for Gestalt's state model, terminal runtime, orchestration, UI, and persistence.
+Application source modules for Gestalt's state model, command library, terminal runtime, orchestration, Git domain, UI, and persistence.
 
 ## Contents
 | File/Folder | Description |
 | ----------- | ----------- |
 | `lib.rs` | Library module exports for integration tests and reuse |
 | `main.rs` | Program entry point and module wiring |
+| `commands/` | Insert-command models, matching, and validation helpers |
 | `state.rs` | Core workspace/group/session model and transitions |
 | `terminal.rs` | PTY lifecycle, input/output, and snapshots |
 | `orchestrator/` | Group-level terminal orchestration helpers |
@@ -17,10 +18,10 @@ Application source modules for Gestalt's state model, terminal runtime, orchestr
 | `persistence/` | Workspace load/save infrastructure |
 
 ## Design Decisions
-- `state` stays framework-agnostic and serializable.
+- `state` stays framework-agnostic and serializable, including command library persistence.
 - `terminal` owns live runtime processes and exposes snapshots.
 - `persistence` is isolated infrastructure with a versioned schema.
 
 ## Dependencies
-**Internal:** `state`, `terminal`, `orchestrator`, `git`, `persistence`  
+**Internal:** `commands`, `state`, `terminal`, `orchestrator`, `git`, `persistence`  
 **External:** `dioxus`, `portable-pty`, `vt100`, `serde`
