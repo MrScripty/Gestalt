@@ -331,6 +331,32 @@ impl AppState {
         id
     }
 
+    /// Removes a session by identifier.
+    pub fn remove_session(&mut self, session_id: SessionId) -> bool {
+        let Some(remove_idx) = self
+            .sessions
+            .iter()
+            .position(|session| session.id == session_id)
+        else {
+            return false;
+        };
+
+        let removed_group_id = self.sessions[remove_idx].group_id;
+        self.sessions.remove(remove_idx);
+
+        if self.selected_session == Some(session_id) {
+            self.selected_session = self
+                .sessions
+                .iter()
+                .find(|session| session.group_id == removed_group_id)
+                .map(|session| session.id)
+                .or_else(|| self.sessions.first().map(|session| session.id));
+        }
+
+        self.mark_dirty();
+        true
+    }
+
     /// Renames a session when the provided title is non-empty.
     pub fn rename_session(&mut self, session_id: SessionId, title: String) {
         let trimmed = title.trim();

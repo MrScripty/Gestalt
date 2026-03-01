@@ -201,6 +201,66 @@ fn remove_group_updates_selected_session_when_selection_is_removed() {
 }
 
 #[test]
+fn remove_session_updates_selected_to_same_group_when_available() {
+    let mut state = AppState::default();
+    let group_id = state.groups[0].id;
+    let selected = state
+        .sessions
+        .iter()
+        .find(|session| session.group_id == group_id)
+        .map(|session| session.id)
+        .expect("default group should have sessions");
+    state.select_session(selected);
+
+    let removed = state.remove_session(selected);
+
+    assert!(removed);
+    assert_ne!(state.selected_session, Some(selected));
+    let next_selected = state.selected_session.expect("selection should remain");
+    assert!(
+        state
+            .sessions
+            .iter()
+            .any(|session| session.id == next_selected && session.group_id == group_id)
+    );
+}
+
+#[test]
+fn remove_session_preserves_selection_when_other_tab_removed() {
+    let mut state = AppState::default();
+    let selected = state.sessions[0].id;
+    let other = state.sessions[1].id;
+    state.select_session(selected);
+
+    let removed = state.remove_session(other);
+
+    assert!(removed);
+    assert_eq!(state.selected_session, Some(selected));
+    assert!(state.sessions.iter().all(|session| session.id != other));
+}
+
+#[test]
+fn remove_session_last_group_terminal_keeps_group_and_clears_selection() {
+    let mut state = AppState::default();
+    let target_group_id = state.groups[0].id;
+    let target_group_sessions = state
+        .sessions
+        .iter()
+        .filter(|session| session.group_id == target_group_id)
+        .map(|session| session.id)
+        .collect::<Vec<_>>();
+
+    for session_id in target_group_sessions {
+        let removed = state.remove_session(session_id);
+        assert!(removed);
+    }
+
+    assert!(state.groups.iter().any(|group| group.id == target_group_id));
+    assert!(state.sessions_in_group(target_group_id).is_empty());
+    assert_eq!(state.selected_session, None);
+}
+
+#[test]
 fn insert_command_crud_updates_state() {
     let mut state = AppState::default();
     let before_revision = state.revision();
