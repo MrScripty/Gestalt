@@ -7,7 +7,7 @@ use std::collections::{HashMap, hash_map::DefaultHasher};
 use std::hash::{Hash, Hasher};
 use std::time::Duration;
 
-const GIT_REFRESH_COORDINATOR_TICK_MS: u64 = 250;
+const GIT_REFRESH_COORDINATOR_TICK_MS: u64 = 500;
 const GIT_REFRESH_ACTIVE_INTERVAL_MS: u64 = 5_000;
 const GIT_REFRESH_INACTIVE_INTERVAL_MS: u64 = 20_000;
 const GIT_REFRESH_ACTIVE_JITTER_MS: u64 = 500;
@@ -157,12 +157,7 @@ pub(crate) fn use_git_refresh_coordinator(
                 git_context_loading.set(true);
             }
 
-            let context = match crate::orchestrator::git::load_repo_context(&path_to_refresh) {
-                Ok(context) => context,
-                Err(_) => RepoContext::NotRepo {
-                    inspected_path: path_to_refresh.clone(),
-                },
-            };
+            let context = load_repo_context_blocking(path_to_refresh.clone()).await;
 
             context_cache.insert(path_to_refresh.clone(), context.clone());
 
@@ -270,6 +265,20 @@ fn jitter_offset_ms(group_path: &str, tick_counter: u64, jitter_ms: u64) -> i64 
 fn ticks_for_ms(duration_ms: u64) -> u64 {
     let tick = GIT_REFRESH_COORDINATOR_TICK_MS.max(1);
     duration_ms.div_ceil(tick)
+}
+
+async fn load_repo_context_blocking(group_path: String) -> RepoContext {
+    let path_for_task = group_path.clone();
+    match tokio::task::spawn_blocking(move || {
+        crate::orchestrator::git::load_repo_context(&path_for_task)
+    })
+    .await
+    {
+        Ok(Ok(context)) => context,
+        Ok(Err(_)) | Err(_) => RepoContext::NotRepo {
+            inspected_path: group_path,
+        },
+    }
 }
 
 #[cfg(test)]

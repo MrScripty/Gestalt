@@ -36,6 +36,7 @@ const STYLE: &str = concat!(
 );
 const TERMINAL_REFRESH_POLL_MS: u64 = 33;
 const TERMINAL_RESIZE_POLL_MS: u64 = 180;
+const TERMINAL_STARTUP_SYNC_POLL_MS: u64 = 250;
 const AUTOSAVE_POLL_MS: u64 = 1_200;
 const AUTOSAVE_QUEUE_CAPACITY: usize = 1;
 const RAIL_WIDTH_DEFAULT_PX: i32 = 330;
@@ -50,7 +51,7 @@ const SPLIT_RATIO_DEFAULT: f64 = 0.5;
 #[component]
 pub fn App() -> Element {
     let initial_workspace = use_signal(|| persistence::load_workspace().ok().flatten());
-    let mut app_state = {
+    let app_state = {
         let loaded = initial_workspace.read().clone();
         use_signal(move || {
             loaded
@@ -59,7 +60,7 @@ pub fn App() -> Element {
                 .unwrap_or_default()
         })
     };
-    let mut restored_terminals = {
+    let restored_terminals = {
         let loaded = initial_workspace.read().clone();
         use_signal(move || {
             loaded
@@ -101,7 +102,6 @@ pub fn App() -> Element {
 
     {
         let mut refresh_tick = refresh_tick;
-        let app_state = app_state;
         let terminal_manager = terminal_manager.read().clone();
         use_future(move || {
             let terminal_manager = terminal_manager.clone();
@@ -145,7 +145,6 @@ pub fn App() -> Element {
     }
 
     {
-        let app_state = app_state;
         let terminal_manager = terminal_manager.read().clone();
         use_future(move || {
             let terminal_manager = terminal_manager.clone();
@@ -202,7 +201,61 @@ pub fn App() -> Element {
     );
 
     {
-        let app_state = app_state;
+        let mut app_state_signal = app_state;
+        let terminal_manager = terminal_manager.read().clone();
+        let mut restored_terminals = restored_terminals;
+        use_future(move || {
+            let terminal_manager = terminal_manager.clone();
+            async move {
+                let mut started_session_ids = HashSet::<SessionId>::new();
+
+                loop {
+                    tokio::time::sleep(Duration::from_millis(TERMINAL_STARTUP_SYNC_POLL_MS)).await;
+
+                    let snapshot = app_state_signal.read().clone();
+                    let active_session_ids = snapshot
+                        .sessions
+                        .iter()
+                        .map(|session| session.id)
+                        .collect::<HashSet<_>>();
+                    started_session_ids
+                        .retain(|session_id| active_session_ids.contains(session_id));
+
+                    let mut failed_starts = Vec::new();
+                    {
+                        let mut restored = restored_terminals.write();
+                        for session in &snapshot.sessions {
+                            if started_session_ids.contains(&session.id) {
+                                continue;
+                            }
+
+                            if let Some(restored_terminal) = restored.remove(&session.id) {
+                                terminal_manager.seed_restored_terminal(restored_terminal);
+                            }
+
+                            if let Some(path) = snapshot.group_path(session.group_id) {
+                                match terminal_manager.ensure_session(session.id, path) {
+                                    Ok(()) => {
+                                        started_session_ids.insert(session.id);
+                                    }
+                                    Err(_) => failed_starts.push(session.id),
+                                }
+                            }
+                        }
+                    }
+
+                    if !failed_starts.is_empty() {
+                        let mut state = app_state_signal.write();
+                        for session_id in failed_starts {
+                            state.set_session_status(session_id, SessionStatus::Error);
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    {
         let terminal_manager = terminal_manager.read().clone();
         let autosave_worker = autosave_worker.read().clone();
         let mut persistence_feedback = persistence_feedback;
@@ -317,7 +370,6 @@ pub fn App() -> Element {
     }
 
     use_drop({
-        let app_state = app_state;
         let terminal_manager = terminal_manager.read().clone();
         let autosave_worker = autosave_worker.read().clone();
         move || {
@@ -327,32 +379,6 @@ pub fn App() -> Element {
             let _ = persistence::save_workspace(&workspace);
         }
     });
-
-    let snapshot = app_state.read().clone();
-
-    let failed_starts = {
-        let mut failures = Vec::new();
-        let runtime = terminal_manager.read().clone();
-        let mut restored = restored_terminals.write();
-        for session in &snapshot.sessions {
-            if let Some(restored_terminal) = restored.remove(&session.id) {
-                runtime.seed_restored_terminal(restored_terminal);
-            }
-            if let Some(path) = snapshot.group_path(session.group_id)
-                && runtime.ensure_session(session.id, path).is_err()
-            {
-                failures.push(session.id);
-            }
-        }
-        failures
-    };
-
-    if !failed_starts.is_empty() {
-        let mut state = app_state.write();
-        for session_id in failed_starts {
-            state.set_session_status(session_id, SessionStatus::Error);
-        }
-    }
 
     let shell_style = format!(
         "--rail-width: {}px; --splitter-size: {}px;",
