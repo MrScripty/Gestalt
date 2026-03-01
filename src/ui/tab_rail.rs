@@ -1,8 +1,10 @@
 use crate::path_validation;
+use crate::resource_monitor::{RESOURCE_POLL_MS, ResourceSnapshot, sample_resource_snapshot};
 use crate::state::{AppState, SessionId, SessionStatus, VisibleAgentSlot};
 use crate::terminal::TerminalManager;
 use dioxus::prelude::*;
 use std::sync::Arc;
+use std::time::Duration;
 
 #[component]
 pub(crate) fn TabRail(
@@ -14,6 +16,32 @@ pub(crate) fn TabRail(
     mut rename_draft: Signal<String>,
 ) -> Element {
     let snapshot = app_state.read().clone();
+    let mut resource_snapshot = use_signal(ResourceSnapshot::default);
+    {
+        let terminal_manager = terminal_manager.read().clone();
+        use_future(move || {
+            let terminal_manager = terminal_manager.clone();
+            async move {
+                loop {
+                    tokio::time::sleep(Duration::from_millis(RESOURCE_POLL_MS)).await;
+                    let session_roots = {
+                        let state = app_state.read();
+                        state
+                            .sessions
+                            .iter()
+                            .filter_map(|session| {
+                                terminal_manager
+                                    .session_process_id(session.id)
+                                    .map(|pid| (session.id, pid))
+                            })
+                            .collect::<Vec<_>>()
+                    };
+                    resource_snapshot.set(sample_resource_snapshot(&session_roots));
+                }
+            }
+        });
+    }
+    let resource_snapshot_value = resource_snapshot.read().clone();
     let active_group_id = snapshot.active_group_id();
     let renaming_tab_id = *renaming_tab.read();
     let rename_draft_value = rename_draft.read().clone();
@@ -117,6 +145,19 @@ pub(crate) fn TabRail(
                                             let session_id = session.id;
                                             let selected = snapshot.selected_session == Some(session_id);
                                             let is_runner = session.role.is_runner();
+                                            let load_style = match resource_snapshot_value
+                                                .session_loads
+                                                .get(&session_id)
+                                                .map(|load| load.level.css_class())
+                                            {
+                                                Some("load-hot") => {
+                                                    "box-shadow: inset 0 0 0 1px #ff8a8a, 0 0 0 1px #ff8a8a55;"
+                                                }
+                                                Some("load-warm") => {
+                                                    "box-shadow: inset 0 0 0 1px #f6d373, 0 0 0 1px #f6d37355;"
+                                                }
+                                                _ => "",
+                                            };
                                             let tab_class = if selected {
                                                 if is_runner { "tab active role-run" } else { "tab active role-agent" }
                                             } else if is_runner {
@@ -137,6 +178,7 @@ pub(crate) fn TabRail(
                                                 li {
                                                     class: "{tab_class}",
                                                     key: "session-{session_id}",
+                                                    style: "{load_style}",
                                                     draggable: "true",
                                                     ondragstart: move |_| {
                                                         dragging_tab.set(Some(session_id));

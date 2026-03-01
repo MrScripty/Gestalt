@@ -1,4 +1,5 @@
 use crate::orchestrator::{self, GroupOrchestratorSnapshot};
+use crate::resource_monitor::{RESOURCE_POLL_MS, ResourceSnapshot, sample_resource_snapshot};
 use crate::state::{AppState, SessionId, SessionStatus};
 use crate::terminal::{TerminalManager, TerminalSnapshot};
 use crate::ui::insert_command_mode::InsertModeState;
@@ -10,6 +11,7 @@ use crate::ui::terminal_view::{
 use dioxus::prelude::*;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 #[derive(Clone)]
 struct TerminalPaneData {
@@ -52,6 +54,32 @@ pub(crate) fn WorkspaceMain(
     insert_mode_state: Signal<Option<InsertModeState>>,
 ) -> Element {
     let _ = *refresh_tick.read();
+    let mut resource_snapshot = use_signal(ResourceSnapshot::default);
+    {
+        let terminal_manager = terminal_manager.read().clone();
+        use_future(move || {
+            let terminal_manager = terminal_manager.clone();
+            async move {
+                loop {
+                    tokio::time::sleep(Duration::from_millis(RESOURCE_POLL_MS)).await;
+                    let session_roots = {
+                        let state = app_state.read();
+                        state
+                            .sessions
+                            .iter()
+                            .filter_map(|session| {
+                                terminal_manager
+                                    .session_process_id(session.id)
+                                    .map(|pid| (session.id, pid))
+                            })
+                            .collect::<Vec<_>>()
+                    };
+                    resource_snapshot.set(sample_resource_snapshot(&session_roots));
+                }
+            }
+        });
+    }
+    let resource_snapshot_value = resource_snapshot.read().clone();
     let snapshot = app_state.read().clone();
     let busy_count = snapshot.session_count_by_status(SessionStatus::Busy);
     let error_count = snapshot.session_count_by_status(SessionStatus::Error);
@@ -213,6 +241,28 @@ pub(crate) fn WorkspaceMain(
                         span { class: "badge idle", "Idle {idle_count}" }
                         span { class: "badge busy", "Busy {busy_count}" }
                         span { class: "badge error", "Error {error_count}" }
+                        {
+                            let cpu_badge_class = metric_badge_class(resource_snapshot_value.system_cpu_percent);
+                            let memory_percent = percent_used(
+                                resource_snapshot_value.memory_used_bytes,
+                                resource_snapshot_value.memory_total_bytes,
+                            );
+                            let memory_badge_class = metric_badge_class(memory_percent);
+                            let memory_used = format_bytes_compact(resource_snapshot_value.memory_used_bytes);
+                            let memory_total = format_bytes_compact(resource_snapshot_value.memory_total_bytes);
+                            rsx! {
+                                span {
+                                    class: "badge {cpu_badge_class}",
+                                    title: "System CPU usage sampled from native OS counters",
+                                    "CPU {resource_snapshot_value.system_cpu_percent:.0}%"
+                                }
+                                span {
+                                    class: "badge {memory_badge_class}",
+                                    title: "System memory usage sampled from native OS counters",
+                                    "RAM {memory_used}/{memory_total}"
+                                }
+                            }
+                        }
                     }
                     button {
                         class: "side-panel-toggle",
@@ -514,9 +564,46 @@ pub(crate) fn WorkspaceMain(
     }
 }
 
+fn metric_badge_class(percent: f32) -> &'static str {
+    if percent >= 90.0 {
+        "error"
+    } else if percent >= 70.0 {
+        "busy"
+    } else {
+        "idle"
+    }
+}
+
+fn percent_used(used: u64, total: u64) -> f32 {
+    if total == 0 {
+        return 0.0;
+    }
+    ((used as f64 / total as f64) * 100.0) as f32
+}
+
+fn format_bytes_compact(bytes: u64) -> String {
+    const KIB: f64 = 1024.0;
+    const MIB: f64 = KIB * 1024.0;
+    const GIB: f64 = MIB * 1024.0;
+    const TIB: f64 = GIB * 1024.0;
+    let bytes_f64 = bytes as f64;
+
+    if bytes_f64 >= TIB {
+        format!("{:.1} TiB", bytes_f64 / TIB)
+    } else if bytes_f64 >= GIB {
+        format!("{:.1} GiB", bytes_f64 / GIB)
+    } else if bytes_f64 >= MIB {
+        format!("{:.1} MiB", bytes_f64 / MIB)
+    } else if bytes_f64 >= KIB {
+        format!("{:.1} KiB", bytes_f64 / KIB)
+    } else {
+        format!("{bytes} B")
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::run_sidebar_style_for_panel;
+    use super::{format_bytes_compact, percent_used, run_sidebar_style_for_panel};
     use crate::ui::sidebar_panel_host::SidebarPanelKind;
 
     #[test]
@@ -525,8 +612,22 @@ mod tests {
         let local = run_sidebar_style_for_panel(SidebarPanelKind::LocalAgent, ratio);
         let commands = run_sidebar_style_for_panel(SidebarPanelKind::Commands, ratio);
         let git = run_sidebar_style_for_panel(SidebarPanelKind::Git, ratio);
+        let files = run_sidebar_style_for_panel(SidebarPanelKind::FileBrowser, ratio);
 
         assert_eq!(local, commands);
         assert_eq!(local, git);
+        assert_eq!(local, files);
+    }
+
+    #[test]
+    fn format_bytes_compact_uses_binary_units() {
+        assert_eq!(format_bytes_compact(500), "500 B");
+        assert_eq!(format_bytes_compact(2_048), "2.0 KiB");
+        assert_eq!(format_bytes_compact(1_572_864), "1.5 MiB");
+    }
+
+    #[test]
+    fn percent_used_returns_zero_for_missing_total() {
+        assert_eq!(percent_used(1024, 0), 0.0);
     }
 }
