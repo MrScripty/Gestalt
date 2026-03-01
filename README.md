@@ -51,7 +51,7 @@ Shortcuts/menu entries are created by each OS-native installer:
 - macOS (`.dmg`): drag-install app bundle into Applications
 
 Installer/icon metadata is configured via `Dioxus.toml` using
-`assets/Gestalt.png`.
+`assets/Gestalt_small.png`.
 
 ## Performance Gate
 
