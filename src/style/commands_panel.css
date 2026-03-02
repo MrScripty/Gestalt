@@ -8,7 +8,7 @@
 
 .side-panel-switcher {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
 }
 
@@ -300,4 +300,116 @@
     grid-template-columns: 1fr;
     grid-template-rows: minmax(160px, 0.8fr) minmax(0, 1fr);
   }
+}
+
+/* Gestalt dark-green theme overrides */
+.commands-panel-card {
+  background: linear-gradient(180deg, #14231f 0%, #101d1a 100%);
+  border-color: #3a5d4f;
+  box-shadow: 0 10px 26px #050b0d61;
+}
+
+.commands-panel-head,
+.commands-panel-toolbar {
+  border-bottom-color: #2f4c40;
+}
+
+.commands-panel-head h3 {
+  color: #d3eadf;
+}
+
+.commands-panel-head p {
+  color: #91b1a2;
+}
+
+.commands-empty {
+  color: #88a899;
+}
+
+.commands-row {
+  border-color: #3b5f50;
+  background: #12221d;
+}
+
+.commands-row.selected {
+  border-color: #66d672;
+  box-shadow: inset 0 0 0 1px #66d67255;
+}
+
+.commands-row-name {
+  color: #d1e9dd;
+}
+
+.commands-row-preview {
+  color: #8caea0;
+}
+
+.commands-label {
+  color: #9fc3b2;
+}
+
+.commands-input,
+.commands-textarea {
+  border-color: #406657;
+  background: #0c1714;
+  color: #d8ede2;
+}
+
+.commands-editor-mode,
+.commands-feedback {
+  color: #95b7a8;
+}
+
+.commands-action-btn {
+  border-color: #3f6655;
+  background: #173027;
+  color: #cae4d6;
+}
+
+.commands-action-btn.primary {
+  border-color: #64d670;
+  background: #1e382c;
+  color: #dcf4e6;
+}
+
+.commands-action-btn.danger {
+  border-color: #a4585e;
+  background: #47262a;
+  color: #ffd9dd;
+}
+
+.insert-command-palette {
+  border-color: #406658;
+  background: #11211cf2;
+  box-shadow: 0 8px 24px #050b0d99;
+}
+
+.insert-command-palette-head {
+  border-bottom-color: #2f4c40;
+}
+
+.insert-command-palette-head h4 {
+  color: #cde6d9;
+}
+
+.insert-command-palette-head p,
+.insert-command-empty {
+  color: #8fae9f;
+}
+
+.insert-command-item {
+  border-top-color: #2f4b40;
+}
+
+.insert-command-item.selected {
+  background: #1a3328;
+}
+
+.insert-command-name {
+  color: #d2eadf;
+}
+
+.insert-command-description,
+.insert-command-prompt {
+  color: #92b3a4;
 }

@@ -558,3 +558,196 @@
     grid-template-rows: repeat(2, minmax(260px, 1fr));
   }
 }
+
+/* Gestalt dark-green theme overrides */
+.workspace {
+  background: #0f1917eb;
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
+.badge {
+  color: #10201b;
+}
+
+.side-panel-toggle {
+  border-color: #406456;
+  background: #132823;
+  color: #c9e2d5;
+}
+
+.side-panel-toggle:focus-visible {
+  outline-color: var(--accent);
+}
+
+.workspace-divider-static {
+  background: #274339;
+}
+
+.terminal-card {
+  background: #121f1b;
+  border-color: #2e4a3f;
+  box-shadow: 0 10px 26px #050b0d61;
+}
+
+.terminal-card.selected {
+  border-color: #537b6a;
+  box-shadow: 0 10px 30px #050b0d85;
+}
+
+.terminal-card.runner {
+  background: linear-gradient(180deg, #162236 0%, #111b2c 100%);
+  border-color: #35537f;
+  box-shadow: 0 10px 26px #0e1b314f;
+}
+
+.terminal-card.runner .terminal-head {
+  background: #1a2a44;
+}
+
+.terminal-card.runner .sub,
+.terminal-card.runner .terminal-meta {
+  color: #a8c3f3;
+}
+
+.terminal-head {
+  border-bottom-color: #2f4b40;
+}
+
+.sub {
+  color: #8eafa1;
+}
+
+.terminal-meta {
+  color: #80a193;
+}
+
+.status-cycle {
+  color: #d3e8de;
+}
+
+.terminal-body {
+  background: #0a1311;
+  color: #cde4d9;
+}
+
+.terminal-card.runner .terminal-body {
+  background: #0d1421;
+}
+
+.terminal-prompt {
+  color: #8cff62;
+}
+
+.terminal-caret-inline {
+  border-color: #64cf6d;
+  background: #7fff5d40;
+}
+
+.runner-empty,
+.workspace-empty {
+  border-color: #45695a;
+  color: #90afa2;
+  background: #0f1d19;
+}
+
+.side-panel-tab {
+  border-color: #3f6254;
+  background: #142722;
+  color: #bddbce;
+}
+
+.side-panel-tab.active {
+  border-color: #66d672;
+  background: #193126;
+  color: #d6f0e2;
+}
+
+.side-panel-tab:focus-visible {
+  outline-color: var(--accent);
+}
+
+.sidebar-panel-empty {
+  border-color: #45695a;
+  background: #0f1d19;
+  color: #8eab9f;
+}
+
+.orchestrator-card {
+  background: linear-gradient(180deg, #14251f 0%, #101d19 100%);
+  border-color: #3a5e4f;
+  box-shadow: 0 10px 26px #050b0d61;
+}
+
+.orchestrator-head {
+  border-bottom-color: #2f4e41;
+}
+
+.orchestrator-head h3 {
+  color: #d7ede2;
+}
+
+.orchestrator-head p {
+  color: #91b2a3;
+}
+
+.orchestrator-controls {
+  border-bottom-color: #2f4e41;
+}
+
+.orchestrator-input {
+  border-color: #3d6654;
+  color: #d7ecdf;
+  background: #0c1714;
+}
+
+.orchestrator-btn.send {
+  background: #57bb6b;
+  color: #0d2218;
+}
+
+.orchestrator-btn.interrupt {
+  background: #874148;
+  color: #fde4e7;
+}
+
+.orchestrator-feedback {
+  color: #8db29f;
+}
+
+.orchestrator-item {
+  border-color: #3a5c4d;
+  background: #13241e;
+}
+
+.orchestrator-item.terminal-selected {
+  border-color: #5ec574;
+  box-shadow: inset 0 0 0 1px #5ec57444;
+}
+
+.orchestrator-item.terminal-focused {
+  border-color: #86ff5d;
+  box-shadow: inset 0 0 0 1px #86ff5d44;
+}
+
+.orchestrator-item-head .name {
+  color: #d2ebde;
+}
+
+.orchestrator-item .badge.role {
+  background: #2f5a46;
+  color: #d6f1e1;
+}
+
+.orchestrator-item .badge.state {
+  background: #274638;
+  color: #b8d8c8;
+}
+
+.orchestrator-item .meta {
+  color: #8faf9f;
+}
+
+.orchestrator-item .preview {
+  color: #c5dfd2;
+}

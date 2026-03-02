@@ -14,7 +14,7 @@ pub(crate) fn GitPanel(
     repo_loading: Signal<bool>,
     git_refresh_nonce: Signal<u64>,
 ) -> Element {
-    let repo_loading_value = *repo_loading.read();
+    let _ = repo_loading;
     let context = repo_context.read().clone();
     let mut op_feedback = use_signal(String::new);
     let op_feedback_value = op_feedback.read().clone();
@@ -44,13 +44,6 @@ pub(crate) fn GitPanel(
             div { class: "git-panel-head",
                 h3 { "Git" }
                 p { "Path context: {active_group_path}" }
-            }
-
-            if repo_loading_value {
-                p { class: "git-loading", "Refreshing repository context..." }
-            }
-            if op_inflight_value {
-                p { class: "git-loading", "Git operation in progress..." }
             }
 
             if let Some(context) = context {

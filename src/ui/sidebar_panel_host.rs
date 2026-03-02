@@ -3,6 +3,7 @@ use crate::orchestrator::GroupOrchestratorSnapshot;
 use crate::state::{AppState, GroupId};
 use crate::terminal::TerminalManager;
 use crate::ui::commands_panel::CommandsPanel;
+use crate::ui::file_browser_panel::FileBrowserPanel;
 use crate::ui::git_panel::GitPanel;
 use crate::ui::local_agent_panel::LocalAgentPanel;
 use dioxus::prelude::*;
@@ -14,6 +15,7 @@ pub(crate) enum SidebarPanelKind {
     LocalAgent,
     Commands,
     Git,
+    FileBrowser,
 }
 
 pub(crate) fn select_sidebar_panel(
@@ -44,6 +46,7 @@ pub(crate) fn SidebarPanelHost(
             div { class: "side-panel-switcher", role: "tablist", aria_label: "Sidebar panels",
                 {panel_button("Commands", "Insert command library", SidebarPanelKind::Commands, active_panel, sidebar_panel)}
                 {panel_button("Git", "Git repository context", SidebarPanelKind::Git, active_panel, sidebar_panel)}
+                {panel_button("Files", "Browse files in this path group", SidebarPanelKind::FileBrowser, active_panel, sidebar_panel)}
             }
 
             div { class: "side-panel-body",
@@ -83,6 +86,14 @@ pub(crate) fn SidebarPanelHost(
                                 repo_context: repo_context,
                                 repo_loading: repo_loading,
                                 git_refresh_nonce: git_refresh_nonce,
+                            }
+                        },
+                        SidebarPanelKind::FileBrowser => rsx! {
+                            FileBrowserPanel {
+                                app_state: app_state,
+                                terminal_manager: terminal_manager,
+                                group_id: group_id,
+                                active_group_path: active_group_path,
                             }
                         },
                     }
@@ -128,6 +139,7 @@ mod tests {
             SidebarPanelKind::LocalAgent,
             SidebarPanelKind::Commands,
             SidebarPanelKind::Git,
+            SidebarPanelKind::FileBrowser,
         ];
 
         for current in panels {
