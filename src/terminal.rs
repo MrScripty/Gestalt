@@ -4,10 +4,11 @@ use portable_pty::{CommandBuilder, MasterPty, NativePtySystem, PtySize, PtySyste
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use thiserror::Error;
 use vt100::Parser;
 
 const DEFAULT_ROWS: u16 = 42;
@@ -48,6 +49,26 @@ pub struct PersistedTerminalState {
 pub struct SendInputProfile {
     pub lock_wait: Duration,
     pub total: Duration,
+}
+
+#[derive(Debug, Clone, Error)]
+pub enum TerminalError {
+    #[error("session does not exist")]
+    SessionMissing,
+    #[error("failed to create PTY: {0}")]
+    CreatePty(String),
+    #[error("failed to start shell in {cwd}: {details}")]
+    StartShell { cwd: String, details: String },
+    #[error("failed to open PTY writer: {0}")]
+    OpenWriter(String),
+    #[error("failed to open PTY reader: {0}")]
+    OpenReader(String),
+    #[error("failed writing input: {0}")]
+    WriteInput(String),
+    #[error("failed flushing input: {0}")]
+    FlushInput(String),
+    #[error("failed to resize PTY: {0}")]
+    ResizePty(String),
 }
 
 /// Manages PTY-backed terminal runtimes indexed by session ID.
@@ -127,7 +148,7 @@ impl TerminalManager {
     }
 
     /// Ensures a runtime exists for the requested session.
-    pub fn ensure_session(&self, session_id: SessionId, cwd: &str) -> Result<(), String> {
+    pub fn ensure_session(&self, session_id: SessionId, cwd: &str) -> Result<(), TerminalError> {
         if self.sessions.read().contains_key(&session_id) {
             return Ok(());
         }
@@ -153,24 +174,27 @@ impl TerminalManager {
                 pixel_width: 0,
                 pixel_height: 0,
             })
-            .map_err(|error| format!("Failed to create PTY: {error}"))?;
+            .map_err(|error| TerminalError::CreatePty(error.to_string()))?;
 
         let mut command = CommandBuilder::new(&self.shell);
         command.cwd(&session_cwd);
         command.env("TERM", "xterm-256color");
 
-        let child = pair
-            .slave
-            .spawn_command(command)
-            .map_err(|error| format!("Failed to start shell in {cwd}: {error}"))?;
+        let child =
+            pair.slave
+                .spawn_command(command)
+                .map_err(|error| TerminalError::StartShell {
+                    cwd: cwd.to_string(),
+                    details: error.to_string(),
+                })?;
 
         let master = pair.master;
         let writer = master
             .take_writer()
-            .map_err(|error| format!("Failed to open PTY writer: {error}"))?;
+            .map_err(|error| TerminalError::OpenWriter(error.to_string()))?;
         let reader = master
             .try_clone_reader()
-            .map_err(|error| format!("Failed to open PTY reader: {error}"))?;
+            .map_err(|error| TerminalError::OpenReader(error.to_string()))?;
 
         let restored_lines = restored
             .as_ref()
@@ -230,7 +254,7 @@ impl TerminalManager {
     }
 
     /// Sends raw bytes to a session PTY.
-    pub fn send_input(&self, session_id: SessionId, input: &[u8]) -> Result<(), String> {
+    pub fn send_input(&self, session_id: SessionId, input: &[u8]) -> Result<(), TerminalError> {
         self.send_input_profiled(session_id, input).map(|_| ())
     }
 
@@ -239,21 +263,21 @@ impl TerminalManager {
         &self,
         session_id: SessionId,
         input: &[u8],
-    ) -> Result<SendInputProfile, String> {
+    ) -> Result<SendInputProfile, TerminalError> {
         let started = Instant::now();
         let runtime = self
             .session_runtime(session_id)
-            .ok_or_else(|| "session does not exist".to_string())?;
+            .ok_or(TerminalError::SessionMissing)?;
         let lock_started = Instant::now();
         let mut writer = runtime.writer.lock();
         let lock_wait = lock_started.elapsed();
 
         writer
             .write_all(input)
-            .map_err(|error| format!("Failed writing input: {error}"))?;
+            .map_err(|error| TerminalError::WriteInput(error.to_string()))?;
         writer
             .flush()
-            .map_err(|error| format!("Failed flushing input: {error}"))?;
+            .map_err(|error| TerminalError::FlushInput(error.to_string()))?;
 
         if let Some(memory_sink) = runtime.memory_sink.as_ref() {
             let mut pending = runtime.input_pending.lock();
@@ -274,14 +298,14 @@ impl TerminalManager {
     }
 
     /// Sends a line terminated with carriage return.
-    pub fn send_line(&self, session_id: SessionId, line: &str) -> Result<(), String> {
+    pub fn send_line(&self, session_id: SessionId, line: &str) -> Result<(), TerminalError> {
         let mut bytes = line.as_bytes().to_vec();
         bytes.push(b'\r');
         self.send_input(session_id, &bytes)
     }
 
     /// Updates tracked working directory metadata for a session.
-    pub fn set_cwd(&self, session_id: SessionId, cwd: &str) -> Result<(), String> {
+    pub fn set_cwd(&self, session_id: SessionId, cwd: &str) -> Result<(), TerminalError> {
         self.send_line(session_id, &format!("cd {}", shell_quote(cwd)))?;
 
         if let Some(runtime) = self.session_runtime(session_id) {
@@ -348,10 +372,10 @@ impl TerminalManager {
         session_id: SessionId,
         rows: u16,
         cols: u16,
-    ) -> Result<(), String> {
+    ) -> Result<(), TerminalError> {
         let runtime = self
             .session_runtime(session_id)
-            .ok_or_else(|| "session does not exist".to_string())?;
+            .ok_or(TerminalError::SessionMissing)?;
 
         let rows = rows.max(MIN_ROWS);
         let cols = cols.max(MIN_COLS);
@@ -364,7 +388,7 @@ impl TerminalManager {
                 pixel_width: 0,
                 pixel_height: 0,
             })
-            .map_err(|error| format!("Failed to resize PTY: {error}"))?;
+            .map_err(|error| TerminalError::ResizePty(error.to_string()))?;
 
         let mut parser = runtime.parser.lock();
         parser.set_size(rows, cols);

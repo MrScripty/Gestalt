@@ -46,7 +46,9 @@ fn main() -> Result<(), String> {
     let terminal_manager = Arc::new(TerminalManager::new());
 
     for session_id in &session_ids {
-        terminal_manager.ensure_session(*session_id, &cwd)?;
+        terminal_manager
+            .ensure_session(*session_id, &cwd)
+            .map_err(|error| error.to_string())?;
     }
 
     seed_terminal_output(&terminal_manager, &session_ids)?;
@@ -367,7 +369,9 @@ fn seed_terminal_output(
     let command = format!("for i in $(seq 1 {WARMUP_HISTORY_LINES}); do echo \"$i {fill}\"; done");
 
     for session_id in session_ids {
-        terminal_manager.send_line(*session_id, &command)?;
+        terminal_manager
+            .send_line(*session_id, &command)
+            .map_err(|error| error.to_string())?;
     }
 
     let deadline = Instant::now() + WARMUP_READY_TIMEOUT;
@@ -549,7 +553,9 @@ fn profile_typing_latency(
     let mut totals = Vec::with_capacity(samples);
 
     for _ in 0..samples {
-        let timings = terminal_manager.send_input_profiled(session_id, b"a")?;
+        let timings = terminal_manager
+            .send_input_profiled(session_id, b"a")
+            .map_err(|error| error.to_string())?;
 
         lock_waits.push(timings.lock_wait);
         totals.push(timings.total);

@@ -164,7 +164,10 @@ pub fn send_line_to_sessions(
         .copied()
         .map(|session_id| SessionWriteResult {
             session_id,
-            error: terminal_manager.send_line(session_id, line).err(),
+            error: terminal_manager
+                .send_line(session_id, line)
+                .err()
+                .map(|error| error.to_string()),
         })
         .collect()
 }
@@ -179,7 +182,10 @@ pub fn interrupt_sessions(
         .copied()
         .map(|session_id| SessionWriteResult {
             session_id,
-            error: terminal_manager.send_input(session_id, &[0x03]).err(),
+            error: terminal_manager
+                .send_input(session_id, &[0x03])
+                .err()
+                .map(|error| error.to_string()),
         })
         .collect()
 }
