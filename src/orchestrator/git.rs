@@ -2,6 +2,7 @@ use crate::git::{self, CheckoutTarget, CommitDraft, GitError, RepoContext, RepoP
 use crate::orchestrator::events::{
     GitCommandExecuted, GitCommandKind, OrchestratorEvent, event_bus,
 };
+use crate::path_validation;
 
 #[derive(Debug, Clone)]
 pub struct FileOpResult {
@@ -60,7 +61,9 @@ pub fn checkout_target(group_path: &str, target: CheckoutTarget) -> Result<(), G
 }
 
 pub fn create_worktree(group_path: &str, new_path: &str, target: &str) -> Result<(), GitError> {
-    let result = git::create_worktree(group_path, new_path, target);
+    let validated_path =
+        path_validation::validate_new_worktree_path(new_path).map_err(GitError::InvalidInput)?;
+    let result = git::create_worktree(group_path, &validated_path, target);
     emit_git_command_event(group_path, GitCommandKind::CreateWorktree, result.is_ok());
     result
 }
