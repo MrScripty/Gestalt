@@ -41,6 +41,8 @@ pub struct PersistedTerminalState {
     pub cursor_col: u16,
     pub hide_cursor: bool,
     pub bracketed_paste: bool,
+    // Terminal history persistence is owned by Emily, not workspace JSON.
+    #[serde(default, skip_serializing, skip_deserializing)]
     pub lines: Vec<String>,
 }
 
@@ -144,7 +146,7 @@ impl TerminalManager {
         }
     }
 
-    /// Registers restored terminal history for deferred session startup.
+    /// Registers restored terminal state for deferred session startup.
     pub fn seed_restored_terminal(&self, state: PersistedTerminalState) {
         self.pending_restore.lock().insert(state.session_id, state);
     }
@@ -336,19 +338,10 @@ impl TerminalManager {
     }
 
     /// Returns a persistence-friendly snapshot for the given session.
+    /// History lines are intentionally omitted; Emily is the source of truth.
     pub fn snapshot_for_persist(&self, session_id: SessionId) -> Option<PersistedTerminalState> {
-        self.snapshot_for_persist_limited(session_id, MAX_PERSISTED_HISTORY_LINES)
-    }
-
-    /// Returns a persistence snapshot with a caller-provided history cap.
-    pub fn snapshot_for_persist_limited(
-        &self,
-        session_id: SessionId,
-        max_history_lines: usize,
-    ) -> Option<PersistedTerminalState> {
         if let Some(runtime) = self.session_runtime(session_id) {
             let snapshot = runtime.snapshot_cache.read().clone();
-            let lines = normalized_history_lines_limited(&snapshot.lines, max_history_lines);
 
             return Some(PersistedTerminalState {
                 session_id,
@@ -359,7 +352,7 @@ impl TerminalManager {
                 cursor_col: snapshot.cursor_col,
                 hide_cursor: snapshot.hide_cursor,
                 bracketed_paste: snapshot.bracketed_paste,
-                lines,
+                lines: Vec::new(),
             });
         }
 
@@ -368,10 +361,19 @@ impl TerminalManager {
             .get(&session_id)
             .cloned()
             .map(|mut persisted| {
-                persisted.lines =
-                    normalized_history_lines_limited(&persisted.lines, max_history_lines);
+                persisted.lines.clear();
                 persisted
             })
+    }
+
+    /// Returns a persistence snapshot with a caller-provided history cap.
+    /// History is no longer persisted outside Emily, so this cap is ignored.
+    pub fn snapshot_for_persist_limited(
+        &self,
+        session_id: SessionId,
+        _max_history_lines: usize,
+    ) -> Option<PersistedTerminalState> {
+        self.snapshot_for_persist(session_id)
     }
 
     /// Resizes a running PTY and updates parser dimensions.

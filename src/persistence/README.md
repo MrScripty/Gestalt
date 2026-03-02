@@ -1,7 +1,7 @@
 # Persistence
 
 ## Purpose
-Persists and restores workspace state so groups, sessions, and terminal snapshots survive app restarts.
+Persists and restores workspace state so groups, sessions, and terminal projection metadata survive app restarts.
 
 ## Contents
 | File | Description |
@@ -17,8 +17,8 @@ Persists and restores workspace state so groups, sessions, and terminal snapshot
 - Workspace persistence is best-effort infrastructure: failures degrade gracefully to cold start.
 - Schema version is explicit and checked at load.
 - Save path is OS-specific but hidden behind `paths.rs`.
+- Terminal history lines are not persisted here; Emily is the history source of truth.
 
 ## Dependencies
 **Internal:** `state`, `terminal`  
 **External:** `serde`, `serde_json`, `thiserror`
-

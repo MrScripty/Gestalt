@@ -31,12 +31,21 @@ impl PersistedWorkspaceV1 {
         self
     }
 
+    /// Returns a copy that clears terminal history lines.
+    pub fn without_terminal_history(mut self) -> Self {
+        for terminal in &mut self.terminals {
+            terminal.lines.clear();
+        }
+        self
+    }
+
     /// Computes a stable hash used to avoid redundant autosaves.
     pub fn stable_fingerprint(&self) -> Result<u64, serde_json::Error> {
+        let stripped = self.clone().without_terminal_history();
         let bytes = serde_json::to_vec(&StablePayloadRef {
-            schema_version: self.schema_version,
-            app_state: &self.app_state,
-            terminals: &self.terminals,
+            schema_version: stripped.schema_version,
+            app_state: &stripped.app_state,
+            terminals: &stripped.terminals,
         })?;
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         bytes.hash(&mut hasher);

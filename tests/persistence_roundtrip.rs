@@ -39,7 +39,17 @@ fn test_save_workspace_roundtrip_restores_app_state() {
         assert_eq!(loaded.app_state.sessions.len(), state.sessions.len());
         assert_eq!(loaded.app_state.groups.len(), state.groups.len());
         assert_eq!(loaded.terminals.len(), 1);
-        assert_eq!(loaded.terminals[0].lines[0], "history line");
+        assert!(
+            loaded.terminals[0].lines.is_empty(),
+            "terminal history should not be persisted in workspace snapshots"
+        );
+
+        let raw =
+            std::fs::read_to_string(&workspace_path).expect("workspace file should be readable");
+        assert!(
+            !raw.contains("history line"),
+            "workspace payload should not contain terminal history text"
+        );
     });
 }
 

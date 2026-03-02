@@ -8,7 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
 #[test]
-fn test_resume_startup_restores_groups_sessions_and_terminal_history() {
+fn test_resume_startup_restores_groups_sessions_without_workspace_terminal_history() {
     with_workspace_path("resume", |_workspace_path| {
         let state = AppState::default();
         let session_id = state.sessions[0].id;
@@ -45,9 +45,10 @@ fn test_resume_startup_restores_groups_sessions_and_terminal_history() {
             .snapshot_for_persist(session_id)
             .expect("snapshot should be available");
         assert_eq!(restored_snapshot.cwd, cwd);
-        let joined = restored_snapshot.lines.join("\n");
-        assert!(joined.contains("restored one"));
-        assert!(joined.contains("restored two"));
+        assert!(
+            restored_snapshot.lines.is_empty(),
+            "terminal history restoration now comes from Emily only"
+        );
     });
 }
 

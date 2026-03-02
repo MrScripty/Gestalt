@@ -31,6 +31,7 @@ pub fn save_workspace(workspace: &PersistedWorkspaceV1) -> Result<(), Persistenc
 
     let payload = workspace
         .clone()
+        .without_terminal_history()
         .with_saved_at_unix(unix_timestamp_seconds());
     let serialized = serde_json::to_vec_pretty(&payload)?;
 

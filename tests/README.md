@@ -8,7 +8,7 @@ Integration tests for persistence and resume behavior.
 | ---- | ----------- |
 | `persistence_roundtrip.rs` | Save/load roundtrip contract tests |
 | `persistence_recovery.rs` | Corrupt-file and backup recovery behavior |
-| `resume_startup.rs` | Startup resume flow with restored terminal history |
+| `resume_startup.rs` | Startup resume flow with workspace state restored but terminal history omitted |
 | `git_panel_ops.rs` | Git panel orchestration action flow tests against temp repos |
 | `git_panel_context_switch.rs` | Repo/non-repo context switching behavior tests |
 
