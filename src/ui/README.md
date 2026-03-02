@@ -45,6 +45,18 @@ Keep UI responsibilities component-focused and route runtime/domain mutations th
 - Component files exceed maintainability limits.
 - Polling loops can be replaced by event-driven updates.
 
+## Polling Exceptions
+The following loops are currently retained because upstream signal hooks are not yet available at the required boundary:
+
+| Location | Cadence | Why It Exists | Revisit Trigger |
+| -------- | ------- | ------------- | --------------- |
+| `ui.rs` terminal refresh loop | 33 ms | PTY snapshot revisions are pull-based and shared across many sessions. | Terminal runtime publishes change events directly to UI state. |
+| `ui.rs` terminal resize loop | 180 ms | Viewport measurement is DOM-driven and currently sampled. | Reliable resize observer bridge is available in Dioxus desktop layer. |
+| `ui.rs` startup sync loop | 250 ms | Session startup depends on runtime readiness checks. | Runtime exposes deterministic startup completion events. |
+| `ui.rs` autosave loop | 1200 ms | Autosave worker completion and signature checks are currently drained by polling. | Autosave worker adopts callback/event notification. |
+| `file_browser_panel.rs` refresh loop | 1000 ms + nonce triggers | Uses nonce-driven event triggers with low-frequency fallback for repo/fs drift. | File-system/repo watcher events can fully replace fallback cadence. |
+| `git_refresh.rs` coordinator loop | 500 ms | Event bus + debounced scheduling still requires periodic due checks. | Scheduler is converted to timer/event queue without tick loop. |
+
 ## Dependencies
 **Internal:** `state`, `terminal`, `orchestrator`, `git`, `persistence`  
 **External:** `dioxus`, `tokio`
