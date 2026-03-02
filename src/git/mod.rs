@@ -220,3 +220,73 @@ fn validate_non_empty(value: &str, label: &str) -> Result<String, GitError> {
 
     Ok(trimmed.to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::load_repo_path_marks;
+    use std::path::Path;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn load_repo_path_marks_returns_default_for_non_repo() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |duration| duration.as_nanos());
+        let path = std::env::temp_dir().join(format!("gestalt-git-marks-nonrepo-{nonce}"));
+        std::fs::create_dir_all(&path).expect("temp dir should be created");
+
+        let marks = load_repo_path_marks(path.to_string_lossy().as_ref())
+            .expect("non-repo path should not fail");
+        assert!(marks.repo_root.is_none());
+        assert!(marks.modified_paths.is_empty());
+        assert!(marks.ignored_paths.is_empty());
+
+        let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn load_repo_path_marks_collects_modified_and_ignored_paths() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |duration| duration.as_nanos());
+        let path = std::env::temp_dir().join(format!("gestalt-git-marks-repo-{nonce}"));
+        std::fs::create_dir_all(&path).expect("temp dir should be created");
+
+        run_git(path.as_path(), &["init"]);
+        run_git(path.as_path(), &["config", "user.email", "marks-test@example.com"]);
+        run_git(path.as_path(), &["config", "user.name", "Marks Test"]);
+        std::fs::write(path.join(".gitignore"), "target/\n").expect("gitignore write should work");
+        std::fs::write(path.join("README.md"), "baseline\n").expect("readme write should work");
+        run_git(path.as_path(), &["add", ".gitignore", "README.md"]);
+        run_git(path.as_path(), &["commit", "-m", "chore: init"]);
+
+        std::fs::write(path.join("README.md"), "modified\n").expect("readme update should work");
+        std::fs::create_dir_all(path.join("target")).expect("target dir should be created");
+        std::fs::write(path.join("target/build.log"), "ignored\n")
+            .expect("ignored file write should work");
+
+        let marks =
+            load_repo_path_marks(path.to_string_lossy().as_ref()).expect("repo marks should load");
+        assert!(marks.repo_root.is_some());
+        assert!(marks.modified_paths.contains("README.md"));
+        assert!(marks.ignored_paths.contains("target"));
+
+        let _ = std::fs::remove_dir_all(path);
+    }
+
+    fn run_git(cwd: &Path, args: &[&str]) {
+        let output = std::process::Command::new("git")
+            .current_dir(cwd)
+            .args(args)
+            .output()
+            .expect("git command should run");
+
+        if !output.status.success() {
+            panic!(
+                "git {:?} failed: {}",
+                args,
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+}
