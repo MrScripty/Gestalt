@@ -4,8 +4,8 @@ use portable_pty::{CommandBuilder, MasterPty, NativePtySystem, PtySize, PtySyste
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use vt100::Parser;
@@ -75,6 +75,17 @@ struct TerminalRuntime {
     memory_sink: Option<Arc<dyn TerminalMemorySink>>,
     snapshot_cache: Arc<RwLock<Arc<TerminalSnapshot>>>,
     snapshot_revision: Arc<AtomicU64>,
+}
+
+struct ReaderThreadContext {
+    reader: Box<dyn Read + Send>,
+    parser: Arc<Mutex<Parser>>,
+    scrollback: Arc<RwLock<ScrollbackBuffer>>,
+    snapshot_cache: Arc<RwLock<Arc<TerminalSnapshot>>>,
+    snapshot_revision: Arc<AtomicU64>,
+    cwd: Arc<RwLock<String>>,
+    memory_sink: Option<Arc<dyn TerminalMemorySink>>,
+    session_id: SessionId,
 }
 
 #[derive(Debug, Clone)]
@@ -182,16 +193,16 @@ impl TerminalManager {
         };
         let snapshot_cache = Arc::new(RwLock::new(Arc::new(initial_snapshot)));
         let snapshot_revision = Arc::new(AtomicU64::new(1));
-        spawn_reader_thread(
+        spawn_reader_thread(ReaderThreadContext {
             reader,
-            Arc::clone(&parser),
-            Arc::clone(&scrollback),
-            Arc::clone(&snapshot_cache),
-            Arc::clone(&snapshot_revision),
-            Arc::clone(&cwd),
-            self.memory_sink.clone(),
+            parser: Arc::clone(&parser),
+            scrollback: Arc::clone(&scrollback),
+            snapshot_cache: Arc::clone(&snapshot_cache),
+            snapshot_revision: Arc::clone(&snapshot_revision),
+            cwd: Arc::clone(&cwd),
+            memory_sink: self.memory_sink.clone(),
             session_id,
-        );
+        });
 
         let runtime = Arc::new(TerminalRuntime {
             master: Mutex::new(master),
@@ -425,16 +436,18 @@ impl Drop for TerminalManager {
     }
 }
 
-fn spawn_reader_thread(
-    mut reader: Box<dyn Read + Send>,
-    parser: Arc<Mutex<Parser>>,
-    scrollback: Arc<RwLock<ScrollbackBuffer>>,
-    snapshot_cache: Arc<RwLock<Arc<TerminalSnapshot>>>,
-    snapshot_revision: Arc<AtomicU64>,
-    cwd: Arc<RwLock<String>>,
-    memory_sink: Option<Arc<dyn TerminalMemorySink>>,
-    session_id: SessionId,
-) {
+fn spawn_reader_thread(context: ReaderThreadContext) {
+    let ReaderThreadContext {
+        mut reader,
+        parser,
+        scrollback,
+        snapshot_cache,
+        snapshot_revision,
+        cwd,
+        memory_sink,
+        session_id,
+    } = context;
+
     thread::spawn(move || {
         let mut buffer = [0_u8; 4096];
 
