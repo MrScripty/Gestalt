@@ -198,13 +198,13 @@ pub(crate) fn CommandsPanel(
                             onclick: move |_| {
                                 let name = editor_name.read().trim().to_string();
                                 if let Err(error) = validate_command_name(&name) {
-                                    editor_feedback.set(error);
+                                    editor_feedback.set(error.to_string());
                                     return;
                                 }
 
                                 let prompt = editor_prompt.read().to_string();
                                 if let Err(error) = validate_command_prompt(&prompt) {
-                                    editor_feedback.set(error);
+                                    editor_feedback.set(error.to_string());
                                     return;
                                 }
 

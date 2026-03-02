@@ -1,16 +1,25 @@
 use std::collections::HashSet;
+use thiserror::Error;
 
-pub fn validate_command_name(name: &str) -> Result<(), String> {
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum CommandValidationError {
+    #[error("Command name cannot be empty.")]
+    EmptyName,
+    #[error("Command prompt cannot be empty.")]
+    EmptyPrompt,
+}
+
+pub fn validate_command_name(name: &str) -> Result<(), CommandValidationError> {
     if name.trim().is_empty() {
-        return Err("Command name cannot be empty.".to_string());
+        return Err(CommandValidationError::EmptyName);
     }
 
     Ok(())
 }
 
-pub fn validate_command_prompt(prompt: &str) -> Result<(), String> {
+pub fn validate_command_prompt(prompt: &str) -> Result<(), CommandValidationError> {
     if prompt.trim().is_empty() {
-        return Err("Command prompt cannot be empty.".to_string());
+        return Err(CommandValidationError::EmptyPrompt);
     }
 
     Ok(())

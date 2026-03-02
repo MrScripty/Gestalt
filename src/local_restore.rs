@@ -3,6 +3,43 @@ use crate::terminal::PersistedTerminalState;
 use rusqlite::{Connection, params};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum LocalRestoreError {
+    #[error("failed opening restore db {path}: {source}")]
+    OpenDb {
+        path: String,
+        #[source]
+        source: rusqlite::Error,
+    },
+    #[error("failed preparing restore projection read query: {0}")]
+    PrepareRead(rusqlite::Error),
+    #[error("failed querying restore projection rows: {0}")]
+    QueryRows(rusqlite::Error),
+    #[error("failed decoding restore row: {0}")]
+    DecodeRow(rusqlite::Error),
+    #[error("failed to derive restore database parent directory for {0}")]
+    MissingParent(String),
+    #[error("failed creating restore database directory {path}: {source}")]
+    CreateDirectory {
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("failed opening restore transaction: {0}")]
+    BeginTransaction(rusqlite::Error),
+    #[error("failed upserting restore projection for session {session_id}: {source}")]
+    UpsertProjection {
+        session_id: SessionId,
+        #[source]
+        source: rusqlite::Error,
+    },
+    #[error("failed committing restore projection transaction: {0}")]
+    CommitTransaction(rusqlite::Error),
+    #[error("failed ensuring restore schema: {0}")]
+    EnsureSchema(rusqlite::Error),
+}
 
 #[derive(Debug, Clone)]
 pub struct SessionProjection {
@@ -17,14 +54,16 @@ pub struct SessionProjection {
     pub history_before_sequence: Option<u64>,
 }
 
-pub fn load_projection_map() -> Result<HashMap<SessionId, SessionProjection>, String> {
+pub fn load_projection_map() -> Result<HashMap<SessionId, SessionProjection>, LocalRestoreError> {
     let path = database_path();
     if !path.exists() {
         return Ok(HashMap::new());
     }
 
-    let connection = Connection::open(&path)
-        .map_err(|error| format!("failed opening restore db {}: {error}", path.display()))?;
+    let connection = Connection::open(&path).map_err(|source| LocalRestoreError::OpenDb {
+        path: path.display().to_string(),
+        source,
+    })?;
     ensure_schema(&connection)?;
 
     let mut statement = connection
@@ -32,7 +71,7 @@ pub fn load_projection_map() -> Result<HashMap<SessionId, SessionProjection>, St
             "SELECT session_id, cwd, rows, cols, cursor_row, cursor_col, hide_cursor, bracketed_paste, history_before_sequence
              FROM terminal_restore_projection",
         )
-        .map_err(|error| format!("failed preparing restore projection read query: {error}"))?;
+        .map_err(LocalRestoreError::PrepareRead)?;
 
     let rows = statement
         .query_map([], |row| {
@@ -50,39 +89,36 @@ pub fn load_projection_map() -> Result<HashMap<SessionId, SessionProjection>, St
                 history_before_sequence: history_before.and_then(|value| u64::try_from(value).ok()),
             })
         })
-        .map_err(|error| format!("failed querying restore projection rows: {error}"))?;
+        .map_err(LocalRestoreError::QueryRows)?;
 
     let mut map = HashMap::new();
     for row in rows {
-        let projection = row.map_err(|error| format!("failed decoding restore row: {error}"))?;
+        let projection = row.map_err(LocalRestoreError::DecodeRow)?;
         map.insert(projection.session_id, projection);
     }
 
     Ok(map)
 }
 
-pub fn save_projection(terminals: &[PersistedTerminalState]) -> Result<(), String> {
+pub fn save_projection(terminals: &[PersistedTerminalState]) -> Result<(), LocalRestoreError> {
     let path = database_path();
-    let parent = path.parent().ok_or_else(|| {
-        format!(
-            "failed to derive restore database parent directory for {}",
-            path.display()
-        )
-    })?;
-    std::fs::create_dir_all(parent).map_err(|error| {
-        format!(
-            "failed creating restore database directory {}: {error}",
-            parent.display()
-        )
+    let parent = path
+        .parent()
+        .ok_or_else(|| LocalRestoreError::MissingParent(path.display().to_string()))?;
+    std::fs::create_dir_all(parent).map_err(|source| LocalRestoreError::CreateDirectory {
+        path: parent.display().to_string(),
+        source,
     })?;
 
-    let mut connection = Connection::open(&path)
-        .map_err(|error| format!("failed opening restore db {}: {error}", path.display()))?;
+    let mut connection = Connection::open(&path).map_err(|source| LocalRestoreError::OpenDb {
+        path: path.display().to_string(),
+        source,
+    })?;
     ensure_schema(&connection)?;
 
     let transaction = connection
         .transaction()
-        .map_err(|error| format!("failed opening restore transaction: {error}"))?;
+        .map_err(LocalRestoreError::BeginTransaction)?;
 
     for terminal in terminals {
         transaction
@@ -120,22 +156,20 @@ pub fn save_projection(terminals: &[PersistedTerminalState]) -> Result<(), Strin
                     current_unix_ms(),
                 ],
             )
-            .map_err(|error| {
-                format!(
-                    "failed upserting restore projection for session {}: {error}",
-                    terminal.session_id
-                )
+            .map_err(|source| LocalRestoreError::UpsertProjection {
+                session_id: terminal.session_id,
+                source,
             })?;
     }
 
     transaction
         .commit()
-        .map_err(|error| format!("failed committing restore projection transaction: {error}"))?;
+        .map_err(LocalRestoreError::CommitTransaction)?;
 
     Ok(())
 }
 
-fn ensure_schema(connection: &Connection) -> Result<(), String> {
+fn ensure_schema(connection: &Connection) -> Result<(), LocalRestoreError> {
     connection
         .execute_batch(
             "CREATE TABLE IF NOT EXISTS terminal_restore_projection (
@@ -151,7 +185,7 @@ fn ensure_schema(connection: &Connection) -> Result<(), String> {
                 updated_at_unix_ms INTEGER NOT NULL
             );",
         )
-        .map_err(|error| format!("failed ensuring restore schema: {error}"))
+        .map_err(LocalRestoreError::EnsureSchema)
 }
 
 fn database_path() -> PathBuf {
