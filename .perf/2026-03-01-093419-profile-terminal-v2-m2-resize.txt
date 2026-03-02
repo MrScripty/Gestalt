@@ -1,0 +1,390 @@
+=== run 1 ===
+Profiling keypress latency with 320 samples...
+Warm terminal history lines: 12000
+
+Mutex hold timings for heavy operations
+  render pass us: avg=3206 p50=3079 p95=3967 p99=4733 max=7646
+  autosave pass us: avg=1788 p50=1785 p95=1821 p99=1836 max=1836
+
+Render suspect timings
+  ui rows rendered per refresh: avg=1008 p50=1008 p95=1008 p99=1008 max=1008
+  ui row render pass us: avg=550 p50=517 p95=785 p99=1016 max=1044
+  round bounds extract us: avg=2565 p50=2492 p95=3053 p99=3611 max=3749
+  orchestrator round extract us: avg=9 p50=8 p95=18 p99=23 max=49
+  autosave snapshot lines total: avg=12000 p50=12000 p95=12000 p99=12000 max=12000
+  autosave fingerprint us: avg=40589 p50=40549 p95=40949 p99=41079 max=41100
+
+Refresh and watcher suspect timings
+  refresh loop tick us: avg=14 p50=14 p95=15 p99=18 max=73
+  refresh loop state clone us: avg=0 p50=0 p95=0 p99=0 max=0
+  resize measure us: avg=0 p50=0 p95=0 p99=0 max=15
+  resize measure calls/sec: avg=0 p50=0 p95=0 p99=0 max=15
+  scroll observer callbacks/sec (estimated): avg=90 p50=90 p95=90 p99=90 max=90
+  orchestrator snapshot build us: avg=9 p50=9 p95=9 p99=11 max=29
+  git watcher poll cost us: avg=9987 p50=9839 p95=10309 p99=10309 max=10863
+
+Scenario: baseline
+  lock wait us: avg=0 p50=0 p95=1 p99=1 max=1
+  total send us: avg=19 p50=19 p95=27 p99=32 max=37
+
+Scenario: render loop contention (33ms snapshots + orchestrator)
+  lock wait us: avg=0 p50=0 p95=1 p99=1 max=1
+  total send us: avg=19 p50=19 p95=27 p99=32 max=38
+
+Scenario: render + autosave contention
+  lock wait us: avg=0 p50=0 p95=1 p99=1 max=1
+  total send us: avg=18 p50=19 p95=25 p99=27 max=32
+
+Perf assertions passed.
+GESTALT_PROFILE_JSON:{"warmup_history_lines":12000,"typing_samples":320,"render_pass":{"avg_us":3206,"p50_us":3079,"p95_us":3967,"p99_us":4733,"max_us":7646},"autosave_pass":{"avg_us":1788,"p50_us":1785,"p95_us":1821,"p99_us":1836,"max_us":1836},"ui_rows_rendered_per_refresh":{"avg_us":1008,"p50_us":1008,"p95_us":1008,"p99_us":1008,"max_us":1008},"ui_row_render_pass":{"avg_us":550,"p50_us":517,"p95_us":785,"p99_us":1016,"max_us":1044},"round_bounds_extract":{"avg_us":2565,"p50_us":2492,"p95_us":3053,"p99_us":3611,"max_us":3749},"orchestrator_round_extract":{"avg_us":9,"p50_us":8,"p95_us":18,"p99_us":23,"max_us":49},"refresh_loop_tick":{"avg_us":14,"p50_us":14,"p95_us":15,"p99_us":18,"max_us":73},"refresh_loop_state_clone":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":0},"resize_measure":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":15},"resize_measure_calls_per_sec":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":15},"scroll_observer_callbacks_per_sec":{"avg_us":90,"p50_us":90,"p95_us":90,"p99_us":90,"max_us":90},"orchestrator_snapshot_build":{"avg_us":9,"p50_us":9,"p95_us":9,"p99_us":11,"max_us":29},"autosave_fingerprint":{"avg_us":40589,"p50_us":40549,"p95_us":40949,"p99_us":41079,"max_us":41100},"git_watcher_poll_cost":{"avg_us":9987,"p50_us":9839,"p95_us":10309,"p99_us":10309,"max_us":10863},"autosave_snapshot_lines_total":{"avg_us":12000,"p50_us":12000,"p95_us":12000,"p99_us":12000,"max_us":12000},"baseline_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":1,"p99_us":1,"max_us":1},"baseline_total_send":{"avg_us":19,"p50_us":19,"p95_us":27,"p99_us":32,"max_us":37},"render_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":1,"p99_us":1,"max_us":1},"render_total_send":{"avg_us":19,"p50_us":19,"p95_us":27,"p99_us":32,"max_us":38},"full_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":1,"p99_us":1,"max_us":1},"full_total_send":{"avg_us":18,"p50_us":19,"p95_us":25,"p99_us":27,"max_us":32},"render_pass_p95_us":3967,"autosave_pass_p95_us":1821,"ui_rows_rendered_per_refresh_p95":1008,"ui_row_render_pass_p95_us":785,"round_bounds_extract_p95_us":3053,"orchestrator_round_extract_p95_us":18,"refresh_loop_tick_p95_us":15,"refresh_loop_state_clone_p95_us":0,"resize_measure_p95_us":0,"resize_measure_calls_per_sec_p95":0,"scroll_observer_callbacks_per_sec_p95":90,"orchestrator_snapshot_build_p95_us":9,"autosave_fingerprint_p95_us":40949,"git_watcher_poll_cost_p95_us":10309,"autosave_snapshot_lines_total_p95":12000,"autosave_snapshot_build_p95_us":1821,"baseline_total_send_p95_us":27,"render_total_send_p95_us":27,"full_total_send_p95_us":25,"assert_mode":true,"assertions_passed":true}
+=== run 2 ===
+Profiling keypress latency with 320 samples...
+Warm terminal history lines: 12000
+
+Mutex hold timings for heavy operations
+  render pass us: avg=3078 p50=3064 p95=3142 p99=3163 max=4851
+  autosave pass us: avg=1761 p50=1756 p95=1791 p99=1796 max=1799
+
+Render suspect timings
+  ui rows rendered per refresh: avg=1008 p50=1008 p95=1008 p99=1008 max=1008
+  ui row render pass us: avg=521 p50=516 p95=546 p99=569 max=574
+  round bounds extract us: avg=2550 p50=2551 p95=2595 p99=2615 max=2621
+  orchestrator round extract us: avg=8 p50=9 p95=10 p99=11 max=21
+  autosave snapshot lines total: avg=12000 p50=12000 p95=12000 p99=12000 max=12000
+  autosave fingerprint us: avg=40436 p50=40457 p95=40850 p99=40957 max=41128
+
+Refresh and watcher suspect timings
+  refresh loop tick us: avg=14 p50=14 p95=17 p99=20 max=82
+  refresh loop state clone us: avg=0 p50=0 p95=0 p99=0 max=0
+  resize measure us: avg=0 p50=0 p95=0 p99=1 max=17
+  resize measure calls/sec: avg=0 p50=0 p95=0 p99=0 max=15
+  scroll observer callbacks/sec (estimated): avg=90 p50=90 p95=90 p99=90 max=90
+  orchestrator snapshot build us: avg=9 p50=9 p95=10 p99=12 max=34
+  git watcher poll cost us: avg=9768 p50=9647 p95=10160 p99=10160 max=11102
+
+Scenario: baseline
+  lock wait us: avg=0 p50=0 p95=1 p99=1 max=9
+  total send us: avg=20 p50=20 p95=28 p99=33 max=39
+
+Scenario: render loop contention (33ms snapshots + orchestrator)
+  lock wait us: avg=0 p50=0 p95=0 p99=1 max=1
+  total send us: avg=19 p50=19 p95=26 p99=28 max=39
+
+Scenario: render + autosave contention
+  lock wait us: avg=0 p50=0 p95=1 p99=1 max=2
+  total send us: avg=21 p50=21 p95=30 p99=33 max=41
+
+Perf assertions passed.
+GESTALT_PROFILE_JSON:{"warmup_history_lines":12000,"typing_samples":320,"render_pass":{"avg_us":3078,"p50_us":3064,"p95_us":3142,"p99_us":3163,"max_us":4851},"autosave_pass":{"avg_us":1761,"p50_us":1756,"p95_us":1791,"p99_us":1796,"max_us":1799},"ui_rows_rendered_per_refresh":{"avg_us":1008,"p50_us":1008,"p95_us":1008,"p99_us":1008,"max_us":1008},"ui_row_render_pass":{"avg_us":521,"p50_us":516,"p95_us":546,"p99_us":569,"max_us":574},"round_bounds_extract":{"avg_us":2550,"p50_us":2551,"p95_us":2595,"p99_us":2615,"max_us":2621},"orchestrator_round_extract":{"avg_us":8,"p50_us":9,"p95_us":10,"p99_us":11,"max_us":21},"refresh_loop_tick":{"avg_us":14,"p50_us":14,"p95_us":17,"p99_us":20,"max_us":82},"refresh_loop_state_clone":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":0},"resize_measure":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":1,"max_us":17},"resize_measure_calls_per_sec":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":15},"scroll_observer_callbacks_per_sec":{"avg_us":90,"p50_us":90,"p95_us":90,"p99_us":90,"max_us":90},"orchestrator_snapshot_build":{"avg_us":9,"p50_us":9,"p95_us":10,"p99_us":12,"max_us":34},"autosave_fingerprint":{"avg_us":40436,"p50_us":40457,"p95_us":40850,"p99_us":40957,"max_us":41128},"git_watcher_poll_cost":{"avg_us":9768,"p50_us":9647,"p95_us":10160,"p99_us":10160,"max_us":11102},"autosave_snapshot_lines_total":{"avg_us":12000,"p50_us":12000,"p95_us":12000,"p99_us":12000,"max_us":12000},"baseline_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":1,"p99_us":1,"max_us":9},"baseline_total_send":{"avg_us":20,"p50_us":20,"p95_us":28,"p99_us":33,"max_us":39},"render_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":1,"max_us":1},"render_total_send":{"avg_us":19,"p50_us":19,"p95_us":26,"p99_us":28,"max_us":39},"full_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":1,"p99_us":1,"max_us":2},"full_total_send":{"avg_us":21,"p50_us":21,"p95_us":30,"p99_us":33,"max_us":41},"render_pass_p95_us":3142,"autosave_pass_p95_us":1791,"ui_rows_rendered_per_refresh_p95":1008,"ui_row_render_pass_p95_us":546,"round_bounds_extract_p95_us":2595,"orchestrator_round_extract_p95_us":10,"refresh_loop_tick_p95_us":17,"refresh_loop_state_clone_p95_us":0,"resize_measure_p95_us":0,"resize_measure_calls_per_sec_p95":0,"scroll_observer_callbacks_per_sec_p95":90,"orchestrator_snapshot_build_p95_us":10,"autosave_fingerprint_p95_us":40850,"git_watcher_poll_cost_p95_us":10160,"autosave_snapshot_lines_total_p95":12000,"autosave_snapshot_build_p95_us":1791,"baseline_total_send_p95_us":28,"render_total_send_p95_us":26,"full_total_send_p95_us":30,"assert_mode":true,"assertions_passed":true}
+=== run 3 ===
+Profiling keypress latency with 320 samples...
+Warm terminal history lines: 12000
+
+Mutex hold timings for heavy operations
+  render pass us: avg=3100 p50=3081 p95=3169 p99=3252 max=4881
+  autosave pass us: avg=1749 p50=1740 p95=1787 p99=1794 max=1798
+
+Render suspect timings
+  ui rows rendered per refresh: avg=1008 p50=1008 p95=1008 p99=1008 max=1008
+  ui row render pass us: avg=520 p50=519 p95=554 p99=568 max=680
+  round bounds extract us: avg=2529 p50=2527 p95=2582 p99=2666 max=2985
+  orchestrator round extract us: avg=8 p50=8 p95=10 p99=12 max=28
+  autosave snapshot lines total: avg=12000 p50=12000 p95=12000 p99=12000 max=12000
+  autosave fingerprint us: avg=40682 p50=40643 p95=40950 p99=41213 max=41374
+
+Refresh and watcher suspect timings
+  refresh loop tick us: avg=14 p50=14 p95=15 p99=18 max=79
+  refresh loop state clone us: avg=0 p50=0 p95=0 p99=0 max=0
+  resize measure us: avg=0 p50=0 p95=0 p99=0 max=17
+  resize measure calls/sec: avg=0 p50=0 p95=0 p99=0 max=15
+  scroll observer callbacks/sec (estimated): avg=90 p50=90 p95=90 p99=90 max=90
+  orchestrator snapshot build us: avg=8 p50=9 p95=9 p99=12 max=32
+  git watcher poll cost us: avg=9878 p50=9709 p95=10447 p99=10447 max=10923
+
+Scenario: baseline
+  lock wait us: avg=0 p50=0 p95=0 p99=1 max=1
+  total send us: avg=16 p50=16 p95=25 p99=28 max=32
+
+Scenario: render loop contention (33ms snapshots + orchestrator)
+  lock wait us: avg=0 p50=0 p95=0 p99=0 max=0
+  total send us: avg=14 p50=15 p95=20 p99=23 max=25
+
+Scenario: render + autosave contention
+  lock wait us: avg=0 p50=0 p95=0 p99=0 max=1
+  total send us: avg=15 p50=14 p95=22 p99=25 max=31
+
+Perf assertions passed.
+GESTALT_PROFILE_JSON:{"warmup_history_lines":12000,"typing_samples":320,"render_pass":{"avg_us":3100,"p50_us":3081,"p95_us":3169,"p99_us":3252,"max_us":4881},"autosave_pass":{"avg_us":1749,"p50_us":1740,"p95_us":1787,"p99_us":1794,"max_us":1798},"ui_rows_rendered_per_refresh":{"avg_us":1008,"p50_us":1008,"p95_us":1008,"p99_us":1008,"max_us":1008},"ui_row_render_pass":{"avg_us":520,"p50_us":519,"p95_us":554,"p99_us":568,"max_us":680},"round_bounds_extract":{"avg_us":2529,"p50_us":2527,"p95_us":2582,"p99_us":2666,"max_us":2985},"orchestrator_round_extract":{"avg_us":8,"p50_us":8,"p95_us":10,"p99_us":12,"max_us":28},"refresh_loop_tick":{"avg_us":14,"p50_us":14,"p95_us":15,"p99_us":18,"max_us":79},"refresh_loop_state_clone":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":0},"resize_measure":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":17},"resize_measure_calls_per_sec":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":15},"scroll_observer_callbacks_per_sec":{"avg_us":90,"p50_us":90,"p95_us":90,"p99_us":90,"max_us":90},"orchestrator_snapshot_build":{"avg_us":8,"p50_us":9,"p95_us":9,"p99_us":12,"max_us":32},"autosave_fingerprint":{"avg_us":40682,"p50_us":40643,"p95_us":40950,"p99_us":41213,"max_us":41374},"git_watcher_poll_cost":{"avg_us":9878,"p50_us":9709,"p95_us":10447,"p99_us":10447,"max_us":10923},"autosave_snapshot_lines_total":{"avg_us":12000,"p50_us":12000,"p95_us":12000,"p99_us":12000,"max_us":12000},"baseline_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":1,"max_us":1},"baseline_total_send":{"avg_us":16,"p50_us":16,"p95_us":25,"p99_us":28,"max_us":32},"render_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":0},"render_total_send":{"avg_us":14,"p50_us":15,"p95_us":20,"p99_us":23,"max_us":25},"full_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":1},"full_total_send":{"avg_us":15,"p50_us":14,"p95_us":22,"p99_us":25,"max_us":31},"render_pass_p95_us":3169,"autosave_pass_p95_us":1787,"ui_rows_rendered_per_refresh_p95":1008,"ui_row_render_pass_p95_us":554,"round_bounds_extract_p95_us":2582,"orchestrator_round_extract_p95_us":10,"refresh_loop_tick_p95_us":15,"refresh_loop_state_clone_p95_us":0,"resize_measure_p95_us":0,"resize_measure_calls_per_sec_p95":0,"scroll_observer_callbacks_per_sec_p95":90,"orchestrator_snapshot_build_p95_us":9,"autosave_fingerprint_p95_us":40950,"git_watcher_poll_cost_p95_us":10447,"autosave_snapshot_lines_total_p95":12000,"autosave_snapshot_build_p95_us":1787,"baseline_total_send_p95_us":25,"render_total_send_p95_us":20,"full_total_send_p95_us":22,"assert_mode":true,"assertions_passed":true}
+=== run 4 ===
+Profiling keypress latency with 320 samples...
+Warm terminal history lines: 12000
+
+Mutex hold timings for heavy operations
+  render pass us: avg=3177 p50=3070 p95=3967 p99=3998 max=6212
+  autosave pass us: avg=1755 p50=1746 p95=1797 p99=1800 max=1809
+
+Render suspect timings
+  ui rows rendered per refresh: avg=1008 p50=1008 p95=1008 p99=1008 max=1008
+  ui row render pass us: avg=550 p50=521 p95=783 p99=800 max=881
+  round bounds extract us: avg=2585 p50=2530 p95=3060 p99=3144 max=3215
+  orchestrator round extract us: avg=9 p50=9 p95=17 p99=19 max=36
+  autosave snapshot lines total: avg=12000 p50=12000 p95=12000 p99=12000 max=12000
+  autosave fingerprint us: avg=40368 p50=40317 p95=40920 p99=40948 max=41013
+
+Refresh and watcher suspect timings
+  refresh loop tick us: avg=14 p50=14 p95=17 p99=17 max=78
+  refresh loop state clone us: avg=0 p50=0 p95=0 p99=0 max=0
+  resize measure us: avg=0 p50=0 p95=0 p99=1 max=18
+  resize measure calls/sec: avg=0 p50=0 p95=0 p99=0 max=15
+  scroll observer callbacks/sec (estimated): avg=90 p50=90 p95=90 p99=90 max=90
+  orchestrator snapshot build us: avg=9 p50=9 p95=10 p99=11 max=31
+  git watcher poll cost us: avg=9321 p50=9315 p95=9682 p99=9682 max=10460
+
+Scenario: baseline
+  lock wait us: avg=0 p50=0 p95=1 p99=1 max=8
+  total send us: avg=19 p50=19 p95=27 p99=34 max=41
+
+Scenario: render loop contention (33ms snapshots + orchestrator)
+  lock wait us: avg=0 p50=0 p95=1 p99=1 max=16
+  total send us: avg=21 p50=20 p95=29 p99=33 max=41
+
+Scenario: render + autosave contention
+  lock wait us: avg=0 p50=0 p95=1 p99=1 max=1
+  total send us: avg=20 p50=20 p95=29 p99=34 max=43
+
+Perf assertions passed.
+GESTALT_PROFILE_JSON:{"warmup_history_lines":12000,"typing_samples":320,"render_pass":{"avg_us":3177,"p50_us":3070,"p95_us":3967,"p99_us":3998,"max_us":6212},"autosave_pass":{"avg_us":1755,"p50_us":1746,"p95_us":1797,"p99_us":1800,"max_us":1809},"ui_rows_rendered_per_refresh":{"avg_us":1008,"p50_us":1008,"p95_us":1008,"p99_us":1008,"max_us":1008},"ui_row_render_pass":{"avg_us":550,"p50_us":521,"p95_us":783,"p99_us":800,"max_us":881},"round_bounds_extract":{"avg_us":2585,"p50_us":2530,"p95_us":3060,"p99_us":3144,"max_us":3215},"orchestrator_round_extract":{"avg_us":9,"p50_us":9,"p95_us":17,"p99_us":19,"max_us":36},"refresh_loop_tick":{"avg_us":14,"p50_us":14,"p95_us":17,"p99_us":17,"max_us":78},"refresh_loop_state_clone":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":0},"resize_measure":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":1,"max_us":18},"resize_measure_calls_per_sec":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":15},"scroll_observer_callbacks_per_sec":{"avg_us":90,"p50_us":90,"p95_us":90,"p99_us":90,"max_us":90},"orchestrator_snapshot_build":{"avg_us":9,"p50_us":9,"p95_us":10,"p99_us":11,"max_us":31},"autosave_fingerprint":{"avg_us":40368,"p50_us":40317,"p95_us":40920,"p99_us":40948,"max_us":41013},"git_watcher_poll_cost":{"avg_us":9321,"p50_us":9315,"p95_us":9682,"p99_us":9682,"max_us":10460},"autosave_snapshot_lines_total":{"avg_us":12000,"p50_us":12000,"p95_us":12000,"p99_us":12000,"max_us":12000},"baseline_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":1,"p99_us":1,"max_us":8},"baseline_total_send":{"avg_us":19,"p50_us":19,"p95_us":27,"p99_us":34,"max_us":41},"render_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":1,"p99_us":1,"max_us":16},"render_total_send":{"avg_us":21,"p50_us":20,"p95_us":29,"p99_us":33,"max_us":41},"full_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":1,"p99_us":1,"max_us":1},"full_total_send":{"avg_us":20,"p50_us":20,"p95_us":29,"p99_us":34,"max_us":43},"render_pass_p95_us":3967,"autosave_pass_p95_us":1797,"ui_rows_rendered_per_refresh_p95":1008,"ui_row_render_pass_p95_us":783,"round_bounds_extract_p95_us":3060,"orchestrator_round_extract_p95_us":17,"refresh_loop_tick_p95_us":17,"refresh_loop_state_clone_p95_us":0,"resize_measure_p95_us":0,"resize_measure_calls_per_sec_p95":0,"scroll_observer_callbacks_per_sec_p95":90,"orchestrator_snapshot_build_p95_us":10,"autosave_fingerprint_p95_us":40920,"git_watcher_poll_cost_p95_us":9682,"autosave_snapshot_lines_total_p95":12000,"autosave_snapshot_build_p95_us":1797,"baseline_total_send_p95_us":27,"render_total_send_p95_us":29,"full_total_send_p95_us":29,"assert_mode":true,"assertions_passed":true}
+=== run 5 ===
+Profiling keypress latency with 320 samples...
+Warm terminal history lines: 12000
+
+Mutex hold timings for heavy operations
+  render pass us: avg=3101 p50=3091 p95=3158 p99=3263 max=4894
+  autosave pass us: avg=1786 p50=1777 p95=1837 p99=1841 max=1848
+
+Render suspect timings
+  ui rows rendered per refresh: avg=1008 p50=1008 p95=1008 p99=1008 max=1008
+  ui row render pass us: avg=516 p50=513 p95=550 p99=566 max=589
+  round bounds extract us: avg=2495 p50=2494 p95=2532 p99=2563 max=2636
+  orchestrator round extract us: avg=8 p50=8 p95=10 p99=12 max=23
+  autosave snapshot lines total: avg=12000 p50=12000 p95=12000 p99=12000 max=12000
+  autosave fingerprint us: avg=40835 p50=40818 p95=41096 p99=41113 max=41141
+
+Refresh and watcher suspect timings
+  refresh loop tick us: avg=14 p50=14 p95=15 p99=18 max=75
+  refresh loop state clone us: avg=0 p50=0 p95=0 p99=0 max=0
+  resize measure us: avg=0 p50=0 p95=0 p99=0 max=16
+  resize measure calls/sec: avg=0 p50=0 p95=0 p99=0 max=15
+  scroll observer callbacks/sec (estimated): avg=90 p50=90 p95=90 p99=90 max=90
+  orchestrator snapshot build us: avg=9 p50=9 p95=9 p99=11 max=31
+  git watcher poll cost us: avg=9576 p50=9495 p95=10061 p99=10061 max=10355
+
+Scenario: baseline
+  lock wait us: avg=0 p50=0 p95=1 p99=1 max=1
+  total send us: avg=18 p50=18 p95=28 p99=33 max=43
+
+Scenario: render loop contention (33ms snapshots + orchestrator)
+  lock wait us: avg=0 p50=0 p95=0 p99=1 max=1
+  total send us: avg=19 p50=19 p95=27 p99=33 max=36
+
+Scenario: render + autosave contention
+  lock wait us: avg=0 p50=0 p95=0 p99=1 max=1
+  total send us: avg=19 p50=19 p95=28 p99=34 max=39
+
+Perf assertions passed.
+GESTALT_PROFILE_JSON:{"warmup_history_lines":12000,"typing_samples":320,"render_pass":{"avg_us":3101,"p50_us":3091,"p95_us":3158,"p99_us":3263,"max_us":4894},"autosave_pass":{"avg_us":1786,"p50_us":1777,"p95_us":1837,"p99_us":1841,"max_us":1848},"ui_rows_rendered_per_refresh":{"avg_us":1008,"p50_us":1008,"p95_us":1008,"p99_us":1008,"max_us":1008},"ui_row_render_pass":{"avg_us":516,"p50_us":513,"p95_us":550,"p99_us":566,"max_us":589},"round_bounds_extract":{"avg_us":2495,"p50_us":2494,"p95_us":2532,"p99_us":2563,"max_us":2636},"orchestrator_round_extract":{"avg_us":8,"p50_us":8,"p95_us":10,"p99_us":12,"max_us":23},"refresh_loop_tick":{"avg_us":14,"p50_us":14,"p95_us":15,"p99_us":18,"max_us":75},"refresh_loop_state_clone":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":0},"resize_measure":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":16},"resize_measure_calls_per_sec":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":15},"scroll_observer_callbacks_per_sec":{"avg_us":90,"p50_us":90,"p95_us":90,"p99_us":90,"max_us":90},"orchestrator_snapshot_build":{"avg_us":9,"p50_us":9,"p95_us":9,"p99_us":11,"max_us":31},"autosave_fingerprint":{"avg_us":40835,"p50_us":40818,"p95_us":41096,"p99_us":41113,"max_us":41141},"git_watcher_poll_cost":{"avg_us":9576,"p50_us":9495,"p95_us":10061,"p99_us":10061,"max_us":10355},"autosave_snapshot_lines_total":{"avg_us":12000,"p50_us":12000,"p95_us":12000,"p99_us":12000,"max_us":12000},"baseline_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":1,"p99_us":1,"max_us":1},"baseline_total_send":{"avg_us":18,"p50_us":18,"p95_us":28,"p99_us":33,"max_us":43},"render_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":1,"max_us":1},"render_total_send":{"avg_us":19,"p50_us":19,"p95_us":27,"p99_us":33,"max_us":36},"full_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":1,"max_us":1},"full_total_send":{"avg_us":19,"p50_us":19,"p95_us":28,"p99_us":34,"max_us":39},"render_pass_p95_us":3158,"autosave_pass_p95_us":1837,"ui_rows_rendered_per_refresh_p95":1008,"ui_row_render_pass_p95_us":550,"round_bounds_extract_p95_us":2532,"orchestrator_round_extract_p95_us":10,"refresh_loop_tick_p95_us":15,"refresh_loop_state_clone_p95_us":0,"resize_measure_p95_us":0,"resize_measure_calls_per_sec_p95":0,"scroll_observer_callbacks_per_sec_p95":90,"orchestrator_snapshot_build_p95_us":9,"autosave_fingerprint_p95_us":41096,"git_watcher_poll_cost_p95_us":10061,"autosave_snapshot_lines_total_p95":12000,"autosave_snapshot_build_p95_us":1837,"baseline_total_send_p95_us":28,"render_total_send_p95_us":27,"full_total_send_p95_us":28,"assert_mode":true,"assertions_passed":true}
+=== run 6 ===
+Profiling keypress latency with 320 samples...
+Warm terminal history lines: 12000
+
+Mutex hold timings for heavy operations
+  render pass us: avg=3331 p50=3170 p95=4249 p99=4640 max=7194
+  autosave pass us: avg=1775 p50=1762 p95=1821 p99=1859 max=1881
+
+Render suspect timings
+  ui rows rendered per refresh: avg=1008 p50=1008 p95=1008 p99=1008 max=1008
+  ui row render pass us: avg=552 p50=510 p95=784 p99=930 max=950
+  round bounds extract us: avg=2635 p50=2522 p95=3430 p99=3642 max=3722
+  orchestrator round extract us: avg=9 p50=8 p95=17 p99=24 max=42
+  autosave snapshot lines total: avg=12000 p50=12000 p95=12000 p99=12000 max=12000
+  autosave fingerprint us: avg=41052 p50=40994 p95=41384 p99=41452 max=42677
+
+Refresh and watcher suspect timings
+  refresh loop tick us: avg=14 p50=14 p95=15 p99=18 max=80
+  refresh loop state clone us: avg=0 p50=0 p95=0 p99=0 max=0
+  resize measure us: avg=0 p50=0 p95=0 p99=0 max=16
+  resize measure calls/sec: avg=0 p50=0 p95=0 p99=0 max=15
+  scroll observer callbacks/sec (estimated): avg=90 p50=90 p95=90 p99=90 max=90
+  orchestrator snapshot build us: avg=9 p50=9 p95=9 p99=10 max=35
+  git watcher poll cost us: avg=9489 p50=9415 p95=9702 p99=9702 max=10589
+
+Scenario: baseline
+  lock wait us: avg=0 p50=0 p95=0 p99=0 max=1
+  total send us: avg=14 p50=15 p95=22 p99=23 max=28
+
+Scenario: render loop contention (33ms snapshots + orchestrator)
+  lock wait us: avg=0 p50=0 p95=0 p99=0 max=10
+  total send us: avg=17 p50=17 p95=23 p99=25 max=29
+
+Scenario: render + autosave contention
+  lock wait us: avg=0 p50=0 p95=0 p99=1 max=5
+  total send us: avg=18 p50=17 p95=26 p99=28 max=32
+
+Perf assertions passed.
+GESTALT_PROFILE_JSON:{"warmup_history_lines":12000,"typing_samples":320,"render_pass":{"avg_us":3331,"p50_us":3170,"p95_us":4249,"p99_us":4640,"max_us":7194},"autosave_pass":{"avg_us":1775,"p50_us":1762,"p95_us":1821,"p99_us":1859,"max_us":1881},"ui_rows_rendered_per_refresh":{"avg_us":1008,"p50_us":1008,"p95_us":1008,"p99_us":1008,"max_us":1008},"ui_row_render_pass":{"avg_us":552,"p50_us":510,"p95_us":784,"p99_us":930,"max_us":950},"round_bounds_extract":{"avg_us":2635,"p50_us":2522,"p95_us":3430,"p99_us":3642,"max_us":3722},"orchestrator_round_extract":{"avg_us":9,"p50_us":8,"p95_us":17,"p99_us":24,"max_us":42},"refresh_loop_tick":{"avg_us":14,"p50_us":14,"p95_us":15,"p99_us":18,"max_us":80},"refresh_loop_state_clone":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":0},"resize_measure":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":16},"resize_measure_calls_per_sec":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":15},"scroll_observer_callbacks_per_sec":{"avg_us":90,"p50_us":90,"p95_us":90,"p99_us":90,"max_us":90},"orchestrator_snapshot_build":{"avg_us":9,"p50_us":9,"p95_us":9,"p99_us":10,"max_us":35},"autosave_fingerprint":{"avg_us":41052,"p50_us":40994,"p95_us":41384,"p99_us":41452,"max_us":42677},"git_watcher_poll_cost":{"avg_us":9489,"p50_us":9415,"p95_us":9702,"p99_us":9702,"max_us":10589},"autosave_snapshot_lines_total":{"avg_us":12000,"p50_us":12000,"p95_us":12000,"p99_us":12000,"max_us":12000},"baseline_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":1},"baseline_total_send":{"avg_us":14,"p50_us":15,"p95_us":22,"p99_us":23,"max_us":28},"render_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":10},"render_total_send":{"avg_us":17,"p50_us":17,"p95_us":23,"p99_us":25,"max_us":29},"full_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":1,"max_us":5},"full_total_send":{"avg_us":18,"p50_us":17,"p95_us":26,"p99_us":28,"max_us":32},"render_pass_p95_us":4249,"autosave_pass_p95_us":1821,"ui_rows_rendered_per_refresh_p95":1008,"ui_row_render_pass_p95_us":784,"round_bounds_extract_p95_us":3430,"orchestrator_round_extract_p95_us":17,"refresh_loop_tick_p95_us":15,"refresh_loop_state_clone_p95_us":0,"resize_measure_p95_us":0,"resize_measure_calls_per_sec_p95":0,"scroll_observer_callbacks_per_sec_p95":90,"orchestrator_snapshot_build_p95_us":9,"autosave_fingerprint_p95_us":41384,"git_watcher_poll_cost_p95_us":9702,"autosave_snapshot_lines_total_p95":12000,"autosave_snapshot_build_p95_us":1821,"baseline_total_send_p95_us":22,"render_total_send_p95_us":23,"full_total_send_p95_us":26,"assert_mode":true,"assertions_passed":true}
+=== run 7 ===
+Profiling keypress latency with 320 samples...
+Warm terminal history lines: 12000
+
+Mutex hold timings for heavy operations
+  render pass us: avg=3196 p50=3186 p95=3250 p99=3269 max=5117
+  autosave pass us: avg=1745 p50=1735 p95=1792 p99=1793 max=1801
+
+Render suspect timings
+  ui rows rendered per refresh: avg=1008 p50=1008 p95=1008 p99=1008 max=1008
+  ui row render pass us: avg=515 p50=510 p95=542 p99=556 max=568
+  round bounds extract us: avg=2510 p50=2509 p95=2569 p99=2587 max=2624
+  orchestrator round extract us: avg=8 p50=8 p95=10 p99=11 max=26
+  autosave snapshot lines total: avg=12000 p50=12000 p95=12000 p99=12000 max=12000
+  autosave fingerprint us: avg=40621 p50=40554 p95=41099 p99=41109 max=41763
+
+Refresh and watcher suspect timings
+  refresh loop tick us: avg=14 p50=14 p95=18 p99=19 max=82
+  refresh loop state clone us: avg=0 p50=0 p95=0 p99=0 max=0
+  resize measure us: avg=0 p50=0 p95=1 p99=1 max=15
+  resize measure calls/sec: avg=0 p50=0 p95=0 p99=0 max=15
+  scroll observer callbacks/sec (estimated): avg=90 p50=90 p95=90 p99=90 max=90
+  orchestrator snapshot build us: avg=9 p50=9 p95=11 p99=12 max=37
+  git watcher poll cost us: avg=9794 p50=9823 p95=10177 p99=10177 max=10800
+
+Scenario: baseline
+  lock wait us: avg=0 p50=0 p95=0 p99=1 max=1
+  total send us: avg=18 p50=18 p95=26 p99=28 max=37
+
+Scenario: render loop contention (33ms snapshots + orchestrator)
+  lock wait us: avg=0 p50=0 p95=1 p99=1 max=1
+  total send us: avg=20 p50=20 p95=28 p99=32 max=36
+
+Scenario: render + autosave contention
+  lock wait us: avg=0 p50=0 p95=0 p99=1 max=1
+  total send us: avg=15 p50=15 p95=22 p99=27 max=206
+
+Perf assertions passed.
+GESTALT_PROFILE_JSON:{"warmup_history_lines":12000,"typing_samples":320,"render_pass":{"avg_us":3196,"p50_us":3186,"p95_us":3250,"p99_us":3269,"max_us":5117},"autosave_pass":{"avg_us":1745,"p50_us":1735,"p95_us":1792,"p99_us":1793,"max_us":1801},"ui_rows_rendered_per_refresh":{"avg_us":1008,"p50_us":1008,"p95_us":1008,"p99_us":1008,"max_us":1008},"ui_row_render_pass":{"avg_us":515,"p50_us":510,"p95_us":542,"p99_us":556,"max_us":568},"round_bounds_extract":{"avg_us":2510,"p50_us":2509,"p95_us":2569,"p99_us":2587,"max_us":2624},"orchestrator_round_extract":{"avg_us":8,"p50_us":8,"p95_us":10,"p99_us":11,"max_us":26},"refresh_loop_tick":{"avg_us":14,"p50_us":14,"p95_us":18,"p99_us":19,"max_us":82},"refresh_loop_state_clone":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":0},"resize_measure":{"avg_us":0,"p50_us":0,"p95_us":1,"p99_us":1,"max_us":15},"resize_measure_calls_per_sec":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":15},"scroll_observer_callbacks_per_sec":{"avg_us":90,"p50_us":90,"p95_us":90,"p99_us":90,"max_us":90},"orchestrator_snapshot_build":{"avg_us":9,"p50_us":9,"p95_us":11,"p99_us":12,"max_us":37},"autosave_fingerprint":{"avg_us":40621,"p50_us":40554,"p95_us":41099,"p99_us":41109,"max_us":41763},"git_watcher_poll_cost":{"avg_us":9794,"p50_us":9823,"p95_us":10177,"p99_us":10177,"max_us":10800},"autosave_snapshot_lines_total":{"avg_us":12000,"p50_us":12000,"p95_us":12000,"p99_us":12000,"max_us":12000},"baseline_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":1,"max_us":1},"baseline_total_send":{"avg_us":18,"p50_us":18,"p95_us":26,"p99_us":28,"max_us":37},"render_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":1,"p99_us":1,"max_us":1},"render_total_send":{"avg_us":20,"p50_us":20,"p95_us":28,"p99_us":32,"max_us":36},"full_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":1,"max_us":1},"full_total_send":{"avg_us":15,"p50_us":15,"p95_us":22,"p99_us":27,"max_us":206},"render_pass_p95_us":3250,"autosave_pass_p95_us":1792,"ui_rows_rendered_per_refresh_p95":1008,"ui_row_render_pass_p95_us":542,"round_bounds_extract_p95_us":2569,"orchestrator_round_extract_p95_us":10,"refresh_loop_tick_p95_us":18,"refresh_loop_state_clone_p95_us":0,"resize_measure_p95_us":1,"resize_measure_calls_per_sec_p95":0,"scroll_observer_callbacks_per_sec_p95":90,"orchestrator_snapshot_build_p95_us":11,"autosave_fingerprint_p95_us":41099,"git_watcher_poll_cost_p95_us":10177,"autosave_snapshot_lines_total_p95":12000,"autosave_snapshot_build_p95_us":1792,"baseline_total_send_p95_us":26,"render_total_send_p95_us":28,"full_total_send_p95_us":22,"assert_mode":true,"assertions_passed":true}
+=== run 8 ===
+Profiling keypress latency with 320 samples...
+Warm terminal history lines: 12000
+
+Mutex hold timings for heavy operations
+  render pass us: avg=3080 p50=3067 p95=3154 p99=3196 max=4801
+  autosave pass us: avg=1768 p50=1760 p95=1805 p99=1818 max=1823
+
+Render suspect timings
+  ui rows rendered per refresh: avg=1008 p50=1008 p95=1008 p99=1008 max=1008
+  ui row render pass us: avg=521 p50=516 p95=552 p99=573 max=586
+  round bounds extract us: avg=2532 p50=2531 p95=2576 p99=2592 max=2599
+  orchestrator round extract us: avg=8 p50=8 p95=10 p99=11 max=34
+  autosave snapshot lines total: avg=12000 p50=12000 p95=12000 p99=12000 max=12000
+  autosave fingerprint us: avg=40199 p50=40113 p95=40581 p99=40609 max=41499
+
+Refresh and watcher suspect timings
+  refresh loop tick us: avg=14 p50=14 p95=14 p99=17 max=76
+  refresh loop state clone us: avg=0 p50=0 p95=0 p99=0 max=0
+  resize measure us: avg=0 p50=0 p95=0 p99=0 max=16
+  resize measure calls/sec: avg=0 p50=0 p95=0 p99=0 max=15
+  scroll observer callbacks/sec (estimated): avg=90 p50=90 p95=90 p99=90 max=90
+  orchestrator snapshot build us: avg=9 p50=9 p95=9 p99=11 max=29
+  git watcher poll cost us: avg=8626 p50=8252 p95=9700 p99=9700 max=11514
+
+Scenario: baseline
+  lock wait us: avg=0 p50=0 p95=0 p99=1 max=6
+  total send us: avg=15 p50=15 p95=23 p99=25 max=231
+
+Scenario: render loop contention (33ms snapshots + orchestrator)
+  lock wait us: avg=0 p50=0 p95=0 p99=0 max=1
+  total send us: avg=15 p50=15 p95=21 p99=24 max=223
+
+Scenario: render + autosave contention
+  lock wait us: avg=0 p50=0 p95=0 p99=0 max=6
+  total send us: avg=14 p50=14 p95=21 p99=24 max=208
+
+Perf assertions passed.
+GESTALT_PROFILE_JSON:{"warmup_history_lines":12000,"typing_samples":320,"render_pass":{"avg_us":3080,"p50_us":3067,"p95_us":3154,"p99_us":3196,"max_us":4801},"autosave_pass":{"avg_us":1768,"p50_us":1760,"p95_us":1805,"p99_us":1818,"max_us":1823},"ui_rows_rendered_per_refresh":{"avg_us":1008,"p50_us":1008,"p95_us":1008,"p99_us":1008,"max_us":1008},"ui_row_render_pass":{"avg_us":521,"p50_us":516,"p95_us":552,"p99_us":573,"max_us":586},"round_bounds_extract":{"avg_us":2532,"p50_us":2531,"p95_us":2576,"p99_us":2592,"max_us":2599},"orchestrator_round_extract":{"avg_us":8,"p50_us":8,"p95_us":10,"p99_us":11,"max_us":34},"refresh_loop_tick":{"avg_us":14,"p50_us":14,"p95_us":14,"p99_us":17,"max_us":76},"refresh_loop_state_clone":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":0},"resize_measure":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":16},"resize_measure_calls_per_sec":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":15},"scroll_observer_callbacks_per_sec":{"avg_us":90,"p50_us":90,"p95_us":90,"p99_us":90,"max_us":90},"orchestrator_snapshot_build":{"avg_us":9,"p50_us":9,"p95_us":9,"p99_us":11,"max_us":29},"autosave_fingerprint":{"avg_us":40199,"p50_us":40113,"p95_us":40581,"p99_us":40609,"max_us":41499},"git_watcher_poll_cost":{"avg_us":8626,"p50_us":8252,"p95_us":9700,"p99_us":9700,"max_us":11514},"autosave_snapshot_lines_total":{"avg_us":12000,"p50_us":12000,"p95_us":12000,"p99_us":12000,"max_us":12000},"baseline_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":1,"max_us":6},"baseline_total_send":{"avg_us":15,"p50_us":15,"p95_us":23,"p99_us":25,"max_us":231},"render_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":1},"render_total_send":{"avg_us":15,"p50_us":15,"p95_us":21,"p99_us":24,"max_us":223},"full_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":6},"full_total_send":{"avg_us":14,"p50_us":14,"p95_us":21,"p99_us":24,"max_us":208},"render_pass_p95_us":3154,"autosave_pass_p95_us":1805,"ui_rows_rendered_per_refresh_p95":1008,"ui_row_render_pass_p95_us":552,"round_bounds_extract_p95_us":2576,"orchestrator_round_extract_p95_us":10,"refresh_loop_tick_p95_us":14,"refresh_loop_state_clone_p95_us":0,"resize_measure_p95_us":0,"resize_measure_calls_per_sec_p95":0,"scroll_observer_callbacks_per_sec_p95":90,"orchestrator_snapshot_build_p95_us":9,"autosave_fingerprint_p95_us":40581,"git_watcher_poll_cost_p95_us":9700,"autosave_snapshot_lines_total_p95":12000,"autosave_snapshot_build_p95_us":1805,"baseline_total_send_p95_us":23,"render_total_send_p95_us":21,"full_total_send_p95_us":21,"assert_mode":true,"assertions_passed":true}
+=== run 9 ===
+Profiling keypress latency with 320 samples...
+Warm terminal history lines: 12000
+
+Mutex hold timings for heavy operations
+  render pass us: avg=3215 p50=3093 p95=3966 p99=4609 max=7217
+  autosave pass us: avg=1754 p50=1746 p95=1793 p99=1805 max=1830
+
+Render suspect timings
+  ui rows rendered per refresh: avg=1008 p50=1008 p95=1008 p99=1008 max=1008
+  ui row render pass us: avg=551 p50=512 p95=785 p99=955 max=963
+  round bounds extract us: avg=2764 p50=2711 p95=3100 p99=3645 max=3695
+  orchestrator round extract us: avg=9 p50=8 p95=15 p99=18 max=41
+  autosave snapshot lines total: avg=12000 p50=12000 p95=12000 p99=12000 max=12000
+  autosave fingerprint us: avg=40613 p50=40579 p95=40920 p99=40930 max=40958
+
+Refresh and watcher suspect timings
+  refresh loop tick us: avg=14 p50=14 p95=16 p99=18 max=82
+  refresh loop state clone us: avg=0 p50=0 p95=0 p99=0 max=0
+  resize measure us: avg=0 p50=0 p95=0 p99=0 max=17
+  resize measure calls/sec: avg=0 p50=0 p95=0 p99=0 max=15
+  scroll observer callbacks/sec (estimated): avg=90 p50=90 p95=90 p99=90 max=90
+  orchestrator snapshot build us: avg=8 p50=9 p95=10 p99=12 max=35
+  git watcher poll cost us: avg=9791 p50=9879 p95=10135 p99=10135 max=10839
+
+Scenario: baseline
+  lock wait us: avg=0 p50=0 p95=1 p99=1 max=1
+  total send us: avg=18 p50=18 p95=26 p99=29 max=33
+
+Scenario: render loop contention (33ms snapshots + orchestrator)
+  lock wait us: avg=0 p50=0 p95=1 p99=1 max=1
+  total send us: avg=19 p50=19 p95=27 p99=32 max=37
+
+Scenario: render + autosave contention
+  lock wait us: avg=0 p50=0 p95=1 p99=1 max=1
+  total send us: avg=19 p50=18 p95=25 p99=29 max=37
+
+Perf assertions passed.
+GESTALT_PROFILE_JSON:{"warmup_history_lines":12000,"typing_samples":320,"render_pass":{"avg_us":3215,"p50_us":3093,"p95_us":3966,"p99_us":4609,"max_us":7217},"autosave_pass":{"avg_us":1754,"p50_us":1746,"p95_us":1793,"p99_us":1805,"max_us":1830},"ui_rows_rendered_per_refresh":{"avg_us":1008,"p50_us":1008,"p95_us":1008,"p99_us":1008,"max_us":1008},"ui_row_render_pass":{"avg_us":551,"p50_us":512,"p95_us":785,"p99_us":955,"max_us":963},"round_bounds_extract":{"avg_us":2764,"p50_us":2711,"p95_us":3100,"p99_us":3645,"max_us":3695},"orchestrator_round_extract":{"avg_us":9,"p50_us":8,"p95_us":15,"p99_us":18,"max_us":41},"refresh_loop_tick":{"avg_us":14,"p50_us":14,"p95_us":16,"p99_us":18,"max_us":82},"refresh_loop_state_clone":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":0},"resize_measure":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":17},"resize_measure_calls_per_sec":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":15},"scroll_observer_callbacks_per_sec":{"avg_us":90,"p50_us":90,"p95_us":90,"p99_us":90,"max_us":90},"orchestrator_snapshot_build":{"avg_us":8,"p50_us":9,"p95_us":10,"p99_us":12,"max_us":35},"autosave_fingerprint":{"avg_us":40613,"p50_us":40579,"p95_us":40920,"p99_us":40930,"max_us":40958},"git_watcher_poll_cost":{"avg_us":9791,"p50_us":9879,"p95_us":10135,"p99_us":10135,"max_us":10839},"autosave_snapshot_lines_total":{"avg_us":12000,"p50_us":12000,"p95_us":12000,"p99_us":12000,"max_us":12000},"baseline_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":1,"p99_us":1,"max_us":1},"baseline_total_send":{"avg_us":18,"p50_us":18,"p95_us":26,"p99_us":29,"max_us":33},"render_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":1,"p99_us":1,"max_us":1},"render_total_send":{"avg_us":19,"p50_us":19,"p95_us":27,"p99_us":32,"max_us":37},"full_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":1,"p99_us":1,"max_us":1},"full_total_send":{"avg_us":19,"p50_us":18,"p95_us":25,"p99_us":29,"max_us":37},"render_pass_p95_us":3966,"autosave_pass_p95_us":1793,"ui_rows_rendered_per_refresh_p95":1008,"ui_row_render_pass_p95_us":785,"round_bounds_extract_p95_us":3100,"orchestrator_round_extract_p95_us":15,"refresh_loop_tick_p95_us":16,"refresh_loop_state_clone_p95_us":0,"resize_measure_p95_us":0,"resize_measure_calls_per_sec_p95":0,"scroll_observer_callbacks_per_sec_p95":90,"orchestrator_snapshot_build_p95_us":10,"autosave_fingerprint_p95_us":40920,"git_watcher_poll_cost_p95_us":10135,"autosave_snapshot_lines_total_p95":12000,"autosave_snapshot_build_p95_us":1793,"baseline_total_send_p95_us":26,"render_total_send_p95_us":27,"full_total_send_p95_us":25,"assert_mode":true,"assertions_passed":true}
+=== run 10 ===
+Profiling keypress latency with 320 samples...
+Warm terminal history lines: 12000
+
+Mutex hold timings for heavy operations
+  render pass us: avg=3203 p50=3076 p95=3964 p99=4641 max=7840
+  autosave pass us: avg=1751 p50=1743 p95=1784 p99=1799 max=1854
+
+Render suspect timings
+  ui rows rendered per refresh: avg=1008 p50=1008 p95=1008 p99=1008 max=1008
+  ui row render pass us: avg=547 p50=510 p95=786 p99=926 max=1067
+  round bounds extract us: avg=2620 p50=2555 p95=3102 p99=3560 max=3879
+  orchestrator round extract us: avg=9 p50=9 p95=19 p99=22 max=44
+  autosave snapshot lines total: avg=12000 p50=12000 p95=12000 p99=12000 max=12000
+  autosave fingerprint us: avg=40365 p50=40335 p95=40741 p99=40996 max=41145
+
+Refresh and watcher suspect timings
+  refresh loop tick us: avg=14 p50=14 p95=15 p99=17 max=81
+  refresh loop state clone us: avg=0 p50=0 p95=0 p99=0 max=0
+  resize measure us: avg=0 p50=0 p95=0 p99=0 max=17
+  resize measure calls/sec: avg=0 p50=0 p95=0 p99=0 max=15
+  scroll observer callbacks/sec (estimated): avg=90 p50=90 p95=90 p99=90 max=90
+  orchestrator snapshot build us: avg=9 p50=9 p95=9 p99=11 max=33
+  git watcher poll cost us: avg=8579 p50=8426 p95=8825 p99=8825 max=10648
+
+Scenario: baseline
+  lock wait us: avg=0 p50=0 p95=0 p99=0 max=1
+  total send us: avg=14 p50=14 p95=21 p99=24 max=220
+
+Scenario: render loop contention (33ms snapshots + orchestrator)
+  lock wait us: avg=0 p50=0 p95=0 p99=0 max=6
+  total send us: avg=14 p50=14 p95=21 p99=24 max=28
+
+Scenario: render + autosave contention
+  lock wait us: avg=0 p50=0 p95=0 p99=1 max=1
+  total send us: avg=16 p50=16 p95=24 p99=28 max=35
+
+Perf assertions passed.
+GESTALT_PROFILE_JSON:{"warmup_history_lines":12000,"typing_samples":320,"render_pass":{"avg_us":3203,"p50_us":3076,"p95_us":3964,"p99_us":4641,"max_us":7840},"autosave_pass":{"avg_us":1751,"p50_us":1743,"p95_us":1784,"p99_us":1799,"max_us":1854},"ui_rows_rendered_per_refresh":{"avg_us":1008,"p50_us":1008,"p95_us":1008,"p99_us":1008,"max_us":1008},"ui_row_render_pass":{"avg_us":547,"p50_us":510,"p95_us":786,"p99_us":926,"max_us":1067},"round_bounds_extract":{"avg_us":2620,"p50_us":2555,"p95_us":3102,"p99_us":3560,"max_us":3879},"orchestrator_round_extract":{"avg_us":9,"p50_us":9,"p95_us":19,"p99_us":22,"max_us":44},"refresh_loop_tick":{"avg_us":14,"p50_us":14,"p95_us":15,"p99_us":17,"max_us":81},"refresh_loop_state_clone":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":0},"resize_measure":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":17},"resize_measure_calls_per_sec":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":15},"scroll_observer_callbacks_per_sec":{"avg_us":90,"p50_us":90,"p95_us":90,"p99_us":90,"max_us":90},"orchestrator_snapshot_build":{"avg_us":9,"p50_us":9,"p95_us":9,"p99_us":11,"max_us":33},"autosave_fingerprint":{"avg_us":40365,"p50_us":40335,"p95_us":40741,"p99_us":40996,"max_us":41145},"git_watcher_poll_cost":{"avg_us":8579,"p50_us":8426,"p95_us":8825,"p99_us":8825,"max_us":10648},"autosave_snapshot_lines_total":{"avg_us":12000,"p50_us":12000,"p95_us":12000,"p99_us":12000,"max_us":12000},"baseline_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":1},"baseline_total_send":{"avg_us":14,"p50_us":14,"p95_us":21,"p99_us":24,"max_us":220},"render_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":6},"render_total_send":{"avg_us":14,"p50_us":14,"p95_us":21,"p99_us":24,"max_us":28},"full_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":1,"max_us":1},"full_total_send":{"avg_us":16,"p50_us":16,"p95_us":24,"p99_us":28,"max_us":35},"render_pass_p95_us":3964,"autosave_pass_p95_us":1784,"ui_rows_rendered_per_refresh_p95":1008,"ui_row_render_pass_p95_us":786,"round_bounds_extract_p95_us":3102,"orchestrator_round_extract_p95_us":19,"refresh_loop_tick_p95_us":15,"refresh_loop_state_clone_p95_us":0,"resize_measure_p95_us":0,"resize_measure_calls_per_sec_p95":0,"scroll_observer_callbacks_per_sec_p95":90,"orchestrator_snapshot_build_p95_us":9,"autosave_fingerprint_p95_us":40741,"git_watcher_poll_cost_p95_us":8825,"autosave_snapshot_lines_total_p95":12000,"autosave_snapshot_build_p95_us":1784,"baseline_total_send_p95_us":21,"render_total_send_p95_us":21,"full_total_send_p95_us":24,"assert_mode":true,"assertions_passed":true}

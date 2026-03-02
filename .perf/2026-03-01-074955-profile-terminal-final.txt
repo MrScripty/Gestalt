@@ -1,0 +1,245 @@
+# Final Performance Result 2026-03-01-074955
+
+## Metadata
+- commit: dc2e6a707957974f153f111a241f46411e17df55
+- rustc: rustc 1.92.0 (ded5c06cf 2025-12-08)
+- cargo: cargo 1.92.0 (344c4567c 2025-10-21)
+- kernel: Linux 6.17.0-14-generic x86_64 GNU/Linux
+- cpu: Intel(R) Core(TM) Ultra 9 275HX
+- runs: 10
+- baseline reference: docs/perf-results/2026-03-01-025300-baseline-v2.md
+
+## Raw Runs
+```text
+=== run 1 ===
+Profiling keypress latency with 320 samples...
+Warm terminal history lines: 12000
+
+Mutex hold timings for heavy operations
+  render pass us: avg=8809 p50=8535 p95=10759 p99=11628 max=14643
+  autosave pass us: avg=7030 p50=7004 p95=7252 p99=7256 max=7340
+
+Scenario: baseline
+  lock wait us: avg=0 p50=0 p95=0 p99=0 max=7
+  total send us: avg=15 p50=15 p95=23 p99=26 max=40
+
+Scenario: render loop contention (33ms snapshots + orchestrator)
+  lock wait us: avg=0 p50=0 p95=1 p99=1 max=1
+  total send us: avg=18 p50=18 p95=26 p99=31 max=37
+
+Scenario: render + autosave contention
+  lock wait us: avg=0 p50=0 p95=0 p99=1 max=1
+  total send us: avg=18 p50=18 p95=25 p99=32 max=36
+
+Perf assertions passed.
+GESTALT_PROFILE_JSON:{"warmup_history_lines":12000,"typing_samples":320,"render_pass":{"avg_us":8809,"p50_us":8535,"p95_us":10759,"p99_us":11628,"max_us":14643},"autosave_pass":{"avg_us":7030,"p50_us":7004,"p95_us":7252,"p99_us":7256,"max_us":7340},"baseline_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":7},"baseline_total_send":{"avg_us":15,"p50_us":15,"p95_us":23,"p99_us":26,"max_us":40},"render_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":1,"p99_us":1,"max_us":1},"render_total_send":{"avg_us":18,"p50_us":18,"p95_us":26,"p99_us":31,"max_us":37},"full_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":1,"max_us":1},"full_total_send":{"avg_us":18,"p50_us":18,"p95_us":25,"p99_us":32,"max_us":36},"render_pass_p95_us":10759,"autosave_pass_p95_us":7252,"baseline_total_send_p95_us":23,"render_total_send_p95_us":26,"full_total_send_p95_us":25,"assert_mode":true,"assertions_passed":true}
+=== run 2 ===
+Profiling keypress latency with 320 samples...
+Warm terminal history lines: 12000
+
+Mutex hold timings for heavy operations
+  render pass us: avg=8506 p50=8483 p95=8601 p99=8650 max=10468
+  autosave pass us: avg=6983 p50=6950 p95=7240 p99=7252 max=7281
+
+Scenario: baseline
+  lock wait us: avg=0 p50=0 p95=0 p99=0 max=1
+  total send us: avg=15 p50=14 p95=22 p99=24 max=36
+
+Scenario: render loop contention (33ms snapshots + orchestrator)
+  lock wait us: avg=0 p50=0 p95=0 p99=1 max=1
+  total send us: avg=16 p50=16 p95=25 p99=29 max=34
+
+Scenario: render + autosave contention
+  lock wait us: avg=0 p50=0 p95=0 p99=1 max=1
+  total send us: avg=16 p50=16 p95=23 p99=28 max=246
+
+Perf assertions passed.
+GESTALT_PROFILE_JSON:{"warmup_history_lines":12000,"typing_samples":320,"render_pass":{"avg_us":8506,"p50_us":8483,"p95_us":8601,"p99_us":8650,"max_us":10468},"autosave_pass":{"avg_us":6983,"p50_us":6950,"p95_us":7240,"p99_us":7252,"max_us":7281},"baseline_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":1},"baseline_total_send":{"avg_us":15,"p50_us":14,"p95_us":22,"p99_us":24,"max_us":36},"render_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":1,"max_us":1},"render_total_send":{"avg_us":16,"p50_us":16,"p95_us":25,"p99_us":29,"max_us":34},"full_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":1,"max_us":1},"full_total_send":{"avg_us":16,"p50_us":16,"p95_us":23,"p99_us":28,"max_us":246},"render_pass_p95_us":8601,"autosave_pass_p95_us":7240,"baseline_total_send_p95_us":22,"render_total_send_p95_us":25,"full_total_send_p95_us":23,"assert_mode":true,"assertions_passed":true}
+=== run 3 ===
+Profiling keypress latency with 320 samples...
+Warm terminal history lines: 12000
+
+Mutex hold timings for heavy operations
+  render pass us: avg=8732 p50=8581 p95=10404 p99=10570 max=13011
+  autosave pass us: avg=6938 p50=6903 p95=7108 p99=7125 max=7153
+
+Scenario: baseline
+  lock wait us: avg=0 p50=0 p95=0 p99=0 max=11
+  total send us: avg=15 p50=15 p95=21 p99=24 max=31
+
+Scenario: render loop contention (33ms snapshots + orchestrator)
+  lock wait us: avg=0 p50=0 p95=0 p99=1 max=2
+  total send us: avg=15 p50=15 p95=23 p99=27 max=33
+
+Scenario: render + autosave contention
+  lock wait us: avg=0 p50=0 p95=0 p99=1 max=1
+  total send us: avg=17 p50=17 p95=25 p99=30 max=248
+
+Perf assertions passed.
+GESTALT_PROFILE_JSON:{"warmup_history_lines":12000,"typing_samples":320,"render_pass":{"avg_us":8732,"p50_us":8581,"p95_us":10404,"p99_us":10570,"max_us":13011},"autosave_pass":{"avg_us":6938,"p50_us":6903,"p95_us":7108,"p99_us":7125,"max_us":7153},"baseline_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":11},"baseline_total_send":{"avg_us":15,"p50_us":15,"p95_us":21,"p99_us":24,"max_us":31},"render_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":1,"max_us":2},"render_total_send":{"avg_us":15,"p50_us":15,"p95_us":23,"p99_us":27,"max_us":33},"full_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":1,"max_us":1},"full_total_send":{"avg_us":17,"p50_us":17,"p95_us":25,"p99_us":30,"max_us":248},"render_pass_p95_us":10404,"autosave_pass_p95_us":7108,"baseline_total_send_p95_us":21,"render_total_send_p95_us":23,"full_total_send_p95_us":25,"assert_mode":true,"assertions_passed":true}
+=== run 4 ===
+Profiling keypress latency with 320 samples...
+Warm terminal history lines: 12000
+
+Mutex hold timings for heavy operations
+  render pass us: avg=8994 p50=8742 p95=10579 p99=12106 max=15649
+  autosave pass us: avg=7067 p50=7048 p95=7243 p99=7244 max=7341
+
+Scenario: baseline
+  lock wait us: avg=0 p50=0 p95=0 p99=1 max=7
+  total send us: avg=16 p50=17 p95=25 p99=29 max=32
+
+Scenario: render loop contention (33ms snapshots + orchestrator)
+  lock wait us: avg=0 p50=0 p95=1 p99=1 max=1
+  total send us: avg=18 p50=18 p95=25 p99=28 max=31
+
+Scenario: render + autosave contention
+  lock wait us: avg=0 p50=0 p95=0 p99=1 max=15
+  total send us: avg=16 p50=16 p95=22 p99=25 max=40
+
+Perf assertions passed.
+GESTALT_PROFILE_JSON:{"warmup_history_lines":12000,"typing_samples":320,"render_pass":{"avg_us":8994,"p50_us":8742,"p95_us":10579,"p99_us":12106,"max_us":15649},"autosave_pass":{"avg_us":7067,"p50_us":7048,"p95_us":7243,"p99_us":7244,"max_us":7341},"baseline_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":1,"max_us":7},"baseline_total_send":{"avg_us":16,"p50_us":17,"p95_us":25,"p99_us":29,"max_us":32},"render_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":1,"p99_us":1,"max_us":1},"render_total_send":{"avg_us":18,"p50_us":18,"p95_us":25,"p99_us":28,"max_us":31},"full_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":1,"max_us":15},"full_total_send":{"avg_us":16,"p50_us":16,"p95_us":22,"p99_us":25,"max_us":40},"render_pass_p95_us":10579,"autosave_pass_p95_us":7243,"baseline_total_send_p95_us":25,"render_total_send_p95_us":25,"full_total_send_p95_us":22,"assert_mode":true,"assertions_passed":true}
+=== run 5 ===
+Profiling keypress latency with 320 samples...
+Warm terminal history lines: 12000
+
+Mutex hold timings for heavy operations
+  render pass us: avg=8852 p50=8587 p95=10575 p99=11806 max=13470
+  autosave pass us: avg=7005 p50=6986 p95=7226 p99=7298 max=7414
+
+Scenario: baseline
+  lock wait us: avg=0 p50=0 p95=0 p99=1 max=1
+  total send us: avg=15 p50=15 p95=23 p99=28 max=99
+
+Scenario: render loop contention (33ms snapshots + orchestrator)
+  lock wait us: avg=0 p50=0 p95=0 p99=1 max=10
+  total send us: avg=17 p50=17 p95=24 p99=31 max=44
+
+Scenario: render + autosave contention
+  lock wait us: avg=0 p50=0 p95=0 p99=1 max=1
+  total send us: avg=16 p50=16 p95=25 p99=30 max=37
+
+Perf assertions passed.
+GESTALT_PROFILE_JSON:{"warmup_history_lines":12000,"typing_samples":320,"render_pass":{"avg_us":8852,"p50_us":8587,"p95_us":10575,"p99_us":11806,"max_us":13470},"autosave_pass":{"avg_us":7005,"p50_us":6986,"p95_us":7226,"p99_us":7298,"max_us":7414},"baseline_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":1,"max_us":1},"baseline_total_send":{"avg_us":15,"p50_us":15,"p95_us":23,"p99_us":28,"max_us":99},"render_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":1,"max_us":10},"render_total_send":{"avg_us":17,"p50_us":17,"p95_us":24,"p99_us":31,"max_us":44},"full_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":1,"max_us":1},"full_total_send":{"avg_us":16,"p50_us":16,"p95_us":25,"p99_us":30,"max_us":37},"render_pass_p95_us":10575,"autosave_pass_p95_us":7226,"baseline_total_send_p95_us":23,"render_total_send_p95_us":24,"full_total_send_p95_us":25,"assert_mode":true,"assertions_passed":true}
+=== run 6 ===
+Profiling keypress latency with 320 samples...
+Warm terminal history lines: 12000
+
+Mutex hold timings for heavy operations
+  render pass us: avg=8568 p50=8552 p95=8668 p99=8815 max=10426
+  autosave pass us: avg=7077 p50=7084 p95=7192 p99=7201 max=7297
+
+Scenario: baseline
+  lock wait us: avg=0 p50=0 p95=1 p99=1 max=1
+  total send us: avg=16 p50=17 p95=27 p99=29 max=33
+
+Scenario: render loop contention (33ms snapshots + orchestrator)
+  lock wait us: avg=0 p50=0 p95=0 p99=1 max=1
+  total send us: avg=18 p50=18 p95=24 p99=29 max=35
+
+Scenario: render + autosave contention
+  lock wait us: avg=0 p50=0 p95=0 p99=0 max=1
+  total send us: avg=15 p50=15 p95=22 p99=28 max=37
+
+Perf assertions passed.
+GESTALT_PROFILE_JSON:{"warmup_history_lines":12000,"typing_samples":320,"render_pass":{"avg_us":8568,"p50_us":8552,"p95_us":8668,"p99_us":8815,"max_us":10426},"autosave_pass":{"avg_us":7077,"p50_us":7084,"p95_us":7192,"p99_us":7201,"max_us":7297},"baseline_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":1,"p99_us":1,"max_us":1},"baseline_total_send":{"avg_us":16,"p50_us":17,"p95_us":27,"p99_us":29,"max_us":33},"render_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":1,"max_us":1},"render_total_send":{"avg_us":18,"p50_us":18,"p95_us":24,"p99_us":29,"max_us":35},"full_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":1},"full_total_send":{"avg_us":15,"p50_us":15,"p95_us":22,"p99_us":28,"max_us":37},"render_pass_p95_us":8668,"autosave_pass_p95_us":7192,"baseline_total_send_p95_us":27,"render_total_send_p95_us":24,"full_total_send_p95_us":22,"assert_mode":true,"assertions_passed":true}
+=== run 7 ===
+Profiling keypress latency with 320 samples...
+Warm terminal history lines: 12000
+
+Mutex hold timings for heavy operations
+  render pass us: avg=8550 p50=8533 p95=8681 p99=8736 max=10271
+  autosave pass us: avg=6977 p50=6965 p95=7081 p99=7149 max=7225
+
+Scenario: baseline
+  lock wait us: avg=0 p50=0 p95=0 p99=1 max=1
+  total send us: avg=14 p50=15 p95=21 p99=23 max=33
+
+Scenario: render loop contention (33ms snapshots + orchestrator)
+  lock wait us: avg=0 p50=0 p95=0 p99=1 max=1
+  total send us: avg=15 p50=15 p95=23 p99=27 max=35
+
+Scenario: render + autosave contention
+  lock wait us: avg=0 p50=0 p95=0 p99=0 max=1
+  total send us: avg=15 p50=15 p95=22 p99=26 max=34
+
+Perf assertions passed.
+GESTALT_PROFILE_JSON:{"warmup_history_lines":12000,"typing_samples":320,"render_pass":{"avg_us":8550,"p50_us":8533,"p95_us":8681,"p99_us":8736,"max_us":10271},"autosave_pass":{"avg_us":6977,"p50_us":6965,"p95_us":7081,"p99_us":7149,"max_us":7225},"baseline_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":1,"max_us":1},"baseline_total_send":{"avg_us":14,"p50_us":15,"p95_us":21,"p99_us":23,"max_us":33},"render_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":1,"max_us":1},"render_total_send":{"avg_us":15,"p50_us":15,"p95_us":23,"p99_us":27,"max_us":35},"full_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":1},"full_total_send":{"avg_us":15,"p50_us":15,"p95_us":22,"p99_us":26,"max_us":34},"render_pass_p95_us":8681,"autosave_pass_p95_us":7081,"baseline_total_send_p95_us":21,"render_total_send_p95_us":23,"full_total_send_p95_us":22,"assert_mode":true,"assertions_passed":true}
+=== run 8 ===
+Profiling keypress latency with 320 samples...
+Warm terminal history lines: 12000
+
+Mutex hold timings for heavy operations
+  render pass us: avg=8954 p50=8644 p95=10694 p99=12150 max=14291
+  autosave pass us: avg=7036 p50=6999 p95=7265 p99=7313 max=7346
+
+Scenario: baseline
+  lock wait us: avg=0 p50=0 p95=0 p99=0 max=0
+  total send us: avg=14 p50=14 p95=20 p99=23 max=27
+
+Scenario: render loop contention (33ms snapshots + orchestrator)
+  lock wait us: avg=0 p50=0 p95=0 p99=0 max=0
+  total send us: avg=14 p50=14 p95=20 p99=24 max=27
+
+Scenario: render + autosave contention
+  lock wait us: avg=0 p50=0 p95=0 p99=0 max=1
+  total send us: avg=14 p50=14 p95=19 p99=22 max=23
+
+Perf assertions passed.
+GESTALT_PROFILE_JSON:{"warmup_history_lines":12000,"typing_samples":320,"render_pass":{"avg_us":8954,"p50_us":8644,"p95_us":10694,"p99_us":12150,"max_us":14291},"autosave_pass":{"avg_us":7036,"p50_us":6999,"p95_us":7265,"p99_us":7313,"max_us":7346},"baseline_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":0},"baseline_total_send":{"avg_us":14,"p50_us":14,"p95_us":20,"p99_us":23,"max_us":27},"render_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":0},"render_total_send":{"avg_us":14,"p50_us":14,"p95_us":20,"p99_us":24,"max_us":27},"full_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":1},"full_total_send":{"avg_us":14,"p50_us":14,"p95_us":19,"p99_us":22,"max_us":23},"render_pass_p95_us":10694,"autosave_pass_p95_us":7265,"baseline_total_send_p95_us":20,"render_total_send_p95_us":20,"full_total_send_p95_us":19,"assert_mode":true,"assertions_passed":true}
+=== run 9 ===
+Profiling keypress latency with 320 samples...
+Warm terminal history lines: 12000
+
+Mutex hold timings for heavy operations
+  render pass us: avg=8785 p50=8575 p95=10467 p99=10912 max=15358
+  autosave pass us: avg=6997 p50=6975 p95=7097 p99=7160 max=7262
+
+Scenario: baseline
+  lock wait us: avg=0 p50=0 p95=0 p99=0 max=1
+  total send us: avg=15 p50=15 p95=22 p99=25 max=29
+
+Scenario: render loop contention (33ms snapshots + orchestrator)
+  lock wait us: avg=0 p50=0 p95=1 p99=1 max=1
+  total send us: avg=17 p50=18 p95=25 p99=29 max=34
+
+Scenario: render + autosave contention
+  lock wait us: avg=0 p50=0 p95=0 p99=0 max=1
+  total send us: avg=17 p50=17 p95=24 p99=29 max=33
+
+Perf assertions passed.
+GESTALT_PROFILE_JSON:{"warmup_history_lines":12000,"typing_samples":320,"render_pass":{"avg_us":8785,"p50_us":8575,"p95_us":10467,"p99_us":10912,"max_us":15358},"autosave_pass":{"avg_us":6997,"p50_us":6975,"p95_us":7097,"p99_us":7160,"max_us":7262},"baseline_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":1},"baseline_total_send":{"avg_us":15,"p50_us":15,"p95_us":22,"p99_us":25,"max_us":29},"render_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":1,"p99_us":1,"max_us":1},"render_total_send":{"avg_us":17,"p50_us":18,"p95_us":25,"p99_us":29,"max_us":34},"full_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":1},"full_total_send":{"avg_us":17,"p50_us":17,"p95_us":24,"p99_us":29,"max_us":33},"render_pass_p95_us":10467,"autosave_pass_p95_us":7097,"baseline_total_send_p95_us":22,"render_total_send_p95_us":25,"full_total_send_p95_us":24,"assert_mode":true,"assertions_passed":true}
+=== run 10 ===
+Profiling keypress latency with 320 samples...
+Warm terminal history lines: 12000
+
+Mutex hold timings for heavy operations
+  render pass us: avg=8590 p50=8562 p95=8688 p99=8794 max=10818
+  autosave pass us: avg=6959 p50=6939 p95=7071 p99=7232 max=7502
+
+Scenario: baseline
+  lock wait us: avg=0 p50=0 p95=0 p99=0 max=1
+  total send us: avg=15 p50=15 p95=22 p99=26 max=49
+
+Scenario: render loop contention (33ms snapshots + orchestrator)
+  lock wait us: avg=0 p50=0 p95=0 p99=1 max=1
+  total send us: avg=16 p50=16 p95=24 p99=28 max=39
+
+Scenario: render + autosave contention
+  lock wait us: avg=0 p50=0 p95=0 p99=1 max=1
+  total send us: avg=15 p50=15 p95=22 p99=25 max=38
+
+Perf assertions passed.
+GESTALT_PROFILE_JSON:{"warmup_history_lines":12000,"typing_samples":320,"render_pass":{"avg_us":8590,"p50_us":8562,"p95_us":8688,"p99_us":8794,"max_us":10818},"autosave_pass":{"avg_us":6959,"p50_us":6939,"p95_us":7071,"p99_us":7232,"max_us":7502},"baseline_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":0,"max_us":1},"baseline_total_send":{"avg_us":15,"p50_us":15,"p95_us":22,"p99_us":26,"max_us":49},"render_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":1,"max_us":1},"render_total_send":{"avg_us":16,"p50_us":16,"p95_us":24,"p99_us":28,"max_us":39},"full_lock_wait":{"avg_us":0,"p50_us":0,"p95_us":0,"p99_us":1,"max_us":1},"full_total_send":{"avg_us":15,"p50_us":15,"p95_us":22,"p99_us":25,"max_us":38},"render_pass_p95_us":8688,"autosave_pass_p95_us":7071,"baseline_total_send_p95_us":22,"render_total_send_p95_us":24,"full_total_send_p95_us":22,"assert_mode":true,"assertions_passed":true}
+```
+
+## Aggregated Summary
+```text
+metric                               runs     median      p95      min      max
+---------------------------------- ------ ---------- -------- -------- --------
+render_pass_p95_us                     10    10435.5    10694     8601    10759
+autosave_pass_p95_us                   10     7209.0     7252     7071     7265
+baseline_total_send_p95_us             10       22.0       25       20       27
+render_total_send_p95_us               10       24.0       25       20       26
+full_total_send_p95_us                 10       22.5       25       19       25
+```
