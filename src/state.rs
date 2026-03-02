@@ -72,6 +72,17 @@ pub enum VisibleAgentSlot {
 pub type SessionId = u32;
 /// Opaque identifier for a workspace path group.
 pub type GroupId = u32;
+pub const UI_SCALE_DEFAULT: f64 = 1.0;
+pub const UI_SCALE_MIN: f64 = 0.7;
+pub const UI_SCALE_MAX: f64 = 1.8;
+
+pub fn clamp_ui_scale(scale: f64) -> f64 {
+    if !scale.is_finite() {
+        return UI_SCALE_DEFAULT;
+    }
+
+    scale.clamp(UI_SCALE_MIN, UI_SCALE_MAX)
+}
 
 /// Path-scoped tab group metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -108,6 +119,8 @@ pub struct AppState {
     pub groups: Vec<TabGroup>,
     #[serde(default)]
     pub command_library: CommandLibrary,
+    #[serde(default = "default_ui_scale")]
+    ui_scale: f64,
     pub selected_session: Option<SessionId>,
     next_session_id: SessionId,
     next_group_id: GroupId,
@@ -133,6 +146,7 @@ impl AppState {
             sessions: Vec::new(),
             groups: Vec::new(),
             command_library: CommandLibrary::default(),
+            ui_scale: UI_SCALE_DEFAULT,
             selected_session: None,
             next_session_id: 1,
             next_group_id: 1,
@@ -159,6 +173,7 @@ impl AppState {
     /// Repairs invalid relationships after loading persisted state.
     pub fn repair_after_restore(&mut self) {
         self.command_library.repair_after_restore();
+        self.ui_scale = clamp_ui_scale(self.ui_scale);
         self.groups.retain(|group| !group.path.trim().is_empty());
 
         if self.groups.is_empty() {
@@ -651,6 +666,22 @@ impl AppState {
         &self.command_library.commands
     }
 
+    /// Returns the persisted GUI font scale.
+    pub fn ui_scale(&self) -> f64 {
+        clamp_ui_scale(self.ui_scale)
+    }
+
+    /// Sets the GUI font scale and marks the state dirty when changed.
+    pub fn set_ui_scale(&mut self, scale: f64) {
+        let normalized = clamp_ui_scale(scale);
+        if (self.ui_scale - normalized).abs() < f64::EPSILON {
+            return;
+        }
+
+        self.ui_scale = normalized;
+        self.mark_dirty();
+    }
+
     /// Returns a command by identifier.
     pub fn command_by_id(&self, command_id: CommandId) -> Option<&InsertCommand> {
         self.command_library.command(command_id)
@@ -695,4 +726,8 @@ impl AppState {
         }
         removed
     }
+}
+
+fn default_ui_scale() -> f64 {
+    UI_SCALE_DEFAULT
 }

@@ -226,6 +226,29 @@ fn remove_session_updates_selected_to_same_group_when_available() {
 }
 
 #[test]
+fn set_ui_scale_clamps_and_marks_state_dirty() {
+    let mut state = AppState::default();
+    let before = state.revision();
+
+    state.set_ui_scale(99.0);
+
+    assert_eq!(state.ui_scale(), 1.8);
+    assert!(state.revision() > before);
+}
+
+#[test]
+fn missing_ui_scale_field_restores_default_scale() {
+    let mut payload = serde_json::to_value(AppState::default()).expect("serialize app state");
+    let object = payload
+        .as_object_mut()
+        .expect("app state should serialize to an object");
+    object.remove("ui_scale");
+
+    let restored: AppState = serde_json::from_value(payload).expect("deserialize app state");
+    assert_eq!(restored.ui_scale(), 1.0);
+}
+
+#[test]
 fn remove_session_preserves_selection_when_other_tab_removed() {
     let mut state = AppState::default();
     let selected = state.sessions[0].id;

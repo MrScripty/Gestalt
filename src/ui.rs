@@ -18,7 +18,7 @@ use crate::emily_bridge::EmilyBridge;
 use crate::git::RepoContext;
 use crate::local_restore;
 use crate::persistence;
-use crate::state::{SessionId, SessionStatus};
+use crate::state::{SessionId, SessionStatus, clamp_ui_scale};
 use crate::terminal::{PersistedTerminalState, TerminalManager, TerminalMemorySink};
 use crate::ui::autosave::{AutosaveRequest, AutosaveSignature, AutosaveWorker};
 use crate::ui::git_refresh::use_git_refresh_coordinator;
@@ -52,12 +52,13 @@ const RAIL_SPLIT_STEP_PX: i32 = 16;
 const SHELL_SPLITTER_SIZE_PX: i32 = 8;
 const RUNNER_WIDTH_DEFAULT_PX: i32 = 340;
 const SPLIT_RATIO_DEFAULT: f64 = 0.5;
+const GUI_SCALE_STEP: f64 = 0.1;
 
 /// Root desktop UI component.
 #[component]
 pub fn App() -> Element {
     let initial_workspace = use_signal(|| persistence::load_workspace().ok().flatten());
-    let app_state = {
+    let mut app_state = {
         let loaded = initial_workspace.read().clone();
         use_signal(move || {
             loaded
@@ -414,9 +415,10 @@ pub fn App() -> Element {
     });
 
     let shell_style = format!(
-        "--rail-width: {}px; --splitter-size: {}px;",
+        "--rail-width: {}px; --splitter-size: {}px; --font-scale: {:.2};",
         *rail_width_px.read(),
-        SHELL_SPLITTER_SIZE_PX
+        SHELL_SPLITTER_SIZE_PX,
+        app_state.read().ui_scale(),
     );
     let shell_class = if rail_drag_start.read().is_some() {
         "shell resizing"
@@ -430,6 +432,20 @@ pub fn App() -> Element {
         div {
             class: "{shell_class}",
             style: "{shell_style}",
+            onkeydown: move |event| {
+                let data = event.data();
+                let key = data.key();
+                let modifiers = data.modifiers();
+                if let Some(direction) =
+                    gui_scale_direction(&key, modifiers.ctrl(), modifiers.meta(), modifiers.alt())
+                {
+                    event.prevent_default();
+                    event.stop_propagation();
+                    let current_scale = app_state.read().ui_scale();
+                    let next_scale = next_gui_scale(current_scale, direction);
+                    app_state.write().set_ui_scale(next_scale);
+                }
+            },
             onmousemove: move |event| {
                 let Some((start_x, start_width)) = *rail_drag_start.read() else {
                     return;
@@ -499,5 +515,50 @@ pub fn App() -> Element {
                 insert_mode_state: insert_mode_state,
             }
         }
+    }
+}
+
+fn gui_scale_direction(key: &Key, ctrl: bool, meta: bool, alt: bool) -> Option<f64> {
+    if (!ctrl && !meta) || alt {
+        return None;
+    }
+
+    match key {
+        Key::Character(text) if text == "+" || text == "=" => Some(GUI_SCALE_STEP),
+        Key::Character(text) if text == "-" || text == "_" => Some(-GUI_SCALE_STEP),
+        _ => None,
+    }
+}
+
+fn next_gui_scale(current: f64, step: f64) -> f64 {
+    let next = clamp_ui_scale(current + step);
+    (next * 10.0).round() / 10.0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{gui_scale_direction, next_gui_scale};
+    use dioxus::prelude::Key;
+
+    #[test]
+    fn recognizes_ctrl_plus_for_zoom_in() {
+        assert_eq!(
+            gui_scale_direction(&Key::Character("+".to_string()), true, false, false),
+            Some(0.1)
+        );
+    }
+
+    #[test]
+    fn recognizes_ctrl_minus_for_zoom_out() {
+        assert_eq!(
+            gui_scale_direction(&Key::Character("-".to_string()), true, false, false),
+            Some(-0.1)
+        );
+    }
+
+    #[test]
+    fn clamps_scale_to_bounds() {
+        assert_eq!(next_gui_scale(1.8, 0.1), 1.8);
+        assert_eq!(next_gui_scale(0.7, -0.1), 0.7);
     }
 }
