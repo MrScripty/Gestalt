@@ -179,8 +179,12 @@ pub(crate) fn TabRail(
                                                     class: "{tab_class}",
                                                     key: "session-{session_id}",
                                                     style: "{load_style}",
-                                                    draggable: "true",
-                                                    ondragstart: move |_| {
+                                                    draggable: if is_renaming { "false" } else { "true" },
+                                                    ondragstart: move |event| {
+                                                        if *renaming_tab.read() == Some(session_id) {
+                                                            event.prevent_default();
+                                                            return;
+                                                        }
                                                         dragging_tab.set(Some(session_id));
                                                     },
                                                     ondragend: move |_| {
