@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
@@ -96,6 +96,7 @@ struct TerminalRuntime {
     memory_sink: Option<Arc<dyn TerminalMemorySink>>,
     snapshot_cache: Arc<RwLock<Arc<TerminalSnapshot>>>,
     snapshot_revision: Arc<AtomicU64>,
+    last_activity_unix_ms: Arc<AtomicI64>,
 }
 
 struct ReaderThreadContext {
@@ -104,6 +105,7 @@ struct ReaderThreadContext {
     scrollback: Arc<RwLock<ScrollbackBuffer>>,
     snapshot_cache: Arc<RwLock<Arc<TerminalSnapshot>>>,
     snapshot_revision: Arc<AtomicU64>,
+    last_activity_unix_ms: Arc<AtomicI64>,
     cwd: Arc<RwLock<String>>,
     memory_sink: Option<Arc<dyn TerminalMemorySink>>,
     session_id: SessionId,
@@ -217,12 +219,14 @@ impl TerminalManager {
         };
         let snapshot_cache = Arc::new(RwLock::new(Arc::new(initial_snapshot)));
         let snapshot_revision = Arc::new(AtomicU64::new(1));
+        let last_activity_unix_ms = Arc::new(AtomicI64::new(0));
         spawn_reader_thread(ReaderThreadContext {
             reader,
             parser: Arc::clone(&parser),
             scrollback: Arc::clone(&scrollback),
             snapshot_cache: Arc::clone(&snapshot_cache),
             snapshot_revision: Arc::clone(&snapshot_revision),
+            last_activity_unix_ms: Arc::clone(&last_activity_unix_ms),
             cwd: Arc::clone(&cwd),
             memory_sink: self.memory_sink.clone(),
             session_id,
@@ -239,6 +243,7 @@ impl TerminalManager {
             memory_sink: self.memory_sink.clone(),
             snapshot_cache,
             snapshot_revision,
+            last_activity_unix_ms,
         });
 
         let mut sessions = self.sessions.write();
@@ -278,6 +283,9 @@ impl TerminalManager {
         writer
             .flush()
             .map_err(|error| TerminalError::FlushInput(error.to_string()))?;
+        runtime
+            .last_activity_unix_ms
+            .store(current_unix_ms(), Ordering::Relaxed);
 
         if let Some(memory_sink) = runtime.memory_sink.as_ref() {
             let mut pending = runtime.input_pending.lock();
@@ -433,6 +441,12 @@ impl TerminalManager {
             .map(|runtime| runtime.snapshot_revision.load(Ordering::Relaxed))
     }
 
+    /// Returns the last observed runtime I/O activity timestamp in unix milliseconds.
+    pub fn session_last_activity_unix_ms(&self, session_id: SessionId) -> Option<i64> {
+        self.session_runtime(session_id)
+            .map(|runtime| runtime.last_activity_unix_ms.load(Ordering::Relaxed))
+    }
+
     fn session_runtime(&self, session_id: SessionId) -> Option<Arc<TerminalRuntime>> {
         self.sessions.read().get(&session_id).cloned()
     }
@@ -467,6 +481,7 @@ fn spawn_reader_thread(context: ReaderThreadContext) {
         scrollback,
         snapshot_cache,
         snapshot_revision,
+        last_activity_unix_ms,
         cwd,
         memory_sink,
         session_id,
@@ -479,6 +494,8 @@ fn spawn_reader_thread(context: ReaderThreadContext) {
             match reader.read(&mut buffer) {
                 Ok(0) => break,
                 Ok(read) => {
+                    let now_ms = current_unix_ms();
+                    last_activity_unix_ms.store(now_ms, Ordering::Relaxed);
                     let snapshot = {
                         let mut parser = parser.lock();
                         parser.process(&buffer[..read]);
@@ -493,7 +510,6 @@ fn spawn_reader_thread(context: ReaderThreadContext) {
                             && !emitted_lines.is_empty()
                         {
                             let cwd = cwd.read().clone();
-                            let now_ms = current_unix_ms();
                             for line in emitted_lines {
                                 memory_sink.record_output_line(session_id, &cwd, line, now_ms);
                             }
