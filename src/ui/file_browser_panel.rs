@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 const FILE_BROWSER_REFRESH_MS: u64 = 2_000;
-const FILE_BROWSER_LOOP_TICK_MS: u64 = 220;
+const FILE_BROWSER_IDLE_POLL_MS: u64 = 1_000;
 
 #[derive(Clone, Debug)]
 struct SelectedEntryStats {
@@ -58,7 +58,6 @@ pub(crate) fn FileBrowserPanel(
         let mut panel_feedback = panel_feedback;
         use_future(move || async move {
             let mut last_seen_refresh_nonce = u64::MAX;
-            let mut last_scan_request = None::<ScanRequest>;
             let mut last_scan_started = Instant::now();
 
             loop {
@@ -69,10 +68,9 @@ pub(crate) fn FileBrowserPanel(
                 let refresh_nonce_now = *refresh_nonce.read();
                 let due =
                     last_scan_started.elapsed() >= Duration::from_millis(FILE_BROWSER_REFRESH_MS);
-                let request_changed = last_scan_request.as_ref() != Some(&scan_request);
                 let forced = refresh_nonce_now != last_seen_refresh_nonce;
 
-                if request_changed || due || forced {
+                if due || forced {
                     last_seen_refresh_nonce = refresh_nonce_now;
                     last_scan_started = Instant::now();
                     loading.set(true);
@@ -99,13 +97,9 @@ pub(crate) fn FileBrowserPanel(
                     }
 
                     loading.set(false);
-                    last_scan_request = Some(ScanRequest {
-                        root_dir: root_dir.read().clone(),
-                        current_dir: current_dir.read().clone(),
-                    });
                 }
 
-                tokio::time::sleep(Duration::from_millis(FILE_BROWSER_LOOP_TICK_MS)).await;
+                tokio::time::sleep(Duration::from_millis(FILE_BROWSER_IDLE_POLL_MS)).await;
             }
         });
     }
@@ -189,6 +183,8 @@ pub(crate) fn FileBrowserPanel(
                                     selected_path.set(None);
                                     selected_stats.set(None);
                                     selected_stats_loading.set(false);
+                                    let next = refresh_nonce.read().saturating_add(1);
+                                    refresh_nonce.set(next);
                                 },
                                 "{crumb.label}"
                             }
@@ -300,6 +296,8 @@ pub(crate) fn FileBrowserPanel(
                                                 selected_path.set(None);
                                                 selected_stats.set(None);
                                                 selected_stats_loading.set(false);
+                                                let next = refresh_nonce.read().saturating_add(1);
+                                                refresh_nonce.set(next);
                                                 return;
                                             }
 
@@ -322,6 +320,8 @@ pub(crate) fn FileBrowserPanel(
                                                         selected_path.set(None);
                                                         selected_stats.set(None);
                                                         selected_stats_loading.set(false);
+                                                        let next = refresh_nonce.read().saturating_add(1);
+                                                        refresh_nonce.set(next);
                                                         return;
                                                     }
 
