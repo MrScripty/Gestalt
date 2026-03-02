@@ -465,13 +465,13 @@ fn spawn_reader_thread(context: ReaderThreadContext) {
                             (scrollback.lines.clone(), emitted_lines)
                         };
 
-                        if let Some(memory_sink) = memory_sink.as_ref() {
-                            if !emitted_lines.is_empty() {
-                                let cwd = cwd.read().clone();
-                                let now_ms = current_unix_ms();
-                                for line in emitted_lines {
-                                    memory_sink.record_output_line(session_id, &cwd, line, now_ms);
-                                }
+                        if let Some(memory_sink) = memory_sink.as_ref()
+                            && !emitted_lines.is_empty()
+                        {
+                            let cwd = cwd.read().clone();
+                            let now_ms = current_unix_ms();
+                            for line in emitted_lines {
+                                memory_sink.record_output_line(session_id, &cwd, line, now_ms);
                             }
                         }
 
