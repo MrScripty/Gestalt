@@ -192,7 +192,7 @@ mod tests {
 
     #[test]
     fn aggregate_process_tree_rolls_up_descendants() {
-        let processes = vec![
+        let processes = [
             ProcessCounters {
                 pid: 10,
                 ppid: None,
