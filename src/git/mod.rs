@@ -253,7 +253,10 @@ mod tests {
         std::fs::create_dir_all(&path).expect("temp dir should be created");
 
         run_git(path.as_path(), &["init"]);
-        run_git(path.as_path(), &["config", "user.email", "marks-test@example.com"]);
+        run_git(
+            path.as_path(),
+            &["config", "user.email", "marks-test@example.com"],
+        );
         run_git(path.as_path(), &["config", "user.name", "Marks Test"]);
         std::fs::write(path.join(".gitignore"), "target/\n").expect("gitignore write should work");
         std::fs::write(path.join("README.md"), "baseline\n").expect("readme write should work");
