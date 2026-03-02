@@ -628,11 +628,7 @@ fn send_input_to_session(
 ) {
     let send_error = terminal_manager.send_input(session_id, input).err();
 
-    if send_error.is_none() {
-        app_state
-            .write()
-            .set_session_status(session_id, SessionStatus::Busy);
-    } else {
+    if send_error.is_some() {
         app_state
             .write()
             .set_session_status(session_id, SessionStatus::Error);

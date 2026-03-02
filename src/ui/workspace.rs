@@ -11,7 +11,7 @@ use crate::ui::terminal_view::{
 use dioxus::prelude::*;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[derive(Clone)]
 struct TerminalPaneData {
@@ -28,6 +28,8 @@ const STACK_SPLIT_STEP_RATIO: f64 = 0.03;
 const STACK_SPLIT_MIN_RATIO: f64 = 0.28;
 const STACK_SPLIT_MAX_RATIO: f64 = 0.72;
 const STACK_SPLIT_DRAG_SENSITIVITY_PX: f64 = 520.0;
+const STATUS_RECONCILE_POLL_MS: u64 = 150;
+const STATUS_BUSY_ACTIVITY_WINDOW_MS: i64 = 900;
 
 fn run_sidebar_style_for_panel(_panel: SidebarPanelKind, ratio: f64) -> String {
     format!("--runner-top-ratio: {:.2}%;", ratio * 100.0)
@@ -54,6 +56,48 @@ pub(crate) fn WorkspaceMain(
     insert_mode_state: Signal<Option<InsertModeState>>,
 ) -> Element {
     let _ = *refresh_tick.read();
+    {
+        let terminal_manager = terminal_manager.read().clone();
+        use_future(move || {
+            let terminal_manager = terminal_manager.clone();
+            async move {
+                loop {
+                    tokio::time::sleep(Duration::from_millis(STATUS_RECONCILE_POLL_MS)).await;
+
+                    let now_ms = unix_now_ms();
+                    let pending_updates = {
+                        let state = app_state.read();
+                        state
+                            .sessions
+                            .iter()
+                            .filter_map(|session| {
+                                let next = derive_session_status_from_activity(
+                                    session.status,
+                                    terminal_manager.session_last_activity_unix_ms(session.id),
+                                    now_ms,
+                                );
+                                if next == session.status {
+                                    None
+                                } else {
+                                    Some((session.id, next))
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                    };
+
+                    if pending_updates.is_empty() {
+                        continue;
+                    }
+
+                    let mut state = app_state.write();
+                    for (session_id, status) in pending_updates {
+                        state.set_session_status(session_id, status);
+                    }
+                }
+            }
+        });
+    }
+
     let mut resource_snapshot = use_signal(ResourceSnapshot::default);
     {
         let terminal_manager = terminal_manager.read().clone();
@@ -332,13 +376,9 @@ pub(crate) fn WorkspaceMain(
                                                         p { class: "terminal-meta", "cwd: {cwd}" }
                                                     }
 
-                                                    button {
+                                                    span {
                                                         class: "status-cycle",
                                                         style: "{badge_style}",
-                                                        onclick: move |event| {
-                                                            event.stop_propagation();
-                                                            app_state.write().cycle_session_status(session_id);
-                                                        },
                                                         "{session.status.label()}"
                                                     }
                                                 }
@@ -458,13 +498,9 @@ pub(crate) fn WorkspaceMain(
                                                         p { class: "terminal-meta", "cwd: {cwd}" }
                                                     }
 
-                                                    button {
+                                                    span {
                                                         class: "status-cycle",
                                                         style: "{badge_style}",
-                                                        onclick: move |event| {
-                                                            event.stop_propagation();
-                                                            app_state.write().cycle_session_status(session_id);
-                                                        },
                                                         "{session.status.label()}"
                                                     }
                                                 }
@@ -574,6 +610,52 @@ fn metric_badge_class(percent: f32) -> &'static str {
     }
 }
 
+fn derive_session_status_from_activity(
+    current_status: SessionStatus,
+    last_activity_unix_ms: Option<i64>,
+    now_unix_ms: i64,
+) -> SessionStatus {
+    let is_recent = is_recent_activity(last_activity_unix_ms, now_unix_ms);
+    match current_status {
+        SessionStatus::Error => {
+            if is_recent {
+                SessionStatus::Busy
+            } else if last_activity_unix_ms.unwrap_or(0) > 0 {
+                SessionStatus::Idle
+            } else {
+                SessionStatus::Error
+            }
+        }
+        SessionStatus::Busy | SessionStatus::Idle => {
+            if is_recent {
+                SessionStatus::Busy
+            } else {
+                SessionStatus::Idle
+            }
+        }
+    }
+}
+
+fn is_recent_activity(last_activity_unix_ms: Option<i64>, now_unix_ms: i64) -> bool {
+    let Some(last_activity_unix_ms) = last_activity_unix_ms else {
+        return false;
+    };
+    if last_activity_unix_ms <= 0 {
+        return false;
+    }
+    if now_unix_ms < last_activity_unix_ms {
+        return true;
+    }
+    now_unix_ms - last_activity_unix_ms <= STATUS_BUSY_ACTIVITY_WINDOW_MS
+}
+
+fn unix_now_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as i64)
+        .unwrap_or(0)
+}
+
 fn percent_used(used: u64, total: u64) -> f32 {
     if total == 0 {
         return 0.0;
@@ -603,7 +685,11 @@ fn format_bytes_compact(bytes: u64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{format_bytes_compact, percent_used, run_sidebar_style_for_panel};
+    use super::{
+        derive_session_status_from_activity, format_bytes_compact, percent_used,
+        run_sidebar_style_for_panel,
+    };
+    use crate::state::SessionStatus;
     use crate::ui::sidebar_panel_host::SidebarPanelKind;
 
     #[test]
@@ -629,5 +715,35 @@ mod tests {
     #[test]
     fn percent_used_returns_zero_for_missing_total() {
         assert_eq!(percent_used(1024, 0), 0.0);
+    }
+
+    #[test]
+    fn active_runtime_marks_session_busy() {
+        let now = 5_000;
+        let status = derive_session_status_from_activity(SessionStatus::Idle, Some(now - 200), now);
+        assert_eq!(status, SessionStatus::Busy);
+    }
+
+    #[test]
+    fn stale_activity_marks_session_idle() {
+        let now = 10_000;
+        let status =
+            derive_session_status_from_activity(SessionStatus::Busy, Some(now - 5_000), now);
+        assert_eq!(status, SessionStatus::Idle);
+    }
+
+    #[test]
+    fn error_without_runtime_activity_stays_error() {
+        let now = 10_000;
+        let status = derive_session_status_from_activity(SessionStatus::Error, None, now);
+        assert_eq!(status, SessionStatus::Error);
+    }
+
+    #[test]
+    fn error_clears_after_runtime_activity() {
+        let now = 10_000;
+        let status =
+            derive_session_status_from_activity(SessionStatus::Error, Some(now - 100), now);
+        assert_eq!(status, SessionStatus::Busy);
     }
 }

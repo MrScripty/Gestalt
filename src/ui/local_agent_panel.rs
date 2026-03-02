@@ -146,9 +146,7 @@ pub(crate) fn LocalAgentPanel(
 
 fn apply_orchestrator_results(app_state: &mut AppState, results: &[SessionWriteResult]) {
     for result in results {
-        if result.error.is_none() {
-            app_state.set_session_status(result.session_id, SessionStatus::Busy);
-        } else {
+        if result.error.is_some() {
             app_state.set_session_status(result.session_id, SessionStatus::Error);
         }
     }
