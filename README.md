@@ -81,6 +81,6 @@ GESTALT_SKIP_PERF_GATE=1 scripts/perf-gate.sh
 
 ## Current Limitations
 
-- Session status is still operator-updated (not process-derived yet).
+- Session status is runtime-activity derived (terminal I/O), not full process/job derived.
 - Orchestration API is currently in-process Rust only (no HTTP/IPC transport yet).
 - Resume restores groups/sessions/selection and saved terminal snapshots, but live shell processes do not survive machine crash/reboot without an external persistent backend (e.g. tmux).

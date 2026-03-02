@@ -91,7 +91,7 @@ Returns `Vec<SessionWriteResult>` with per-session success/failure.
 2. Read snapshot via `snapshot_group(...)`.
 3. Decide action from `latest_round` + status/active flags.
 4. Broadcast with `send_line_to_sessions(...)` or stop with `interrupt_sessions(...)`.
-5. Apply results to UI/state (e.g. set session status to `Busy` on success, `Error` on failure).
+5. Apply results to UI/state (set session status to `Error` on failure; `Idle/Busy` are reconciled from runtime activity).
 
 ## Example (in-process)
 
@@ -106,9 +106,7 @@ let results = orchestrator::send_line_to_sessions(&mut terminal_manager, &ids, "
 // let results = orchestrator::interrupt_sessions(&mut terminal_manager, &ids);
 
 for result in results {
-    if result.error.is_none() {
-        // mark busy
-    } else {
+    if result.error.is_some() {
         // mark error
     }
 }
