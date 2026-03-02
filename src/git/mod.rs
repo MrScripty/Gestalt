@@ -5,12 +5,15 @@ mod parse;
 
 pub use error::GitError;
 pub use model::{
-    BranchInfo, CheckoutTarget, CommitDraft, CommitInfo, FileChange, RepoContext, RepoSnapshot,
-    TagInfo,
+    BranchInfo, CheckoutTarget, CommitDraft, CommitInfo, FileChange, RepoContext, RepoPathMarks,
+    RepoSnapshot, TagInfo,
 };
 
 use command::run_git;
-use parse::{parse_branches, parse_graph_commits, parse_status_porcelain, parse_tags};
+use parse::{
+    parse_branches, parse_graph_commits, parse_status_porcelain, parse_status_with_ignored,
+    parse_tags,
+};
 
 pub const DEFAULT_COMMIT_LIMIT: usize = 120;
 const COMMIT_LOG_FORMAT: &str = "%x00%H%x1f%h%x1f%an%x1f%ad%x1f%s%x1f%D";
@@ -177,6 +180,36 @@ pub fn repo_change_fingerprint_from_root(repo_root: &str) -> Result<String, GitE
 pub fn repo_change_fingerprint(group_path: &str) -> Result<String, GitError> {
     let root = repo_root(group_path)?;
     repo_change_fingerprint_from_root(&root)
+}
+
+pub fn load_repo_path_marks(group_path: &str) -> Result<RepoPathMarks, GitError> {
+    let root_output = run_git(group_path, &["rev-parse", "--show-toplevel"]);
+    let repo_root = match root_output {
+        Ok(output) => output.stdout.trim().to_string(),
+        Err(GitError::NotRepo { .. }) => return Ok(RepoPathMarks::default()),
+        Err(error) => return Err(error),
+    };
+
+    let status_output = run_git(
+        &repo_root,
+        &[
+            "-c",
+            "core.quotepath=false",
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=all",
+            "--ignored=matching",
+        ],
+    )?
+    .stdout;
+
+    let (modified_paths, ignored_paths) = parse_status_with_ignored(&status_output);
+
+    Ok(RepoPathMarks {
+        repo_root: Some(repo_root),
+        modified_paths,
+        ignored_paths,
+    })
 }
 
 fn validate_non_empty(value: &str, label: &str) -> Result<String, GitError> {

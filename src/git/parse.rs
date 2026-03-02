@@ -1,4 +1,5 @@
 use crate::git::{BranchInfo, CommitInfo, FileChange, GitError, TagInfo};
+use std::collections::HashSet;
 
 const LOG_FIELD_DELIMITER: char = '\u{1f}';
 const LOG_GRAPH_DELIMITER: char = '\0';
@@ -197,6 +198,68 @@ pub(crate) fn parse_graph_commits(output: &str) -> Result<Vec<CommitInfo>, GitEr
     Ok(commits)
 }
 
+pub(crate) fn parse_status_with_ignored(output: &str) -> (HashSet<String>, HashSet<String>) {
+    let mut modified_paths = HashSet::new();
+    let mut ignored_paths = HashSet::new();
+
+    for line in output.lines() {
+        let trimmed = line.trim_end();
+        if trimmed.is_empty() || trimmed.starts_with("##") {
+            continue;
+        }
+
+        if let Some(path) = trimmed.strip_prefix("!! ") {
+            let normalized = normalize_status_path(path);
+            if !normalized.is_empty() {
+                ignored_paths.insert(normalized);
+            }
+            continue;
+        }
+
+        if let Some(path) = trimmed.strip_prefix("?? ") {
+            let normalized = normalize_status_path(path);
+            if !normalized.is_empty() {
+                modified_paths.insert(normalized);
+            }
+            continue;
+        }
+
+        if trimmed.len() < 4 {
+            continue;
+        }
+
+        let status = &trimmed[..2];
+        if status == "  " {
+            continue;
+        }
+
+        let raw_path = trimmed[3..].trim();
+        if raw_path.is_empty() {
+            continue;
+        }
+
+        let normalized = normalize_status_path(raw_path);
+        if !normalized.is_empty() {
+            modified_paths.insert(normalized);
+        }
+    }
+
+    (modified_paths, ignored_paths)
+}
+
+pub(crate) fn normalize_status_path(raw_path: &str) -> String {
+    let renamed = raw_path
+        .rsplit_once(" -> ")
+        .map(|(_, destination)| destination)
+        .unwrap_or(raw_path);
+
+    renamed
+        .trim()
+        .trim_matches('"')
+        .trim_end_matches('/')
+        .replace('\\', "/")
+}
+
 fn rename_destination(path_raw: &str) -> String {
     path_raw
         .rsplit_once(" -> ")
@@ -206,7 +269,10 @@ fn rename_destination(path_raw: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_branches, parse_graph_commits, parse_status_porcelain, parse_tags};
+    use super::{
+        normalize_status_path, parse_branches, parse_graph_commits, parse_status_porcelain,
+        parse_status_with_ignored, parse_tags,
+    };
 
     #[test]
     fn parse_graph_commits_extracts_graph_prefix_and_fields() {
@@ -264,5 +330,31 @@ mod tests {
         assert!(!tags[0].annotated);
         assert!(tags[1].annotated);
         assert_eq!(tags[1].target_sha.len(), 40);
+    }
+
+    #[test]
+    fn parse_status_with_ignored_tracks_modified_and_ignored_paths() {
+        let input = concat!(
+            "## main\n",
+            " M src/main.rs\n",
+            "?? src/new.rs\n",
+            "!! target/\n",
+            "R  old/name.rs -> src/new_name.rs\n"
+        );
+        let (modified, ignored) = parse_status_with_ignored(input);
+
+        assert!(modified.contains("src/main.rs"));
+        assert!(modified.contains("src/new.rs"));
+        assert!(modified.contains("src/new_name.rs"));
+        assert!(ignored.contains("target"));
+    }
+
+    #[test]
+    fn normalize_status_path_extracts_rename_destination() {
+        assert_eq!(
+            normalize_status_path("old/path.rs -> src/new/path.rs"),
+            "src/new/path.rs"
+        );
+        assert_eq!(normalize_status_path("target/"), "target");
     }
 }

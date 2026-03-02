@@ -1,4 +1,4 @@
-use crate::git::{self, CheckoutTarget, CommitDraft, GitError, RepoContext};
+use crate::git::{self, CheckoutTarget, CommitDraft, GitError, RepoContext, RepoPathMarks};
 use crate::orchestrator::events::{
     GitCommandExecuted, GitCommandKind, OrchestratorEvent, event_bus,
 };
@@ -11,6 +11,10 @@ pub struct FileOpResult {
 
 pub fn load_repo_context(group_path: &str) -> Result<RepoContext, GitError> {
     git::load_repo_context(group_path, git::DEFAULT_COMMIT_LIMIT)
+}
+
+pub fn load_repo_path_marks(group_path: &str) -> Result<RepoPathMarks, GitError> {
+    git::load_repo_path_marks(group_path)
 }
 
 pub fn stage_files(group_path: &str, paths: &[String]) -> Vec<FileOpResult> {

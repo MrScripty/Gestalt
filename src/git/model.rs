@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 #[derive(Debug, Clone)]
 pub enum RepoContext {
     Available(RepoSnapshot),
@@ -48,6 +50,13 @@ pub struct TagInfo {
     pub name: String,
     pub target_sha: String,
     pub annotated: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct RepoPathMarks {
+    pub repo_root: Option<String>,
+    pub modified_paths: HashSet<String>,
+    pub ignored_paths: HashSet<String>,
 }
 
 #[derive(Debug, Clone)]
