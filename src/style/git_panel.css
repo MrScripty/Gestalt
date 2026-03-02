@@ -25,20 +25,20 @@
 
 .git-panel-head h3 {
   margin: 0;
-  font-size: 0.9rem;
+  font-size: calc(0.9rem * var(--font-scale));
   color: #4a3f1d;
 }
 
 .git-panel-head p {
   margin: 4px 0 0;
-  font-size: 0.72rem;
+  font-size: calc(0.72rem * var(--font-scale));
   color: #75673e;
   line-break: anywhere;
 }
 
 .git-loading {
   margin: 8px 12px;
-  font-size: 0.72rem;
+  font-size: calc(0.72rem * var(--font-scale));
   color: #6a5f3e;
 }
 
@@ -52,7 +52,7 @@
 
 .git-empty h4 {
   margin: 0;
-  font-size: 0.82rem;
+  font-size: calc(0.82rem * var(--font-scale));
 }
 
 .git-empty p {
@@ -66,7 +66,7 @@
 
 .git-meta {
   margin: 2px 0;
-  font-size: 0.7rem;
+  font-size: calc(0.7rem * var(--font-scale));
   color: #6a5f3e;
   line-break: anywhere;
 }
@@ -78,7 +78,7 @@
 
 .git-section h4 {
   margin: 0 0 8px;
-  font-size: 0.78rem;
+  font-size: calc(0.78rem * var(--font-scale));
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: #5a4a1f;
@@ -110,14 +110,14 @@
 }
 
 .git-branch-name {
-  font-size: 0.74rem;
+  font-size: calc(0.74rem * var(--font-scale));
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .git-branch-kind {
-  font-size: 0.64rem;
+  font-size: calc(0.64rem * var(--font-scale));
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: #7f6f43;
@@ -146,13 +146,13 @@
 
 .git-graph {
   font-family: "JetBrains Mono", "Iosevka", "Consolas", monospace;
-  font-size: 0.72rem;
+  font-size: calc(0.72rem * var(--font-scale));
   color: #7b6d49;
   white-space: pre;
 }
 
 .git-subject {
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--font-scale));
   color: #2c250f;
 }
 
@@ -162,12 +162,12 @@
 
 .git-change-code {
   font-family: "JetBrains Mono", "Iosevka", "Consolas", monospace;
-  font-size: 0.7rem;
+  font-size: calc(0.7rem * var(--font-scale));
   color: #6a5f3e;
 }
 
 .git-change-path {
-  font-size: 0.74rem;
+  font-size: calc(0.74rem * var(--font-scale));
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -187,7 +187,7 @@
   color: #2d270f;
   padding: 7px 8px;
   font: inherit;
-  font-size: 0.74rem;
+  font-size: calc(0.74rem * var(--font-scale));
 }
 
 .git-textarea {
@@ -200,7 +200,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 0.72rem;
+  font-size: calc(0.72rem * var(--font-scale));
   color: #5f5331;
 }
 
@@ -210,7 +210,7 @@
   background: #f1e3c3;
   color: #3a2f14;
   font: inherit;
-  font-size: 0.7rem;
+  font-size: calc(0.7rem * var(--font-scale));
   font-weight: 700;
   padding: 5px 8px;
   cursor: pointer;
@@ -246,7 +246,7 @@
   border: 1px solid #ceb16f;
   border-radius: 8px;
   background: #f9f0da;
-  font-size: 0.72rem;
+  font-size: calc(0.72rem * var(--font-scale));
   color: #4c3d18;
 }
 

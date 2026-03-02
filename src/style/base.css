@@ -1,4 +1,5 @@
 :root {
+  --font-scale: 1;
   --bg-0: #060c0d;
   --bg-1: #0c1614;
   --bg-2: #152521;
@@ -104,13 +105,13 @@ body {
 .brand p {
   margin: 4px 0 0;
   color: #aac6ba;
-  font-size: 0.9rem;
+  font-size: calc(0.9rem * var(--font-scale));
 }
 
 .meta-label {
   margin: 0 0 8px;
   color: #a1beb2;
-  font-size: 0.78rem;
+  font-size: calc(0.78rem * var(--font-scale));
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -158,13 +159,13 @@ body {
 
 .group-header h3 {
   margin: 0;
-  font-size: 0.92rem;
+  font-size: calc(0.92rem * var(--font-scale));
 }
 
 .group-path {
   margin: 2px 0 0;
   color: #9fbcaf;
-  font-size: 0.72rem;
+  font-size: calc(0.72rem * var(--font-scale));
   line-break: anywhere;
 }
 
@@ -183,7 +184,7 @@ body {
   background: #23443a;
   color: #d8eee2;
   padding: 4px 8px;
-  font-size: 0.76rem;
+  font-size: calc(0.76rem * var(--font-scale));
 }
 
 .danger-btn {
@@ -244,14 +245,14 @@ body {
 
 .title {
   font-weight: 600;
-  font-size: 0.84rem;
+  font-size: calc(0.84rem * var(--font-scale));
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .role-pill {
-  font-size: 0.64rem;
+  font-size: calc(0.64rem * var(--font-scale));
   font-weight: 700;
   border-radius: 999px;
   padding: 2px 6px;
@@ -271,12 +272,12 @@ body {
 }
 
 .status-text {
-  font-size: 0.72rem;
+  font-size: calc(0.72rem * var(--font-scale));
   color: #a2beb3;
 }
 
 .rename-btn {
-  font-size: 0.66rem;
+  font-size: calc(0.66rem * var(--font-scale));
   padding: 2px 6px;
   background: #2f5447;
   color: #d1e8dc;
@@ -289,7 +290,7 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.72rem;
+  font-size: calc(0.72rem * var(--font-scale));
   font-weight: 700;
   line-height: 1;
   background: #6d3a40;
@@ -313,7 +314,7 @@ body {
   padding: 5px 6px;
   background: #10201b;
   color: #d8eade;
-  font-size: 0.78rem;
+  font-size: calc(0.78rem * var(--font-scale));
 }
 
 .group-drop-target {
@@ -321,7 +322,7 @@ body {
   border: 1px dashed #4b7163;
   border-radius: 8px;
   color: #9db9ae;
-  font-size: 0.74rem;
+  font-size: calc(0.74rem * var(--font-scale));
   text-align: center;
   padding: 7px;
 }
@@ -357,7 +358,7 @@ body {
   padding: 8px 10px;
   background: #1a342c;
   color: #d1e7db;
-  font-size: 0.78rem;
+  font-size: calc(0.78rem * var(--font-scale));
   font-weight: 600;
   cursor: pointer;
 }
@@ -377,7 +378,7 @@ body {
 .path-feedback {
   margin: 8px 0 0;
   color: #f0b6b6;
-  font-size: 0.72rem;
+  font-size: calc(0.72rem * var(--font-scale));
 }
 
 .primary-btn {

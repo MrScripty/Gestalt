@@ -18,7 +18,7 @@
   background: #e8f0f2;
   color: #20353a;
   font: inherit;
-  font-size: 0.72rem;
+  font-size: calc(0.72rem * var(--font-scale));
   font-weight: 700;
   padding: 6px 8px;
   cursor: pointer;
@@ -51,7 +51,7 @@
 
 .sidebar-panel-empty p {
   margin: 0;
-  font-size: 0.74rem;
+  font-size: calc(0.74rem * var(--font-scale));
 }
 
 .commands-panel-card {
@@ -72,13 +72,13 @@
 
 .commands-panel-head h3 {
   margin: 0;
-  font-size: 0.9rem;
+  font-size: calc(0.9rem * var(--font-scale));
   color: #174149;
 }
 
 .commands-panel-head p {
   margin: 4px 0 0;
-  font-size: 0.72rem;
+  font-size: calc(0.72rem * var(--font-scale));
   color: #49747d;
 }
 
@@ -109,7 +109,7 @@
 
 .commands-empty {
   margin: 0;
-  font-size: 0.72rem;
+  font-size: calc(0.72rem * var(--font-scale));
   color: #527f88;
 }
 
@@ -129,7 +129,7 @@
 
 .commands-row-name {
   margin: 0;
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--font-scale));
   font-weight: 700;
   color: #1f434a;
 }
@@ -137,7 +137,7 @@
 .commands-row-preview {
   margin: 4px 0 0;
   font-family: "JetBrains Mono", "Iosevka", "Consolas", monospace;
-  font-size: 0.66rem;
+  font-size: calc(0.66rem * var(--font-scale));
   color: #486b72;
   line-break: anywhere;
 }
@@ -151,7 +151,7 @@
 }
 
 .commands-label {
-  font-size: 0.68rem;
+  font-size: calc(0.68rem * var(--font-scale));
   font-weight: 700;
   color: #2e5a62;
 }
@@ -165,7 +165,7 @@
   color: #13363d;
   padding: 7px 8px;
   font: inherit;
-  font-size: 0.72rem;
+  font-size: calc(0.72rem * var(--font-scale));
 }
 
 .commands-textarea {
@@ -181,7 +181,7 @@
 
 .commands-editor-mode {
   margin: 2px 0 0;
-  font-size: 0.67rem;
+  font-size: calc(0.67rem * var(--font-scale));
   font-weight: 700;
   color: #2f5f67;
 }
@@ -192,7 +192,7 @@
   background: #e2eff1;
   color: #254249;
   font: inherit;
-  font-size: 0.7rem;
+  font-size: calc(0.7rem * var(--font-scale));
   font-weight: 700;
   padding: 6px 9px;
   cursor: pointer;
@@ -217,7 +217,7 @@
 
 .commands-feedback {
   margin: 2px 0 0;
-  font-size: 0.7rem;
+  font-size: calc(0.7rem * var(--font-scale));
   color: #2f5f67;
 }
 
@@ -241,20 +241,20 @@
 
 .insert-command-palette-head h4 {
   margin: 0;
-  font-size: 0.74rem;
+  font-size: calc(0.74rem * var(--font-scale));
   color: #1b3e45;
 }
 
 .insert-command-palette-head p {
   margin: 4px 0 0;
-  font-size: 0.68rem;
+  font-size: calc(0.68rem * var(--font-scale));
   color: #4a7078;
 }
 
 .insert-command-empty {
   margin: 0;
   padding: 8px 10px 10px;
-  font-size: 0.68rem;
+  font-size: calc(0.68rem * var(--font-scale));
   color: #4f7077;
 }
 
@@ -276,21 +276,21 @@
 
 .insert-command-name {
   margin: 0;
-  font-size: 0.72rem;
+  font-size: calc(0.72rem * var(--font-scale));
   font-weight: 700;
   color: #1d3940;
 }
 
 .insert-command-description {
   margin: 4px 0 0;
-  font-size: 0.66rem;
+  font-size: calc(0.66rem * var(--font-scale));
   color: #4d6d74;
 }
 
 .insert-command-prompt {
   margin: 4px 0 0;
   font-family: "JetBrains Mono", "Iosevka", "Consolas", monospace;
-  font-size: 0.64rem;
+  font-size: calc(0.64rem * var(--font-scale));
   color: #486067;
   line-break: anywhere;
 }

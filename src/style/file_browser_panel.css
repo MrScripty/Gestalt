@@ -3,6 +3,7 @@
   border-radius: 12px;
   border: 1px solid #9cc09b;
   box-shadow: 0 10px 26px #0f1b1d14;
+  height: 100%;
   min-height: 0;
   min-width: 0;
   display: grid;
@@ -17,13 +18,13 @@
 
 .file-browser-head h3 {
   margin: 0;
-  font-size: 0.9rem;
+  font-size: calc(0.9rem * var(--font-scale));
   color: #234322;
 }
 
 .file-browser-head p {
   margin: 4px 0 0;
-  font-size: 0.72rem;
+  font-size: calc(0.72rem * var(--font-scale));
   color: #4e6f4c;
   line-break: anywhere;
 }
@@ -43,7 +44,7 @@
   background: #e1efdf;
   color: #234021;
   font: inherit;
-  font-size: 0.7rem;
+  font-size: calc(0.7rem * var(--font-scale));
   font-weight: 700;
   padding: 5px 8px;
   cursor: pointer;
@@ -57,7 +58,7 @@
 .file-browser-meta {
   margin: 0;
   text-align: right;
-  font-size: 0.66rem;
+  font-size: calc(0.66rem * var(--font-scale));
   color: #496a47;
   line-break: anywhere;
 }
@@ -77,7 +78,7 @@
   background: #f6fbf5;
   color: #2f4d2d;
   font: inherit;
-  font-size: 0.64rem;
+  font-size: calc(0.64rem * var(--font-scale));
   font-weight: 700;
   padding: 3px 8px;
   cursor: pointer;
@@ -86,19 +87,21 @@
 .file-browser-loading {
   margin: 0;
   padding: 7px 12px;
-  font-size: 0.7rem;
+  font-size: calc(0.7rem * var(--font-scale));
   color: #476745;
 }
 
 .file-browser-body {
   min-height: 0;
-  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   padding: 8px 12px;
 }
 
 .file-browser-empty {
   margin: 0;
-  font-size: 0.72rem;
+  font-size: calc(0.72rem * var(--font-scale));
   color: #4b6a49;
 }
 
@@ -106,7 +109,10 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
+  flex: 1;
   min-height: 0;
+  overflow: auto;
+  padding-right: 2px;
 }
 
 .file-browser-row {
@@ -143,7 +149,7 @@
 
 .file-browser-row-name {
   margin: 0;
-  font-size: 0.74rem;
+  font-size: calc(0.74rem * var(--font-scale));
   font-weight: 700;
   color: inherit;
   overflow: hidden;
@@ -153,7 +159,7 @@
 
 .file-browser-row-sub {
   margin: 3px 0 0;
-  font-size: 0.64rem;
+  font-size: calc(0.64rem * var(--font-scale));
   color: inherit;
 }
 
@@ -164,7 +170,7 @@
 
 .file-browser-badge {
   border-radius: 999px;
-  font-size: 0.58rem;
+  font-size: calc(0.58rem * var(--font-scale));
   font-weight: 700;
   letter-spacing: 0.04em;
   padding: 2px 6px;
@@ -187,14 +193,14 @@
 
 .file-browser-stats-head {
   margin: 0;
-  font-size: 0.7rem;
+  font-size: calc(0.7rem * var(--font-scale));
   font-weight: 700;
   color: #234322;
 }
 
 .file-browser-stats-line {
   margin: 4px 0 0;
-  font-size: 0.68rem;
+  font-size: calc(0.68rem * var(--font-scale));
   color: #426540;
   line-break: anywhere;
 }
@@ -203,13 +209,13 @@
   margin: 0;
   padding: 6px 12px;
   border-top: 1px solid #c7dcc4;
-  font-size: 0.66rem;
+  font-size: calc(0.66rem * var(--font-scale));
   color: #466845;
 }
 
 .file-browser-feedback {
   margin: 0;
   padding: 6px 12px 10px;
-  font-size: 0.68rem;
+  font-size: calc(0.68rem * var(--font-scale));
   color: #3f613d;
 }
