@@ -1,4 +1,3 @@
-use crate::git::GitError;
 use crate::state::{AppState, GroupId, SessionId};
 use crate::terminal::TerminalManager;
 use dioxus::prelude::*;
@@ -6,7 +5,6 @@ use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -555,108 +553,14 @@ impl GitPathMarks {
 
 fn load_git_marks(root: &Path) -> Result<GitPathMarks, String> {
     let root_text = root.to_string_lossy().into_owned();
-    let repo_root_text = match crate::git::repo_root(&root_text) {
-        Ok(path) => path,
-        Err(GitError::NotRepo { .. }) => return Ok(GitPathMarks::default()),
-        Err(error) => return Err(error.to_string()),
-    };
-
-    let output = Command::new("git")
-        .current_dir(&repo_root_text)
-        .args([
-            "-c",
-            "core.quotepath=false",
-            "status",
-            "--porcelain=v1",
-            "--untracked-files=all",
-            "--ignored=matching",
-        ])
-        .output()
-        .map_err(|error| format!("Failed running git status: {error}"))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(format!(
-            "git status failed for '{}': {}",
-            repo_root_text,
-            if stderr.is_empty() {
-                "unknown error".to_string()
-            } else {
-                stderr
-            }
-        ));
-    }
-
-    let status_output = String::from_utf8_lossy(&output.stdout).to_string();
-    let (modified_paths, ignored_paths) = parse_status_with_ignored(&status_output);
+    let marks = crate::orchestrator::git::load_repo_path_marks(&root_text)
+        .map_err(|error| error.to_string())?;
 
     Ok(GitPathMarks {
-        repo_root: Some(PathBuf::from(repo_root_text)),
-        modified_paths,
-        ignored_paths,
+        repo_root: marks.repo_root.map(PathBuf::from),
+        modified_paths: marks.modified_paths,
+        ignored_paths: marks.ignored_paths,
     })
-}
-
-fn parse_status_with_ignored(output: &str) -> (HashSet<String>, HashSet<String>) {
-    let mut modified_paths = HashSet::new();
-    let mut ignored_paths = HashSet::new();
-
-    for line in output.lines() {
-        let trimmed = line.trim_end();
-        if trimmed.is_empty() || trimmed.starts_with("##") {
-            continue;
-        }
-
-        if let Some(path) = trimmed.strip_prefix("!! ") {
-            let normalized = normalize_status_path(path);
-            if !normalized.is_empty() {
-                ignored_paths.insert(normalized);
-            }
-            continue;
-        }
-
-        if let Some(path) = trimmed.strip_prefix("?? ") {
-            let normalized = normalize_status_path(path);
-            if !normalized.is_empty() {
-                modified_paths.insert(normalized);
-            }
-            continue;
-        }
-
-        if trimmed.len() < 4 {
-            continue;
-        }
-
-        let status = &trimmed[..2];
-        if status == "  " {
-            continue;
-        }
-
-        let raw_path = trimmed[3..].trim();
-        if raw_path.is_empty() {
-            continue;
-        }
-
-        let normalized = normalize_status_path(raw_path);
-        if !normalized.is_empty() {
-            modified_paths.insert(normalized);
-        }
-    }
-
-    (modified_paths, ignored_paths)
-}
-
-fn normalize_status_path(raw_path: &str) -> String {
-    let renamed = raw_path
-        .rsplit_once(" -> ")
-        .map(|(_, destination)| destination)
-        .unwrap_or(raw_path);
-
-    renamed
-        .trim()
-        .trim_matches('"')
-        .trim_end_matches('/')
-        .replace('\\', "/")
 }
 
 fn path_has_marker(marked_paths: &HashSet<String>, relative_path: &str, is_dir: bool) -> bool {
@@ -893,31 +797,12 @@ fn format_bytes(bytes: u64) -> String {
 mod tests {
     use super::{
         FileBrowserEntry, can_navigate_up, compute_recursive_dir_stats,
-        file_browser_entry_ordering, format_bytes, normalize_status_path,
-        parse_status_with_ignored, path_has_marker,
+        file_browser_entry_ordering, format_bytes, path_has_marker,
     };
     use std::collections::HashSet;
     use std::fs;
     use std::path::Path;
     use std::time::{SystemTime, UNIX_EPOCH};
-
-    #[test]
-    fn parse_status_with_ignored_tracks_modified_and_ignored_paths() {
-        let input = concat!(
-            "## main\n",
-            " M src/ui.rs\n",
-            "R  old/path.rs -> new/path.rs\n",
-            "?? docs/new.md\n",
-            "!! target/\n"
-        );
-
-        let (modified, ignored) = parse_status_with_ignored(input);
-
-        assert!(modified.contains("src/ui.rs"));
-        assert!(modified.contains("new/path.rs"));
-        assert!(modified.contains("docs/new.md"));
-        assert!(ignored.contains("target"));
-    }
 
     #[test]
     fn marker_lookup_handles_ancestors_and_descendants() {
@@ -931,15 +816,6 @@ mod tests {
         assert!(path_has_marker(&marked, "src", true));
         assert!(path_has_marker(&marked, "src/lib.rs", false));
         assert!(!path_has_marker(&marked, "README.md", false));
-    }
-
-    #[test]
-    fn normalize_status_path_extracts_rename_destination() {
-        assert_eq!(
-            normalize_status_path("old/path.rs -> src/new/path.rs"),
-            "src/new/path.rs"
-        );
-        assert_eq!(normalize_status_path("target/"), "target");
     }
 
     #[test]
