@@ -2,6 +2,7 @@ mod autosave;
 mod command_palette;
 mod commands_panel;
 mod file_browser_panel;
+mod file_browser_scan;
 mod git_helpers;
 mod git_panel;
 mod git_refresh;
