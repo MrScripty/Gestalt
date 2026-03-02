@@ -7,6 +7,12 @@ use crate::terminal::TerminalManager;
 use dioxus::prelude::*;
 use std::sync::Arc;
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct PromptSegment {
+    text: String,
+    is_path: bool,
+}
+
 #[component]
 pub(crate) fn CommandsPanel(
     app_state: Signal<AppState>,
@@ -83,6 +89,7 @@ pub(crate) fn CommandsPanel(
     } else {
         "Delete"
     };
+    let prompt_segments = prompt_segments_with_paths(&editor_prompt_value);
 
     rsx! {
         article { class: "commands-panel-card",
@@ -116,44 +123,6 @@ pub(crate) fn CommandsPanel(
             }
 
             div { class: "commands-panel-content",
-                div { class: "commands-list",
-                    if filtered_commands.is_empty() {
-                        p { class: "commands-empty", "No commands yet. Create one from the editor." }
-                    } else {
-                        for command in filtered_commands {
-                            {
-                                let row_class = if selected_id == Some(command.id) {
-                                    "commands-row selected"
-                                } else {
-                                    "commands-row"
-                                };
-                                let prompt = command.prompt.clone();
-                                let description = command.description.clone();
-                                let tags = command.tags.join(", ");
-                                let command_name = command.name.clone();
-                                rsx! {
-                                    button {
-                                        class: "{row_class}",
-                                        r#type: "button",
-                                        onclick: move |_| {
-                                            is_new_draft.set(false);
-                                            selected_command_id.set(Some(command.id));
-                                            pending_delete_id.set(None);
-                                            editor_name.set(command_name.clone());
-                                            editor_prompt.set(prompt.clone());
-                                            editor_description.set(description.clone());
-                                            editor_tags_csv.set(tags.clone());
-                                            editor_feedback.set(String::new());
-                                        },
-                                        p { class: "commands-row-name", "{command.name}" }
-                                        p { class: "commands-row-preview", "{prompt_preview(&command.prompt)}" }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
                 div { class: "commands-editor",
                     label { class: "commands-label", "Name" }
                     input {
@@ -166,10 +135,26 @@ pub(crate) fn CommandsPanel(
                     label { class: "commands-label", "Prompt" }
                     textarea {
                         class: "commands-textarea",
-                        rows: "5",
+                        rows: "6",
                         value: "{editor_prompt_value}",
                         placeholder: "Prompt text inserted into terminal",
                         oninput: move |event| editor_prompt.set(event.value()),
+                    }
+                    div { class: "commands-prompt-preview-wrap",
+                        p { class: "commands-prompt-preview-label", "Prompt Path Highlight" }
+                        pre { class: "commands-prompt-preview",
+                            if prompt_segments.is_empty() {
+                                span { class: "commands-prompt-preview-empty", "Type a prompt to preview detected paths." }
+                            } else {
+                                for segment in prompt_segments {
+                                    if segment.is_path {
+                                        span { class: "commands-path-token", "{segment.text}" }
+                                    } else {
+                                        span { "{segment.text}" }
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     label { class: "commands-label", "Description" }
@@ -317,6 +302,47 @@ pub(crate) fn CommandsPanel(
                         p { class: "commands-feedback", "{feedback_value}" }
                     }
                 }
+
+                div { class: "commands-list-section",
+                    p { class: "commands-list-title", "Saved Commands" }
+                    div { class: "commands-list",
+                        if filtered_commands.is_empty() {
+                            p { class: "commands-empty", "No commands yet. Create one from the editor." }
+                        } else {
+                            for command in filtered_commands {
+                                {
+                                    let row_class = if selected_id == Some(command.id) {
+                                        "commands-row selected"
+                                    } else {
+                                        "commands-row"
+                                    };
+                                    let prompt = command.prompt.clone();
+                                    let description = command.description.clone();
+                                    let tags = command.tags.join(", ");
+                                    let command_name = command.name.clone();
+                                    rsx! {
+                                        button {
+                                            class: "{row_class}",
+                                            r#type: "button",
+                                            onclick: move |_| {
+                                                is_new_draft.set(false);
+                                                selected_command_id.set(Some(command.id));
+                                                pending_delete_id.set(None);
+                                                editor_name.set(command_name.clone());
+                                                editor_prompt.set(prompt.clone());
+                                                editor_description.set(description.clone());
+                                                editor_tags_csv.set(tags.clone());
+                                                editor_feedback.set(String::new());
+                                            },
+                                            p { class: "commands-row-name", "{command.name}" }
+                                            p { class: "commands-row-preview", "{prompt_preview(&command.prompt)}" }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -383,9 +409,180 @@ fn should_auto_select_first(
     selected_id.is_none() && !is_new_draft && has_commands
 }
 
+fn prompt_segments_with_paths(prompt: &str) -> Vec<PromptSegment> {
+    let mut segments = Vec::new();
+    let mut index = 0usize;
+    let len = prompt.len();
+
+    while index < len {
+        let Some(ch) = prompt[index..].chars().next() else {
+            break;
+        };
+        if ch == '"' {
+            let start = index;
+            index += ch.len_utf8();
+            let mut escaped = false;
+            while index < len {
+                let Some(next) = prompt[index..].chars().next() else {
+                    break;
+                };
+                index += next.len_utf8();
+                if next == '"' && !escaped {
+                    break;
+                }
+                if next == '\\' {
+                    escaped = !escaped;
+                } else {
+                    escaped = false;
+                }
+            }
+
+            let token = &prompt[start..index];
+            let inner = token
+                .strip_prefix('"')
+                .and_then(|value| value.strip_suffix('"'))
+                .unwrap_or_else(|| token.trim_start_matches('"'));
+            push_prompt_segment(&mut segments, token, looks_like_path(inner, true));
+            continue;
+        }
+
+        if ch.is_whitespace() {
+            let start = index;
+            index += ch.len_utf8();
+            while index < len {
+                let Some(next) = prompt[index..].chars().next() else {
+                    break;
+                };
+                if !next.is_whitespace() {
+                    break;
+                }
+                index += next.len_utf8();
+            }
+            push_prompt_segment(&mut segments, &prompt[start..index], false);
+            continue;
+        }
+
+        let start = index;
+        index += ch.len_utf8();
+        while index < len {
+            let Some(next) = prompt[index..].chars().next() else {
+                break;
+            };
+            if next.is_whitespace() || next == '"' {
+                break;
+            }
+            index += next.len_utf8();
+        }
+
+        let token = &prompt[start..index];
+        let (prefix, core, suffix) = split_wrapping_punctuation(token);
+        if core.is_empty() || !looks_like_path(core, false) {
+            push_prompt_segment(&mut segments, token, false);
+            continue;
+        }
+
+        push_prompt_segment(&mut segments, prefix, false);
+        push_prompt_segment(&mut segments, core, true);
+        push_prompt_segment(&mut segments, suffix, false);
+    }
+
+    segments
+}
+
+fn push_prompt_segment(segments: &mut Vec<PromptSegment>, text: &str, is_path: bool) {
+    if text.is_empty() {
+        return;
+    }
+    if let Some(last) = segments.last_mut()
+        && last.is_path == is_path
+    {
+        last.text.push_str(text);
+        return;
+    }
+
+    segments.push(PromptSegment {
+        text: text.to_string(),
+        is_path,
+    });
+}
+
+fn split_wrapping_punctuation(token: &str) -> (&str, &str, &str) {
+    let mut start = 0usize;
+    let mut end = token.len();
+
+    while start < end {
+        let Some(ch) = token[start..].chars().next() else {
+            break;
+        };
+        if !is_leading_wrapper(ch) {
+            break;
+        }
+        start += ch.len_utf8();
+    }
+
+    while start < end {
+        let Some(ch) = token[..end].chars().next_back() else {
+            break;
+        };
+        if !is_trailing_wrapper(ch) {
+            break;
+        }
+        end -= ch.len_utf8();
+    }
+
+    (&token[..start], &token[start..end], &token[end..])
+}
+
+fn is_leading_wrapper(ch: char) -> bool {
+    matches!(ch, '(' | '[' | '{')
+}
+
+fn is_trailing_wrapper(ch: char) -> bool {
+    matches!(ch, ')' | ']' | '}' | ',' | ';' | ':' | '!' | '?')
+}
+
+fn looks_like_path(token: &str, quoted: bool) -> bool {
+    let candidate = token.trim();
+    if candidate.is_empty() || candidate == "." || candidate == ".." || candidate.starts_with('-') {
+        return false;
+    }
+
+    if candidate.starts_with("http://") || candidate.starts_with("https://") {
+        return false;
+    }
+
+    if candidate.contains('/') || candidate.contains('\\') {
+        return candidate.chars().all(|ch| {
+            ch.is_ascii_alphanumeric()
+                || matches!(ch, '/' | '\\' | '.' | '_' | '-' | '~' | ':' | ' ')
+        });
+    }
+
+    if candidate.starts_with("~/") || candidate.starts_with("./") || candidate.starts_with("../") {
+        return true;
+    }
+
+    if let Some((base, extension)) = candidate.rsplit_once('.') {
+        if !base.is_empty()
+            && !extension.is_empty()
+            && extension.len() <= 10
+            && extension.chars().all(|ch| ch.is_ascii_alphanumeric())
+            && base.chars().all(|ch| {
+                ch.is_ascii_alphanumeric()
+                    || matches!(ch, '_' | '-' | '.' | '~')
+                    || (quoted && ch == ' ')
+            })
+        {
+            return true;
+        }
+    }
+
+    false
+}
+
 #[cfg(test)]
 mod tests {
-    use super::should_auto_select_first;
+    use super::{prompt_segments_with_paths, should_auto_select_first};
 
     #[test]
     fn auto_selects_when_no_selection_and_not_in_draft_mode() {
@@ -400,5 +597,29 @@ mod tests {
     #[test]
     fn does_not_auto_select_when_a_command_is_already_selected() {
         assert!(!should_auto_select_first(Some(42), false, true));
+    }
+
+    #[test]
+    fn highlights_unquoted_unix_paths() {
+        let segments = prompt_segments_with_paths("cat src/ui/commands_panel.rs");
+        assert!(
+            segments
+                .iter()
+                .any(|segment| { segment.is_path && segment.text == "src/ui/commands_panel.rs" })
+        );
+    }
+
+    #[test]
+    fn highlights_quoted_paths_with_spaces() {
+        let segments = prompt_segments_with_paths("open \"Linux Software/Gestalt/src/main.rs\"");
+        assert!(segments.iter().any(|segment| {
+            segment.is_path && segment.text == "\"Linux Software/Gestalt/src/main.rs\""
+        }));
+    }
+
+    #[test]
+    fn keeps_non_paths_plain() {
+        let segments = prompt_segments_with_paths("cargo run --release");
+        assert!(!segments.iter().any(|segment| segment.is_path));
     }
 }
