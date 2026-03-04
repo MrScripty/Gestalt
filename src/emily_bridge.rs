@@ -4,7 +4,8 @@ use emily::api::EmilyApi;
 use emily::inference::EmbeddingProvider;
 use emily::model::{
     ContextPacket, ContextQuery, DatabaseLocator, HistoryPageRequest, IngestTextRequest,
-    TextObjectKind,
+    TextObjectKind, VectorizationConfig, VectorizationConfigPatch, VectorizationJobSnapshot,
+    VectorizationRunRequest, VectorizationStatus,
 };
 use emily::runtime::EmilyRuntime;
 use emily::store::surreal::SurrealEmilyStore;
@@ -15,6 +16,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::sync::mpsc;
 use std::thread;
+use tokio::sync::{mpsc as tokio_mpsc, watch};
 
 #[derive(Debug)]
 enum BridgeCommand {
@@ -41,6 +43,22 @@ enum BridgeCommand {
         query_text: String,
         top_k: usize,
         response_tx: mpsc::Sender<Result<ContextPacket, String>>,
+    },
+    UpdateVectorizationConfig {
+        patch: VectorizationConfigPatch,
+        response_tx: mpsc::Sender<Result<VectorizationConfig, String>>,
+    },
+    StartBackfill {
+        request: VectorizationRunRequest,
+        response_tx: mpsc::Sender<Result<VectorizationJobSnapshot, String>>,
+    },
+    StartRevectorize {
+        request: VectorizationRunRequest,
+        response_tx: mpsc::Sender<Result<VectorizationJobSnapshot, String>>,
+    },
+    CancelVectorizationJob {
+        job_id: String,
+        response_tx: mpsc::Sender<Result<(), String>>,
     },
     Shutdown,
 }
@@ -86,8 +104,9 @@ impl BridgeHealthCounters {
 
 /// Gestalt-side adapter that feeds terminal text into Emily and exposes history queries.
 pub struct EmilyBridge {
-    command_tx: mpsc::Sender<BridgeCommand>,
+    command_tx: tokio_mpsc::UnboundedSender<BridgeCommand>,
     health: Arc<BridgeHealthCounters>,
+    vectorization_status_rx: watch::Receiver<VectorizationStatus>,
 }
 
 impl EmilyBridge {
@@ -107,15 +126,33 @@ impl EmilyBridge {
         locator: DatabaseLocator,
         embedding_provider: Option<Arc<dyn EmbeddingProvider>>,
     ) -> Self {
-        let (command_tx, command_rx) = mpsc::channel::<BridgeCommand>();
+        let (command_tx, command_rx) = tokio_mpsc::unbounded_channel::<BridgeCommand>();
+        let initial_vectorization_status = VectorizationStatus {
+            config: VectorizationConfig::default(),
+            provider_available: embedding_provider.is_some(),
+            active_job: None,
+            last_job: None,
+        };
+        let (vectorization_status_tx, vectorization_status_rx) =
+            watch::channel(initial_vectorization_status);
         let health = Arc::new(BridgeHealthCounters::default());
         let worker_health = Arc::clone(&health);
 
         thread::spawn(move || {
-            run_worker(locator, embedding_provider, command_rx, worker_health);
+            run_worker(
+                locator,
+                embedding_provider,
+                command_rx,
+                vectorization_status_tx,
+                worker_health,
+            );
         });
 
-        Self { command_tx, health }
+        Self {
+            command_tx,
+            health,
+            vectorization_status_rx,
+        }
     }
 
     pub fn page_history_before(
@@ -182,6 +219,74 @@ impl EmilyBridge {
         })?
     }
 
+    pub fn vectorization_status(&self) -> VectorizationStatus {
+        self.vectorization_status_rx.borrow().clone()
+    }
+
+    pub fn subscribe_vectorization_status(&self) -> watch::Receiver<VectorizationStatus> {
+        self.vectorization_status_rx.clone()
+    }
+
+    pub fn update_vectorization_config(
+        &self,
+        patch: VectorizationConfigPatch,
+    ) -> Result<VectorizationConfig, String> {
+        let (response_tx, response_rx) = mpsc::channel();
+        self.command_tx
+            .send(BridgeCommand::UpdateVectorizationConfig { patch, response_tx })
+            .map_err(|error| {
+                format!("failed sending vectorization config update request: {error}")
+            })?;
+        response_rx.recv().map_err(|error| {
+            format!("failed receiving vectorization config update response: {error}")
+        })?
+    }
+
+    pub fn start_backfill(
+        &self,
+        request: VectorizationRunRequest,
+    ) -> Result<VectorizationJobSnapshot, String> {
+        let (response_tx, response_rx) = mpsc::channel();
+        self.command_tx
+            .send(BridgeCommand::StartBackfill {
+                request,
+                response_tx,
+            })
+            .map_err(|error| format!("failed sending start_backfill request: {error}"))?;
+        response_rx.recv().map_err(|error| {
+            format!("failed receiving start_backfill response from Emily worker: {error}")
+        })?
+    }
+
+    pub fn start_revectorize(
+        &self,
+        request: VectorizationRunRequest,
+    ) -> Result<VectorizationJobSnapshot, String> {
+        let (response_tx, response_rx) = mpsc::channel();
+        self.command_tx
+            .send(BridgeCommand::StartRevectorize {
+                request,
+                response_tx,
+            })
+            .map_err(|error| format!("failed sending start_revectorize request: {error}"))?;
+        response_rx.recv().map_err(|error| {
+            format!("failed receiving start_revectorize response from Emily worker: {error}")
+        })?
+    }
+
+    pub fn cancel_vectorization_job(&self, job_id: String) -> Result<(), String> {
+        let (response_tx, response_rx) = mpsc::channel();
+        self.command_tx
+            .send(BridgeCommand::CancelVectorizationJob {
+                job_id,
+                response_tx,
+            })
+            .map_err(|error| format!("failed sending cancel_vectorization_job request: {error}"))?;
+        response_rx.recv().map_err(|error| {
+            format!("failed receiving cancel_vectorization_job response from Emily worker: {error}")
+        })?
+    }
+
     fn default_locator() -> DatabaseLocator {
         DatabaseLocator {
             storage_path: default_storage_path(),
@@ -220,7 +325,8 @@ impl TerminalMemorySink for EmilyBridge {
 fn run_worker(
     locator: DatabaseLocator,
     embedding_provider: Option<Arc<dyn EmbeddingProvider>>,
-    command_rx: mpsc::Receiver<BridgeCommand>,
+    mut command_rx: tokio_mpsc::UnboundedReceiver<BridgeCommand>,
+    vectorization_status_tx: watch::Sender<VectorizationStatus>,
     health: Arc<BridgeHealthCounters>,
 ) {
     let runtime = match tokio::runtime::Builder::new_current_thread()
@@ -246,9 +352,26 @@ fn run_worker(
             return;
         }
 
+        if let Ok(status) = emily_runtime.vectorization_status().await {
+            let _ = vectorization_status_tx.send(status);
+        }
+        let mut runtime_status_rx = emily_runtime.subscribe_vectorization_status();
+        let status_tx = vectorization_status_tx.clone();
+        tokio::spawn(async move {
+            loop {
+                match runtime_status_rx.recv().await {
+                    Ok(status) => {
+                        let _ = status_tx.send(status);
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        });
+
         let mut sequence_by_stream = HashMap::<String, u64>::new();
 
-        while let Ok(command) = command_rx.recv() {
+        while let Some(command) = command_rx.recv().await {
             match command {
                 BridgeCommand::IngestInput {
                     session_id,
@@ -359,6 +482,45 @@ fn run_worker(
                             .context_query_error
                             .fetch_add(1, AtomicOrdering::Relaxed);
                     }
+                    let _ = response_tx.send(result);
+                }
+                BridgeCommand::UpdateVectorizationConfig { patch, response_tx } => {
+                    let result = emily_runtime
+                        .update_vectorization_config(patch)
+                        .await
+                        .map_err(|error| {
+                            format!("Emily vectorization config update failed: {error}")
+                        });
+                    let _ = response_tx.send(result);
+                }
+                BridgeCommand::StartBackfill {
+                    request,
+                    response_tx,
+                } => {
+                    let result = emily_runtime
+                        .start_backfill(request)
+                        .await
+                        .map_err(|error| format!("Emily start_backfill failed: {error}"));
+                    let _ = response_tx.send(result);
+                }
+                BridgeCommand::StartRevectorize {
+                    request,
+                    response_tx,
+                } => {
+                    let result = emily_runtime
+                        .start_revectorize(request)
+                        .await
+                        .map_err(|error| format!("Emily start_revectorize failed: {error}"));
+                    let _ = response_tx.send(result);
+                }
+                BridgeCommand::CancelVectorizationJob {
+                    job_id,
+                    response_tx,
+                } => {
+                    let result = emily_runtime
+                        .cancel_vectorization_job(&job_id)
+                        .await
+                        .map_err(|error| format!("Emily cancel_vectorization_job failed: {error}"));
                     let _ = response_tx.send(result);
                 }
                 BridgeCommand::Shutdown => {
