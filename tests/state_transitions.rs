@@ -1,4 +1,5 @@
 use gestalt::state::{AppState, SessionRole, SessionStatus, VisibleAgentSlot};
+use serde_json::Value;
 
 fn seeded_state() -> AppState {
     let mut state = AppState::default();
@@ -267,6 +268,29 @@ fn group_layout_values_are_clamped_and_restored_safely() {
     assert_eq!(restored_layout.runner_width_px, 260);
     assert_eq!(restored_layout.agent_top_ratio, 0.28);
     assert_eq!(restored_layout.runner_top_ratio, 0.72);
+}
+
+#[test]
+fn group_layout_defaults_when_loading_legacy_groups_without_layout() {
+    let state = AppState::default();
+    let mut encoded = serde_json::to_value(&state).expect("state should serialize");
+    let groups = encoded
+        .get_mut("groups")
+        .and_then(Value::as_array_mut)
+        .expect("groups should serialize as array");
+    for group in groups {
+        let object = group
+            .as_object_mut()
+            .expect("group should serialize as object");
+        object.remove("layout");
+    }
+
+    let restored: AppState = serde_json::from_value(encoded).expect("legacy state should load");
+    let group_id = restored.groups[0].id;
+    let layout = restored.group_layout(group_id);
+    assert_eq!(layout.runner_width_px, 340);
+    assert_eq!(layout.agent_top_ratio, 0.5);
+    assert_eq!(layout.runner_top_ratio, 0.5);
 }
 
 #[test]

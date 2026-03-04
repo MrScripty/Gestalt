@@ -53,6 +53,38 @@ fn test_save_workspace_roundtrip_restores_app_state() {
     });
 }
 
+#[test]
+fn test_save_workspace_roundtrip_preserves_group_specific_layouts() {
+    with_workspace_path("group-layout-roundtrip", |_workspace_path| {
+        let mut state = AppState::default();
+        let first_group = state.groups[0].id;
+        let (second_group, _) = state.create_group_with_defaults("/tmp/layout-b".to_string());
+
+        state.set_group_runner_width_px(first_group, 620);
+        state.set_group_agent_top_ratio(first_group, 0.61);
+        state.set_group_runner_top_ratio(first_group, 0.39);
+        state.set_group_runner_width_px(second_group, 300);
+        state.set_group_agent_top_ratio(second_group, 0.31);
+        state.set_group_runner_top_ratio(second_group, 0.69);
+
+        let workspace = PersistedWorkspaceV1::new(state, Vec::new());
+        persistence::save_workspace(&workspace).expect("workspace save should succeed");
+
+        let loaded = persistence::load_workspace()
+            .expect("workspace load should succeed")
+            .expect("workspace should exist");
+        let first_layout = loaded.app_state.group_layout(first_group);
+        let second_layout = loaded.app_state.group_layout(second_group);
+
+        assert_eq!(first_layout.runner_width_px, 620);
+        assert_eq!(first_layout.agent_top_ratio, 0.61);
+        assert_eq!(first_layout.runner_top_ratio, 0.39);
+        assert_eq!(second_layout.runner_width_px, 300);
+        assert_eq!(second_layout.agent_top_ratio, 0.31);
+        assert_eq!(second_layout.runner_top_ratio, 0.69);
+    });
+}
+
 fn with_workspace_path(test_name: &str, run: impl FnOnce(PathBuf)) {
     let _guard = ENV_LOCK.lock().expect("env lock");
     let nonce = SystemTime::now()
