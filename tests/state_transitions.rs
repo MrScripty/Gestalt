@@ -331,6 +331,41 @@ fn remove_session_preserves_selection_when_other_tab_removed() {
 }
 
 #[test]
+fn rename_session_trims_title_and_marks_state_dirty() {
+    let mut state = AppState::default();
+    let session_id = state.sessions[0].id;
+    let before = state.revision();
+
+    state.rename_session(session_id, "  Busy Sig  ".to_string());
+
+    let renamed = state
+        .sessions
+        .iter()
+        .find(|session| session.id == session_id)
+        .expect("session should exist");
+    assert_eq!(renamed.title, "Busy Sig");
+    assert!(state.revision() > before);
+}
+
+#[test]
+fn rename_session_rejects_empty_title_without_revision_change() {
+    let mut state = AppState::default();
+    let session_id = state.sessions[0].id;
+    let original_title = state.sessions[0].title.clone();
+    let before = state.revision();
+
+    state.rename_session(session_id, "   ".to_string());
+
+    let unchanged = state
+        .sessions
+        .iter()
+        .find(|session| session.id == session_id)
+        .expect("session should exist");
+    assert_eq!(unchanged.title, original_title);
+    assert_eq!(state.revision(), before);
+}
+
+#[test]
 fn remove_session_last_group_terminal_keeps_group_and_clears_selection() {
     let mut state = AppState::default();
     let target_group_id = state.groups[0].id;
