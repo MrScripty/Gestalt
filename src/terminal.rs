@@ -376,6 +376,47 @@ impl TerminalManager {
         self.snapshot_for_persist(session_id)
     }
 
+    /// Prepends older terminal history lines into in-memory scrollback.
+    pub fn prepend_history_lines(
+        &self,
+        session_id: SessionId,
+        older_lines: &[String],
+    ) -> Result<usize, TerminalError> {
+        if older_lines.is_empty() {
+            return Ok(0);
+        }
+
+        if let Some(runtime) = self.session_runtime(session_id) {
+            let parser = runtime.parser.lock();
+            let inserted = {
+                let mut scrollback = runtime.scrollback.write();
+                prepend_history_lines_limited(
+                    &mut scrollback.lines,
+                    older_lines,
+                    MAX_PERSISTED_HISTORY_LINES,
+                )
+            };
+            if inserted > 0 {
+                let scrollback_lines = runtime.scrollback.read().lines.clone();
+                let snapshot = terminal_snapshot_from_parser(&parser, &scrollback_lines);
+                *runtime.snapshot_cache.write() = Arc::new(snapshot);
+                runtime.snapshot_revision.fetch_add(1, Ordering::Relaxed);
+            }
+            return Ok(inserted);
+        }
+
+        if let Some(persisted) = self.pending_restore.lock().get_mut(&session_id) {
+            let inserted = prepend_history_lines_limited(
+                &mut persisted.lines,
+                older_lines,
+                MAX_PERSISTED_HISTORY_LINES,
+            );
+            return Ok(inserted);
+        }
+
+        Err(TerminalError::SessionMissing)
+    }
+
     /// Resizes a running PTY and updates parser dimensions.
     pub fn resize_session(
         &self,
@@ -603,6 +644,30 @@ fn normalized_history_lines_limited(lines: &[String], max_history_lines: usize) 
         .collect()
 }
 
+fn prepend_history_lines_limited(
+    existing_lines: &mut Vec<String>,
+    older_lines: &[String],
+    max_history_lines: usize,
+) -> usize {
+    let normalized_older = normalized_history_lines_limited(older_lines, max_history_lines);
+    if normalized_older.is_empty() {
+        return 0;
+    }
+
+    let existing_len = existing_lines.len();
+    let mut merged = Vec::with_capacity(normalized_older.len() + existing_len);
+    merged.extend(normalized_older);
+    merged.extend(existing_lines.iter().cloned());
+
+    let overflow = merged.len().saturating_sub(max_history_lines);
+    if overflow > 0 {
+        merged.drain(0..overflow);
+    }
+
+    *existing_lines = merged;
+    existing_lines.len().saturating_sub(existing_len)
+}
+
 fn merge_scrollback_with_visible(scrollback: &[String], visible: &[String]) -> Vec<String> {
     let max_overlap = scrollback.len().min(visible.len());
     let overlap = (0..=max_overlap)
@@ -725,5 +790,26 @@ mod tests {
         let lines = parse_input_lines(&mut pending, b"echo hi\rnext");
         assert_eq!(lines, vec!["echo hi".to_string()]);
         assert_eq!(pending, b"next".to_vec());
+    }
+
+    #[test]
+    fn prepend_history_lines_places_older_lines_at_front() {
+        let mut existing = vec!["line 3".to_string(), "line 4".to_string()];
+        let inserted = prepend_history_lines_limited(
+            &mut existing,
+            &["line 1".to_string(), "line 2".to_string()],
+            10,
+        );
+
+        assert_eq!(inserted, 2);
+        assert_eq!(
+            existing,
+            vec![
+                "line 1".to_string(),
+                "line 2".to_string(),
+                "line 3".to_string(),
+                "line 4".to_string(),
+            ]
+        );
     }
 }

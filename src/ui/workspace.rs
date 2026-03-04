@@ -1,7 +1,9 @@
+use crate::emily_bridge::EmilyBridge;
 use crate::orchestrator::{self, GroupOrchestratorSnapshot};
 use crate::resource_monitor::{RESOURCE_POLL_MS, ResourceSnapshot, sample_resource_snapshot};
 use crate::state::{AppState, SessionId, SessionStatus};
 use crate::terminal::{TerminalManager, TerminalSnapshot};
+use crate::ui::TerminalHistoryState;
 use crate::ui::insert_command_mode::InsertModeState;
 use crate::ui::local_agent_panel::LocalAgentPanel;
 use crate::ui::sidebar_panel_host::{SidebarPanelHost, SidebarPanelKind};
@@ -38,9 +40,11 @@ fn run_sidebar_style_for_panel(_panel: SidebarPanelKind, ratio: f64) -> String {
 #[component]
 pub(crate) fn WorkspaceMain(
     app_state: Signal<AppState>,
+    emily_bridge: Signal<Arc<EmilyBridge>>,
     terminal_manager: Signal<Arc<TerminalManager>>,
     focused_terminal: Signal<Option<SessionId>>,
     round_anchor: Signal<Option<(SessionId, u16)>>,
+    terminal_history_state: Signal<HashMap<SessionId, TerminalHistoryState>>,
     local_agent_command: Signal<String>,
     local_agent_feedback: Signal<String>,
     persistence_feedback: Signal<String>,
@@ -361,6 +365,7 @@ pub(crate) fn WorkspaceMain(
                                         let terminal = pane.terminal;
                                         let cwd = pane.cwd;
                                         let terminal_manager_for_input = terminal_manager.read().clone();
+                                        let emily_bridge_for_history = emily_bridge.read().clone();
 
                                         rsx! {
                                             article {
@@ -388,6 +393,8 @@ pub(crate) fn WorkspaceMain(
                                                     terminal_is_focused,
                                                     terminal,
                                                     terminal_manager_for_input,
+                                                    emily_bridge_for_history,
+                                                    terminal_history_state,
                                                     interaction,
                                                 )}
                                             }
@@ -483,6 +490,7 @@ pub(crate) fn WorkspaceMain(
                                         let terminal = pane.terminal;
                                         let cwd = pane.cwd;
                                         let terminal_manager_for_input = terminal_manager.read().clone();
+                                        let emily_bridge_for_history = emily_bridge.read().clone();
 
                                         rsx! {
                                             article {
@@ -510,6 +518,8 @@ pub(crate) fn WorkspaceMain(
                                                     terminal_is_focused,
                                                     terminal,
                                                     terminal_manager_for_input,
+                                                    emily_bridge_for_history,
+                                                    terminal_history_state,
                                                     interaction,
                                                 )}
                                             }

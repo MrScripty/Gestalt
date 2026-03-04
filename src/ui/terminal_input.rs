@@ -163,6 +163,24 @@ return true;
         .unwrap_or(false)
 }
 
+pub(crate) async fn is_terminal_scrolled_near_top(
+    terminal_body_id: String,
+    threshold_px: u32,
+) -> bool {
+    let script = format!(
+        r#"
+const root = document.getElementById({terminal_body_id:?});
+if (!root) return false;
+return root.scrollTop <= {threshold_px};
+"#
+    );
+
+    document::eval(&script)
+        .join::<bool>()
+        .await
+        .unwrap_or(false)
+}
+
 pub(crate) async fn install_terminal_paste_bridge(terminal_body_id: String) -> bool {
     let script = format!(
         r#"

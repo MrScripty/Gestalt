@@ -44,6 +44,8 @@ const TERMINAL_RESIZE_POLL_MS: u64 = 180;
 const TERMINAL_STARTUP_SYNC_POLL_MS: u64 = 250;
 const AUTOSAVE_POLL_MS: u64 = 1_200;
 const EMILY_RESTORE_HISTORY_LINES: usize = 4_000;
+pub(crate) const EMILY_HISTORY_BACKFILL_PAGE_LINES: usize = 1_200;
+const TERMINAL_MIN_RESIZE_COLS: u16 = 80;
 const AUTOSAVE_QUEUE_CAPACITY: usize = 1;
 const RAIL_WIDTH_DEFAULT_PX: i32 = 330;
 const RAIL_WIDTH_MIN_PX: i32 = 240;
@@ -53,6 +55,13 @@ const SHELL_SPLITTER_SIZE_PX: i32 = 8;
 const RUNNER_WIDTH_DEFAULT_PX: i32 = 340;
 const SPLIT_RATIO_DEFAULT: f64 = 0.5;
 const GUI_SCALE_STEP: f64 = 0.1;
+
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct TerminalHistoryState {
+    pub before_sequence: Option<u64>,
+    pub is_loading: bool,
+    pub exhausted: bool,
+}
 
 /// Root desktop UI component.
 #[component]
@@ -140,6 +149,8 @@ pub fn App() -> Element {
     let sidebar_panel = use_signal(|| SidebarPanelKind::Commands);
     let sidebar_open = use_signal(|| true);
     let insert_mode_state = use_signal(|| None::<InsertModeState>);
+    let terminal_history_state =
+        use_signal(std::collections::HashMap::<SessionId, TerminalHistoryState>::new);
 
     {
         let mut refresh_tick = refresh_tick;
@@ -219,6 +230,7 @@ pub fn App() -> Element {
                         let Some((rows, cols)) = measure_terminal_viewport(body_id).await else {
                             continue;
                         };
+                        let cols = cols.max(TERMINAL_MIN_RESIZE_COLS);
 
                         if last_sizes.get(&session_id).copied() == Some((rows, cols)) {
                             continue;
@@ -248,6 +260,7 @@ pub fn App() -> Element {
         let terminal_manager = terminal_manager.read().clone();
         let emily_bridge = emily_bridge.read().clone();
         let mut restored_terminals = restored_terminals;
+        let mut terminal_history_state = terminal_history_state;
         use_future(move || {
             let terminal_manager = terminal_manager.clone();
             let emily_bridge = emily_bridge.clone();
@@ -265,6 +278,9 @@ pub fn App() -> Element {
                         .collect::<HashSet<_>>();
                     started_session_ids
                         .retain(|session_id| active_session_ids.contains(session_id));
+                    terminal_history_state
+                        .write()
+                        .retain(|session_id, _| active_session_ids.contains(session_id));
 
                     let mut failed_starts = Vec::new();
                     {
@@ -274,11 +290,22 @@ pub fn App() -> Element {
                                 continue;
                             }
 
+                            let restored_history = emily_bridge
+                                .recent_history(session.id, EMILY_RESTORE_HISTORY_LINES);
+                            let next_before_sequence = restored_history.next_before_sequence;
+                            let exhausted = next_before_sequence.is_none();
                             if let Some(mut restored_terminal) = restored.remove(&session.id) {
-                                restored_terminal.lines = emily_bridge
-                                    .recent_lines(session.id, EMILY_RESTORE_HISTORY_LINES);
+                                restored_terminal.lines = restored_history.lines;
                                 terminal_manager.seed_restored_terminal(restored_terminal);
                             }
+                            terminal_history_state.write().insert(
+                                session.id,
+                                TerminalHistoryState {
+                                    before_sequence: next_before_sequence,
+                                    is_loading: false,
+                                    exhausted,
+                                },
+                            );
 
                             if let Some(path) = snapshot.group_path(session.group_id) {
                                 match terminal_manager.ensure_session(session.id, path) {
@@ -494,9 +521,11 @@ pub fn App() -> Element {
 
             WorkspaceMain {
                 app_state: app_state,
+                emily_bridge: emily_bridge,
                 terminal_manager: terminal_manager,
                 focused_terminal: focused_terminal,
                 round_anchor: round_anchor,
+                terminal_history_state: terminal_history_state,
                 local_agent_command: local_agent_command,
                 local_agent_feedback: local_agent_feedback,
                 persistence_feedback: persistence_feedback,

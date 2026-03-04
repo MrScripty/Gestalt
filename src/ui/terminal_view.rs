@@ -1,4 +1,5 @@
 use crate::commands::CommandId;
+use crate::emily_bridge::EmilyBridge;
 use crate::state::{AppState, SessionId, SessionStatus};
 use crate::terminal::{TerminalManager, TerminalSnapshot};
 use crate::ui::command_palette::{InsertCommandPalette, PaletteRow};
@@ -8,11 +9,13 @@ use crate::ui::insert_command_mode::{
 };
 use crate::ui::terminal_input::{
     COPY_SELECTION_JS, READ_CLIPBOARD_JS, cursor_move_bytes, install_terminal_paste_bridge,
-    install_terminal_scroll_behavior, key_event_to_bytes, map_click_to_terminal_cell,
-    select_terminal_round, take_terminal_paste_buffer,
+    install_terminal_scroll_behavior, is_terminal_scrolled_near_top, key_event_to_bytes,
+    map_click_to_terminal_cell, select_terminal_round, take_terminal_paste_buffer,
 };
+use crate::ui::{EMILY_HISTORY_BACKFILL_PAGE_LINES, TerminalHistoryState};
 use dioxus::document;
 use dioxus::prelude::*;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 #[derive(Clone, Copy)]
@@ -28,12 +31,15 @@ pub(crate) fn terminal_shell(
     terminal_is_focused: bool,
     terminal: Arc<TerminalSnapshot>,
     terminal_manager: Arc<TerminalManager>,
+    emily_bridge: Arc<EmilyBridge>,
+    terminal_history_state: Signal<HashMap<SessionId, TerminalHistoryState>>,
     interaction: TerminalInteractionSignals,
 ) -> Element {
     let app_state = interaction.app_state;
     let mut focused_terminal = interaction.focused_terminal;
     let mut round_anchor = interaction.round_anchor;
     let mut insert_mode_state = interaction.insert_mode_state;
+    let mut terminal_history_state = terminal_history_state;
     let shell_class = if terminal_is_focused {
         "terminal-shell focused"
     } else {
@@ -71,9 +77,12 @@ pub(crate) fn terminal_shell(
     let body_id_for_mount = terminal_body_id.clone();
     let shell_id_for_mount = terminal_shell_id.clone();
     let shell_id_for_paste_event = terminal_shell_id.clone();
+    let body_id_for_scroll = terminal_body_id.clone();
     let terminal_manager_for_click = terminal_manager.clone();
     let terminal_manager_for_keydown = terminal_manager;
     let terminal_manager_for_paste = terminal_manager_for_keydown.clone();
+    let terminal_manager_for_scroll = terminal_manager_for_keydown.clone();
+    let emily_bridge_for_scroll = emily_bridge.clone();
     let round_anchor_row_global = match *round_anchor.read() {
         Some((anchor_session, row)) if anchor_session == session_id => row,
         _ => cursor_row,
@@ -320,6 +329,81 @@ pub(crate) fn terminal_shell(
                 class: "terminal-body",
                 id: "{terminal_body_id}",
                 style: "{body_style}",
+                onscroll: move |_| {
+                    let history_snapshot = terminal_history_state
+                        .read()
+                        .get(&session_id)
+                        .copied()
+                        .unwrap_or_default();
+                    if history_snapshot.exhausted || history_snapshot.is_loading {
+                        return;
+                    }
+
+                    terminal_history_state
+                        .write()
+                        .entry(session_id)
+                        .and_modify(|state| state.is_loading = true)
+                        .or_insert(TerminalHistoryState {
+                            before_sequence: None,
+                            is_loading: true,
+                            exhausted: true,
+                        });
+
+                    let body_id = body_id_for_scroll.clone();
+                    let emily_bridge = emily_bridge_for_scroll.clone();
+                    let terminal_manager = terminal_manager_for_scroll.clone();
+                    spawn(async move {
+                        const TOP_THRESHOLD_PX: u32 = 20;
+                        if !is_terminal_scrolled_near_top(body_id, TOP_THRESHOLD_PX).await {
+                            if let Some(state) = terminal_history_state.write().get_mut(&session_id)
+                            {
+                                state.is_loading = false;
+                            }
+                            return;
+                        }
+
+                        let before_sequence = terminal_history_state
+                            .read()
+                            .get(&session_id)
+                            .and_then(|state| state.before_sequence);
+                        let Some(before_sequence) = before_sequence else {
+                            if let Some(state) = terminal_history_state.write().get_mut(&session_id)
+                            {
+                                state.is_loading = false;
+                                state.exhausted = true;
+                            }
+                            return;
+                        };
+
+                        let result = emily_bridge.page_history_before(
+                            session_id,
+                            Some(before_sequence),
+                            EMILY_HISTORY_BACKFILL_PAGE_LINES,
+                        );
+
+                        match result {
+                            Ok(chunk) => {
+                                let older_lines = chunk.lines.into_iter().rev().collect::<Vec<_>>();
+                                let inserted = terminal_manager
+                                    .prepend_history_lines(session_id, &older_lines)
+                                    .unwrap_or(0);
+                                if let Some(state) = terminal_history_state.write().get_mut(&session_id)
+                                {
+                                    state.before_sequence = chunk.next_before_sequence;
+                                    state.exhausted =
+                                        chunk.next_before_sequence.is_none() || inserted == 0;
+                                    state.is_loading = false;
+                                }
+                            }
+                            Err(_) => {
+                                if let Some(state) = terminal_history_state.write().get_mut(&session_id)
+                                {
+                                    state.is_loading = false;
+                                }
+                            }
+                        }
+                    });
+                },
                 onmounted: move |_| {
                     let body_id = body_id_for_mount.clone();
                     let shell_id = shell_id_for_mount.clone();
