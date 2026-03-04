@@ -20,6 +20,7 @@ Provide a modular memory layer that can ingest terminal text and answer context/
 ## Constraints
 - Must support typed async APIs.
 - Storage backend should be swappable behind trait boundaries.
+- Pantograph integration must use workflow-session contracts, not direct inference APIs.
 
 ## Decision
 Use trait-based API/store abstractions with a default runtime wiring.
@@ -30,6 +31,8 @@ Use trait-based API/store abstractions with a default runtime wiring.
 ## Invariants
 - `EmilyApi` remains the primary integration contract.
 - Runtime validates inputs at API boundaries.
+- Text vectors are persisted separately from text object records.
+- Pantograph session lifecycle is managed by embedding providers, not by store modules.
 
 ## Revisit Triggers
 - Multi-tenant storage requirements expand.
@@ -37,7 +40,7 @@ Use trait-based API/store abstractions with a default runtime wiring.
 
 ## Dependencies
 **Internal:** `store`  
-**External:** `tokio`, `async-trait`, `serde`
+**External:** `tokio`, `async-trait`, `serde`, `pantograph-workflow-service` (feature-gated)
 
 ## Related ADRs
 None.

@@ -23,6 +23,7 @@ Application source modules for Gestalt's state model, command library, terminal 
 - `state` stays framework-agnostic and serializable, including command library persistence.
 - `terminal` owns live runtime processes and exposes snapshots.
 - `emily_bridge` adapts terminal line events into Emily generic text objects.
+- `emily_bridge` can inject an optional Emily embedding provider at worker startup.
 - Terminal history source-of-truth is Emily; workspace persistence stores terminal projection metadata only.
 - `local_restore` persists lightweight terminal projection state for startup fidelity.
 - `persistence` is isolated infrastructure with a versioned schema.

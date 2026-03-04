@@ -1,7 +1,7 @@
 # emily/src/store
 
 ## Purpose
-`store` defines persistence contracts and concrete storage implementations for Emily text objects and query operations.
+`store` defines persistence contracts and concrete storage implementations for Emily text objects, vector records, and query operations.
 
 ## Contents
 | File/Folder | Description |
@@ -25,6 +25,7 @@ Define `EmilyStore` as the storage boundary and keep backend details inside impl
 ## Invariants
 - `EmilyStore` trait remains backend-agnostic.
 - Backend modules map storage failures to `EmilyError`.
+- Vector writes use dedicated records (`text_vectors`) instead of embedding fields on text objects.
 
 ## Revisit Triggers
 - Additional backend support is required.
