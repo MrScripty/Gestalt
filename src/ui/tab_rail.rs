@@ -158,20 +158,25 @@ pub(crate) fn TabRail(
                                                 }
                                                 _ => "",
                                             };
-                                            let tab_class = if selected {
+                                            let base_tab_class = if selected {
                                                 if is_runner { "tab active role-run" } else { "tab active role-agent" }
                                             } else if is_runner {
                                                 "tab role-run"
                                             } else {
                                                 "tab role-agent"
                                             };
+                                            let status_class = match session.status {
+                                                SessionStatus::Busy => "status-busy",
+                                                SessionStatus::Idle => "status-idle",
+                                                SessionStatus::Error => "status-error",
+                                            };
+                                            let tab_class = format!("{base_tab_class} {status_class}");
                                             let status_style = format!("background: var({});", session.status.css_var());
                                             let target_path = snapshot.group_path(session.group_id).unwrap_or(".").to_string();
                                             let terminal_manager_for_reorder = terminal_manager.read().clone();
                                             let terminal_manager_for_close = terminal_manager.read().clone();
                                             let is_renaming = renaming_tab_id == Some(session_id);
                                             let title_for_start = session.title.clone();
-                                            let rename_title = session.title.clone();
                                             let close_aria_label = format!("Close terminal {}", session.title);
 
                                             rsx! {
@@ -273,20 +278,6 @@ pub(crate) fn TabRail(
                                                     }
 
                                                     div { class: "tab-actions",
-                                                        span { class: "status-text", "{session.status.label()}" }
-                                                        button {
-                                                            class: "rename-btn",
-                                                            r#type: "button",
-                                                            onclick: move |event| {
-                                                                event.stop_propagation();
-                                                                renaming_tab.set(Some(session_id));
-                                                                rename_draft.set(rename_title.clone());
-                                                            },
-                                                            oncontextmenu: move |event| {
-                                                                event.stop_propagation();
-                                                            },
-                                                            "rename"
-                                                        }
                                                         button {
                                                             class: "close-btn",
                                                             r#type: "button",
