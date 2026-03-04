@@ -28,6 +28,7 @@ use crate::ui::tab_rail::TabRail;
 use crate::ui::terminal_input::measure_terminal_viewport;
 use crate::ui::workspace::WorkspaceMain;
 use dioxus::prelude::*;
+use emily::model::{VectorizationConfigPatch, VectorizationRunRequest};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
@@ -146,6 +147,30 @@ pub fn App() -> Element {
     let insert_mode_state = use_signal(|| None::<InsertModeState>);
     let terminal_history_state =
         use_signal(std::collections::HashMap::<SessionId, TerminalHistoryState>::new);
+    let mut embedding_settings_open = use_signal(|| false);
+    let mut embedding_profile_draft = use_signal(String::new);
+    let mut embedding_feedback = use_signal(String::new);
+    let vectorization_status = {
+        let emily_bridge = emily_bridge.read().clone();
+        use_signal(move || emily_bridge.vectorization_status())
+    };
+
+    {
+        let emily_bridge = emily_bridge.read().clone();
+        let mut vectorization_status = vectorization_status;
+        use_future(move || {
+            let emily_bridge = emily_bridge.clone();
+            async move {
+                let mut receiver = emily_bridge.subscribe_vectorization_status();
+                loop {
+                    if receiver.changed().await.is_err() {
+                        break;
+                    }
+                    vectorization_status.set(receiver.borrow().clone());
+                }
+            }
+        });
+    }
 
     {
         let mut refresh_tick = refresh_tick;
@@ -517,6 +542,7 @@ pub fn App() -> Element {
             WorkspaceMain {
                 app_state: app_state,
                 emily_bridge: emily_bridge,
+                vectorization_status: vectorization_status,
                 terminal_manager: terminal_manager,
                 focused_terminal: focused_terminal,
                 round_anchor: round_anchor,
@@ -531,6 +557,190 @@ pub fn App() -> Element {
                 sidebar_panel: sidebar_panel,
                 sidebar_open: sidebar_open,
                 insert_mode_state: insert_mode_state,
+                on_open_embedding_settings: move |_| {
+                    let status = vectorization_status.read().clone();
+                    embedding_profile_draft.set(status.config.profile_id.clone());
+                    embedding_feedback.set(String::new());
+                    embedding_settings_open.set(true);
+                },
+            }
+            if *embedding_settings_open.read() {
+                div {
+                    class: "dialog-overlay",
+                    onclick: move |_| {
+                        embedding_settings_open.set(false);
+                    },
+                    div {
+                        class: "dialog-card",
+                        onclick: move |event| {
+                            event.stop_propagation();
+                        },
+                        h3 { "Embedding Settings" }
+                        {
+                            let status = vectorization_status.read().clone();
+                            let enabled = status.config.enabled;
+                            let provider_label = if status.provider_available {
+                                "available"
+                            } else {
+                                "not available"
+                            };
+                            let active_job = status.active_job.clone();
+                            let last_job = status.last_job.clone();
+                            let feedback = embedding_feedback.read().clone();
+                            rsx! {
+                                p {
+                                    class: "meta-tip",
+                                    "Provider: {provider_label}"
+                                }
+                                p {
+                                    class: "meta-tip",
+                                    "Current profile: {status.config.profile_id}"
+                                }
+                                p {
+                                    class: "meta-tip",
+                                    "Dimensions: {status.config.expected_dimensions}"
+                                }
+                                if let Some(job) = active_job {
+                                    {
+                                        let job_summary = format!(
+                                            "Active job: {:?} {}/{}, failed {}",
+                                            job.kind, job.vectorized, job.processed, job.failed
+                                        );
+                                        rsx! {
+                                            p { class: "meta-tip", "{job_summary}" }
+                                        }
+                                    }
+                                } else if let Some(job) = last_job {
+                                    {
+                                        let job_summary = format!(
+                                            "Last job: {:?} ({:?}) {}/{}, failed {}",
+                                            job.kind, job.state, job.vectorized, job.processed, job.failed
+                                        );
+                                        rsx! {
+                                            p { class: "meta-tip", "{job_summary}" }
+                                        }
+                                    }
+                                }
+                                if !feedback.is_empty() {
+                                    p {
+                                        class: "meta-tip",
+                                        "{feedback}"
+                                    }
+                                }
+                                div { class: "dialog-field",
+                                    label { r#for: "embedding-profile", "Embedding Profile" }
+                                    input {
+                                        id: "embedding-profile",
+                                        value: "{embedding_profile_draft.read()}",
+                                        oninput: move |event| {
+                                            embedding_profile_draft.set(event.value());
+                                        }
+                                    }
+                                }
+                                div { class: "dialog-actions",
+                                    button {
+                                        r#type: "button",
+                                        onclick: move |_| {
+                                            let current = vectorization_status.read().config.enabled;
+                                            let result = emily_bridge
+                                                .read()
+                                                .update_vectorization_config(VectorizationConfigPatch {
+                                                    enabled: Some(!current),
+                                                    ..VectorizationConfigPatch::default()
+                                                });
+                                            match result {
+                                                Ok(config) => {
+                                                    embedding_feedback.set(format!(
+                                                        "Embedding {}",
+                                                        if config.enabled { "enabled" } else { "disabled" }
+                                                    ));
+                                                }
+                                                Err(error) => embedding_feedback.set(error),
+                                            }
+                                        },
+                                        if enabled { "Disable Embedding" } else { "Enable Embedding" }
+                                    }
+                                    button {
+                                        r#type: "button",
+                                        onclick: move |_| {
+                                            let profile_id = embedding_profile_draft.read().trim().to_string();
+                                            let result = emily_bridge
+                                                .read()
+                                                .update_vectorization_config(VectorizationConfigPatch {
+                                                    profile_id: Some(profile_id),
+                                                    ..VectorizationConfigPatch::default()
+                                                });
+                                            match result {
+                                                Ok(config) => {
+                                                    embedding_feedback.set(format!(
+                                                        "Profile saved: {}",
+                                                        config.profile_id
+                                                    ));
+                                                }
+                                                Err(error) => embedding_feedback.set(error),
+                                            }
+                                        },
+                                        "Save Profile"
+                                    }
+                                    button {
+                                        r#type: "button",
+                                        onclick: move |_| {
+                                            let result = emily_bridge
+                                                .read()
+                                                .start_backfill(VectorizationRunRequest { stream_id: None });
+                                            match result {
+                                                Ok(job) => embedding_feedback.set(format!(
+                                                    "Backfill started: {}",
+                                                    job.job_id
+                                                )),
+                                                Err(error) => embedding_feedback.set(error),
+                                            }
+                                        },
+                                        "Backfill Missing"
+                                    }
+                                    button {
+                                        r#type: "button",
+                                        onclick: move |_| {
+                                            let result = emily_bridge
+                                                .read()
+                                                .start_revectorize(VectorizationRunRequest { stream_id: None });
+                                            match result {
+                                                Ok(job) => embedding_feedback.set(format!(
+                                                    "Revectorize started: {}",
+                                                    job.job_id
+                                                )),
+                                                Err(error) => embedding_feedback.set(error),
+                                            }
+                                        },
+                                        "Revectorize All"
+                                    }
+                                    if let Some(job) = vectorization_status.read().active_job.clone() {
+                                        button {
+                                            r#type: "button",
+                                            onclick: move |_| {
+                                                let result = emily_bridge
+                                                    .read()
+                                                    .cancel_vectorization_job(job.job_id.clone());
+                                                match result {
+                                                    Ok(()) => embedding_feedback.set("Cancellation requested".to_string()),
+                                                    Err(error) => embedding_feedback.set(error),
+                                                }
+                                            },
+                                            "Cancel Job"
+                                        }
+                                    }
+                                    button {
+                                        r#type: "button",
+                                        onclick: move |_| {
+                                            embedding_settings_open.set(false);
+                                        },
+                                        "Close"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }

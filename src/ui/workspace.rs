@@ -11,6 +11,7 @@ use crate::ui::terminal_view::{
     TerminalInteractionSignals, pending_terminal_snapshot, terminal_shell,
 };
 use dioxus::prelude::*;
+use emily::model::VectorizationStatus;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -41,6 +42,7 @@ fn run_sidebar_style_for_panel(_panel: SidebarPanelKind, ratio: f64) -> String {
 pub(crate) fn WorkspaceMain(
     app_state: Signal<AppState>,
     emily_bridge: Signal<Arc<EmilyBridge>>,
+    vectorization_status: Signal<VectorizationStatus>,
     terminal_manager: Signal<Arc<TerminalManager>>,
     focused_terminal: Signal<Option<SessionId>>,
     round_anchor: Signal<Option<(SessionId, u16)>>,
@@ -55,6 +57,7 @@ pub(crate) fn WorkspaceMain(
     sidebar_panel: Signal<SidebarPanelKind>,
     sidebar_open: Signal<bool>,
     insert_mode_state: Signal<Option<InsertModeState>>,
+    on_open_embedding_settings: EventHandler<()>,
 ) -> Element {
     let _ = *refresh_tick.read();
     {
@@ -125,6 +128,7 @@ pub(crate) fn WorkspaceMain(
         });
     }
     let resource_snapshot_value = resource_snapshot.read().clone();
+    let vectorization_status_value = vectorization_status.read().clone();
     let snapshot = app_state.read().clone();
     let busy_count = snapshot.session_count_by_status(SessionStatus::Busy);
     let error_count = snapshot.session_count_by_status(SessionStatus::Error);
@@ -327,8 +331,23 @@ pub(crate) fn WorkspaceMain(
                                     title: "System memory usage sampled from native OS counters",
                                     "RAM {memory_used}/{memory_total}"
                                 }
+                                span {
+                                    class: "badge {vectorization_badge_class(&vectorization_status_value)}",
+                                    title: "Emily vectorization status",
+                                    "{vectorization_badge_label(&vectorization_status_value)}"
+                                }
                             }
                         }
+                    }
+                    button {
+                        class: "icon-button",
+                        r#type: "button",
+                        title: "Open embedding settings",
+                        aria_label: "Open embedding settings",
+                        onclick: move |_| {
+                            on_open_embedding_settings.call(());
+                        },
+                        "⚙"
                     }
                     button {
                         class: "side-panel-toggle",
@@ -761,6 +780,29 @@ fn metric_badge_class(percent: f32) -> &'static str {
     } else {
         "idle"
     }
+}
+
+fn vectorization_badge_class(status: &VectorizationStatus) -> &'static str {
+    if status.active_job.is_some() {
+        "busy"
+    } else if status.config.enabled && status.provider_available {
+        "idle"
+    } else {
+        "error"
+    }
+}
+
+fn vectorization_badge_label(status: &VectorizationStatus) -> String {
+    if let Some(job) = status.active_job.as_ref() {
+        return format!("EMB RUN {}/{}", job.vectorized, job.processed);
+    }
+    if status.config.enabled && status.provider_available {
+        return format!("EMB ON {}", status.config.profile_id);
+    }
+    if status.config.enabled {
+        return "EMB ON (NO PROVIDER)".to_string();
+    }
+    "EMB OFF".to_string()
 }
 
 fn derive_session_status_from_activity(

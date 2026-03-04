@@ -138,9 +138,86 @@
   cursor: pointer;
 }
 
+.icon-button {
+  width: 30px;
+  height: 30px;
+  border: 1px solid #96b5bc;
+  border-radius: 8px;
+  background: #e7f0f2;
+  color: #27434a;
+  font: inherit;
+  font-size: calc(0.95rem * var(--font-scale));
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.icon-button:focus-visible {
+  outline: 2px solid #2f6fe4;
+  outline-offset: 2px;
+}
+
 .side-panel-toggle:focus-visible {
   outline: 2px solid #2f6fe4;
   outline-offset: 2px;
+}
+
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: #0b171a88;
+  display: grid;
+  place-items: center;
+  z-index: 50;
+}
+
+.dialog-card {
+  width: min(640px, 92vw);
+  background: #f6fbfc;
+  color: #173039;
+  border: 1px solid #89acb5;
+  border-radius: 12px;
+  box-shadow: 0 14px 30px #0f1b1d40;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dialog-card h3 {
+  margin: 0;
+}
+
+.dialog-field {
+  display: grid;
+  gap: 4px;
+}
+
+.dialog-field input {
+  border: 1px solid #8badb7;
+  border-radius: 6px;
+  padding: 6px 8px;
+  background: #ffffff;
+  color: #14333a;
+  font: inherit;
+}
+
+.dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dialog-actions button {
+  border: 1px solid #96b5bc;
+  border-radius: 8px;
+  background: #e7f0f2;
+  color: #27434a;
+  font: inherit;
+  font-size: calc(0.72rem * var(--font-scale));
+  font-weight: 700;
+  padding: 6px 10px;
+  cursor: pointer;
 }
 
 .workspace-side-panel {
