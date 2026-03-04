@@ -205,3 +205,142 @@ impl<S: EmilyStore> EmilyApi for EmilyRuntime<S> {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{TextObjectKind, TextVector};
+    use crate::store::EmilyStore;
+    use serde_json::json;
+
+    #[derive(Default)]
+    struct MockStore {
+        objects: Mutex<Vec<TextObject>>,
+        vectors: Mutex<Vec<TextVector>>,
+    }
+
+    #[async_trait]
+    impl EmilyStore for MockStore {
+        async fn open(&self, _locator: &DatabaseLocator) -> Result<(), EmilyError> {
+            Ok(())
+        }
+
+        async fn close(&self) -> Result<(), EmilyError> {
+            Ok(())
+        }
+
+        async fn insert_text_object(&self, object: &TextObject) -> Result<(), EmilyError> {
+            self.objects.lock().await.push(object.clone());
+            Ok(())
+        }
+
+        async fn upsert_text_vector(&self, vector: &TextVector) -> Result<(), EmilyError> {
+            self.vectors.lock().await.push(vector.clone());
+            Ok(())
+        }
+
+        async fn query_context(&self, _query: &ContextQuery) -> Result<ContextPacket, EmilyError> {
+            Ok(ContextPacket { items: Vec::new() })
+        }
+
+        async fn page_history_before(
+            &self,
+            _request: &HistoryPageRequest,
+        ) -> Result<HistoryPage, EmilyError> {
+            Ok(HistoryPage {
+                items: Vec::new(),
+                next_before_sequence: None,
+            })
+        }
+    }
+
+    struct FixedEmbeddingProvider {
+        vector: Vec<f32>,
+        shutdown_calls: Mutex<u64>,
+    }
+
+    #[async_trait]
+    impl EmbeddingProvider for FixedEmbeddingProvider {
+        async fn embed_text(&self, _text: &str) -> Result<Vec<f32>, EmilyError> {
+            Ok(self.vector.clone())
+        }
+
+        async fn shutdown(&self) -> Result<(), EmilyError> {
+            let mut calls = self.shutdown_calls.lock().await;
+            *calls += 1;
+            Ok(())
+        }
+    }
+
+    fn locator() -> DatabaseLocator {
+        DatabaseLocator {
+            storage_path: std::env::temp_dir().join("emily-runtime-tests"),
+            namespace: "ns".to_string(),
+            database: "db".to_string(),
+        }
+    }
+
+    fn ingest_request() -> IngestTextRequest {
+        IngestTextRequest {
+            stream_id: "stream-a".to_string(),
+            source_kind: "terminal".to_string(),
+            object_kind: TextObjectKind::SystemOutput,
+            sequence: 1,
+            ts_unix_ms: 1_000,
+            text: "hello world".to_string(),
+            metadata: json!({"cwd": "/tmp"}),
+        }
+    }
+
+    #[tokio::test]
+    async fn ingest_text_persists_vector_record_when_embedding_is_1024() {
+        let store = Arc::new(MockStore::default());
+        let provider = Arc::new(FixedEmbeddingProvider {
+            vector: vec![0.25; 1024],
+            shutdown_calls: Mutex::new(0),
+        });
+        let runtime = EmilyRuntime::with_embedding_provider(store.clone(), Some(provider));
+        runtime.open_db(locator()).await.expect("open");
+
+        let object = runtime
+            .ingest_text(ingest_request())
+            .await
+            .expect("ingest should succeed");
+        assert_eq!(object.id, "stream-a:1");
+
+        let vectors = store.vectors.lock().await;
+        assert_eq!(vectors.len(), 1);
+        assert_eq!(vectors[0].dimensions, 1024);
+        assert_eq!(vectors[0].object_id, "stream-a:1");
+    }
+
+    #[tokio::test]
+    async fn ingest_text_rejects_non_1024_embeddings() {
+        let store = Arc::new(MockStore::default());
+        let provider = Arc::new(FixedEmbeddingProvider {
+            vector: vec![0.1; 128],
+            shutdown_calls: Mutex::new(0),
+        });
+        let runtime = EmilyRuntime::with_embedding_provider(store.clone(), Some(provider));
+        runtime.open_db(locator()).await.expect("open");
+
+        let err = runtime
+            .ingest_text(ingest_request())
+            .await
+            .expect_err("ingest must fail on dimension mismatch");
+        assert!(err.to_string().contains("expected 1024"));
+    }
+
+    #[tokio::test]
+    async fn close_db_invokes_provider_shutdown() {
+        let store = Arc::new(MockStore::default());
+        let provider = Arc::new(FixedEmbeddingProvider {
+            vector: vec![0.25; 1024],
+            shutdown_calls: Mutex::new(0),
+        });
+        let runtime = EmilyRuntime::with_embedding_provider(store, Some(provider.clone()));
+        runtime.open_db(locator()).await.expect("open");
+        runtime.close_db().await.expect("close");
+        assert_eq!(*provider.shutdown_calls.lock().await, 1);
+    }
+}

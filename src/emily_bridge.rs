@@ -1,6 +1,7 @@
 use crate::state::SessionId;
 use crate::terminal::TerminalMemorySink;
 use emily::api::EmilyApi;
+use emily::inference::EmbeddingProvider;
 use emily::model::{
     ContextPacket, ContextQuery, DatabaseLocator, HistoryPageRequest, IngestTextRequest,
     TextObjectKind,
@@ -98,12 +99,20 @@ impl EmilyBridge {
 
     /// Starts Emily runtime worker with an explicit database locator.
     pub fn new(locator: DatabaseLocator) -> Self {
+        Self::with_embedding_provider(locator, None)
+    }
+
+    /// Starts Emily runtime worker with an explicit embedding provider.
+    pub fn with_embedding_provider(
+        locator: DatabaseLocator,
+        embedding_provider: Option<Arc<dyn EmbeddingProvider>>,
+    ) -> Self {
         let (command_tx, command_rx) = mpsc::channel::<BridgeCommand>();
         let health = Arc::new(BridgeHealthCounters::default());
         let worker_health = Arc::clone(&health);
 
         thread::spawn(move || {
-            run_worker(locator, command_rx, worker_health);
+            run_worker(locator, embedding_provider, command_rx, worker_health);
         });
 
         Self { command_tx, health }
@@ -210,6 +219,7 @@ impl TerminalMemorySink for EmilyBridge {
 
 fn run_worker(
     locator: DatabaseLocator,
+    embedding_provider: Option<Arc<dyn EmbeddingProvider>>,
     command_rx: mpsc::Receiver<BridgeCommand>,
     health: Arc<BridgeHealthCounters>,
 ) {
@@ -226,7 +236,10 @@ fn run_worker(
 
     runtime.block_on(async move {
         let store = Arc::new(SurrealEmilyStore::new());
-        let emily_runtime = Arc::new(EmilyRuntime::new(store));
+        let emily_runtime = Arc::new(EmilyRuntime::with_embedding_provider(
+            store,
+            embedding_provider,
+        ));
 
         if let Err(error) = emily_runtime.open_db(locator).await {
             eprintln!("failed opening Emily database: {error}");
