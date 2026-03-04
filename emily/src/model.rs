@@ -53,6 +53,7 @@ pub struct TextVector {
     pub sequence: u64,
     pub ts_unix_ms: i64,
     pub dimensions: usize,
+    pub profile_id: String,
     pub vector: Vec<f32>,
 }
 
@@ -149,6 +150,76 @@ pub struct HealthSnapshot {
     pub db_locator: Option<DatabaseLocator>,
     pub queued_ingest_events: usize,
     pub dropped_ingest_events: u64,
+}
+
+/// Persistent runtime settings that control embedding behavior.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VectorizationConfig {
+    pub enabled: bool,
+    pub expected_dimensions: usize,
+    pub profile_id: String,
+}
+
+impl Default for VectorizationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            expected_dimensions: 1024,
+            profile_id: "qwen3-0.6b".to_string(),
+        }
+    }
+}
+
+/// Partial update for vectorization config.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct VectorizationConfigPatch {
+    pub enabled: Option<bool>,
+    pub expected_dimensions: Option<usize>,
+    pub profile_id: Option<String>,
+}
+
+/// User request to start a background vectorization run.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VectorizationRunRequest {
+    pub stream_id: Option<String>,
+}
+
+/// Background job kind for vectorization maintenance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum VectorizationJobKind {
+    Backfill,
+    Revectorize,
+}
+
+/// Runtime lifecycle status for one vectorization job.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum VectorizationJobState {
+    Running,
+    Completed,
+    Cancelled,
+}
+
+/// Snapshot describing one vectorization job.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VectorizationJobSnapshot {
+    pub job_id: String,
+    pub kind: VectorizationJobKind,
+    pub state: VectorizationJobState,
+    pub stream_id: Option<String>,
+    pub processed: u64,
+    pub vectorized: u64,
+    pub skipped: u64,
+    pub failed: u64,
+    pub last_error: Option<String>,
+}
+
+/// Full vectorization runtime status for UI and orchestration consumers.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VectorizationStatus {
+    pub config: VectorizationConfig,
+    pub provider_available: bool,
+    pub active_job: Option<VectorizationJobSnapshot>,
+    pub last_job: Option<VectorizationJobSnapshot>,
 }
 
 #[cfg(test)]

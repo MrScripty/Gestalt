@@ -1,7 +1,7 @@
 use crate::error::EmilyError;
 use crate::model::{
     ContextItem, ContextPacket, ContextQuery, DatabaseLocator, HistoryPage, HistoryPageRequest,
-    TextEdge, TextEdgeType, TextObject, TextVector,
+    TextEdge, TextEdgeType, TextObject, TextVector, VectorizationConfig,
 };
 use crate::store::EmilyStore;
 use async_trait::async_trait;
@@ -193,6 +193,78 @@ impl EmilyStore for SurrealEmilyStore {
         Ok(())
     }
 
+    async fn get_text_vector(&self, object_id: &str) -> Result<Option<TextVector>, EmilyError> {
+        let client = self.active_client().await?;
+        let mut response = client
+            .query(
+                "SELECT id, object_id, stream_id, sequence, ts_unix_ms, dimensions, profile_id, vector FROM text_vectors WHERE object_id = $object_id LIMIT 1",
+            )
+            .bind(("object_id", object_id.to_string()))
+            .await
+            .map_err(|error| EmilyError::Store(format!("surreal select text_vector failed: {error}")))?;
+        let vectors: Vec<TextVector> = response.take(0).map_err(|error| {
+            EmilyError::Store(format!(
+                "surreal result decode failed (text_vectors): {error}"
+            ))
+        })?;
+        Ok(vectors.into_iter().next())
+    }
+
+    async fn list_text_objects(
+        &self,
+        stream_id: Option<&str>,
+    ) -> Result<Vec<TextObject>, EmilyError> {
+        let client = self.active_client().await?;
+        let mut response = client
+            .query(format!(
+                "SELECT {} FROM text_objects",
+                Self::text_object_projection()
+            ))
+            .await
+            .map_err(|error| {
+                EmilyError::Store(format!("surreal select text_objects failed: {error}"))
+            })?;
+        let mut objects: Vec<TextObject> = response.take(0).map_err(|error| {
+            EmilyError::Store(format!(
+                "surreal result decode failed (text_objects): {error}"
+            ))
+        })?;
+        if let Some(stream_id) = stream_id {
+            objects.retain(|object| object.stream_id == stream_id);
+        }
+        objects.sort_by(|left, right| left.sequence.cmp(&right.sequence));
+        Ok(objects)
+    }
+
+    async fn get_vectorization_config(&self) -> Result<Option<VectorizationConfig>, EmilyError> {
+        let client = self.active_client().await?;
+        let mut response = client
+            .query("SELECT enabled, expected_dimensions, profile_id FROM type::thing('runtime_config', $id)")
+            .bind(("id", "vectorization"))
+            .await
+            .map_err(|error| EmilyError::Store(format!("surreal select config failed: {error}")))?;
+        let configs: Vec<VectorizationConfig> = response.take(0).map_err(|error| {
+            EmilyError::Store(format!(
+                "surreal result decode failed (vectorization config): {error}"
+            ))
+        })?;
+        Ok(configs.into_iter().next())
+    }
+
+    async fn upsert_vectorization_config(
+        &self,
+        config: &VectorizationConfig,
+    ) -> Result<(), EmilyError> {
+        let client = self.active_client().await?;
+        client
+            .query("UPSERT type::thing('runtime_config', $id) CONTENT $config")
+            .bind(("id", "vectorization"))
+            .bind(("config", config.clone()))
+            .await
+            .map_err(|error| EmilyError::Store(format!("surreal upsert config failed: {error}")))?;
+        Ok(())
+    }
+
     async fn query_context(&self, query: &ContextQuery) -> Result<ContextPacket, EmilyError> {
         let client = self.active_client().await?;
 
@@ -352,6 +424,7 @@ mod tests {
                 sequence: 2,
                 ts_unix_ms: 2,
                 dimensions: 1024,
+                profile_id: "qwen3-0.6b".to_string(),
                 vector: vec![0.0; 1024],
             })
             .await

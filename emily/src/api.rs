@@ -1,7 +1,8 @@
 use crate::error::EmilyError;
 use crate::model::{
     ContextPacket, ContextQuery, DatabaseLocator, HealthSnapshot, HistoryPage, HistoryPageRequest,
-    IngestTextRequest, MemoryPolicy, TextObject,
+    IngestTextRequest, MemoryPolicy, TextObject, VectorizationConfig, VectorizationConfigPatch,
+    VectorizationJobSnapshot, VectorizationRunRequest, VectorizationStatus,
 };
 use async_trait::async_trait;
 
@@ -37,4 +38,28 @@ pub trait EmilyApi: Send + Sync {
 
     /// Report runtime and queue health.
     async fn health(&self) -> Result<HealthSnapshot, EmilyError>;
+
+    /// Read current vectorization settings and job status.
+    async fn vectorization_status(&self) -> Result<VectorizationStatus, EmilyError>;
+
+    /// Persist a partial vectorization config update.
+    async fn update_vectorization_config(
+        &self,
+        patch: VectorizationConfigPatch,
+    ) -> Result<VectorizationConfig, EmilyError>;
+
+    /// Start a background backfill run for missing vectors.
+    async fn start_backfill(
+        &self,
+        request: VectorizationRunRequest,
+    ) -> Result<VectorizationJobSnapshot, EmilyError>;
+
+    /// Start a background revectorize run for existing objects.
+    async fn start_revectorize(
+        &self,
+        request: VectorizationRunRequest,
+    ) -> Result<VectorizationJobSnapshot, EmilyError>;
+
+    /// Request cancellation for the currently active job.
+    async fn cancel_vectorization_job(&self, job_id: &str) -> Result<(), EmilyError>;
 }
