@@ -33,7 +33,6 @@ pub struct TextObject {
     pub ts_unix_ms: i64,
     pub text: String,
     pub metadata: Value,
-    pub embedding: Option<Vec<f32>>,
     pub epsilon: Option<f32>,
     pub confidence: f32,
     pub outcome_factor: f32,
@@ -43,6 +42,18 @@ pub struct TextObject {
     pub gate_score: Option<f32>,
     pub integrated: bool,
     pub quarantine_score: f32,
+}
+
+/// Vector record stored separately from text objects.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TextVector {
+    pub id: String,
+    pub object_id: String,
+    pub stream_id: String,
+    pub sequence: u64,
+    pub ts_unix_ms: i64,
+    pub dimensions: usize,
+    pub vector: Vec<f32>,
 }
 
 /// Object category is intentionally generic and host-agnostic.

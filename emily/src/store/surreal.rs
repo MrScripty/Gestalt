@@ -1,7 +1,7 @@
 use crate::error::EmilyError;
 use crate::model::{
     ContextItem, ContextPacket, ContextQuery, DatabaseLocator, HistoryPage, HistoryPageRequest,
-    TextEdge, TextEdgeType, TextObject,
+    TextEdge, TextEdgeType, TextObject, TextVector,
 };
 use crate::store::EmilyStore;
 use async_trait::async_trait;
@@ -81,7 +81,7 @@ impl SurrealEmilyStore {
     }
 
     fn text_object_projection() -> &'static str {
-        "type::string(id) AS id, stream_id, source_kind, object_kind, sequence, ts_unix_ms, text, metadata, embedding, epsilon, confidence, outcome_factor, novelty_factor, stability_factor, learning_weight, gate_score, integrated, quarantine_score"
+        "type::string(id) AS id, stream_id, source_kind, object_kind, sequence, ts_unix_ms, text, metadata, epsilon, confidence, outcome_factor, novelty_factor, stability_factor, learning_weight, gate_score, integrated, quarantine_score"
     }
 
     async fn append_linear_edge(
@@ -179,6 +179,17 @@ impl EmilyStore for SurrealEmilyStore {
             .await
             .map_err(|error| EmilyError::Store(format!("surreal object upsert failed: {error}")))?;
 
+        Ok(())
+    }
+
+    async fn upsert_text_vector(&self, vector: &TextVector) -> Result<(), EmilyError> {
+        let client = self.active_client().await?;
+        client
+            .query("UPSERT type::thing('text_vectors', $id) CONTENT $vector")
+            .bind(("id", vector.id.clone()))
+            .bind(("vector", vector.clone()))
+            .await
+            .map_err(|error| EmilyError::Store(format!("surreal vector upsert failed: {error}")))?;
         Ok(())
     }
 
@@ -307,7 +318,6 @@ mod tests {
             ts_unix_ms: sequence as i64,
             text: text.to_string(),
             metadata: json!({}),
-            embedding: None,
             epsilon: None,
             confidence: 1.0,
             outcome_factor: 0.5,
@@ -333,6 +343,19 @@ mod tests {
             .insert_text_object(&sample_object(2, "second line"))
             .await
             .expect("insert 2");
+
+        store
+            .upsert_text_vector(&TextVector {
+                id: "vec:stream-a:2".to_string(),
+                object_id: "stream-a:2".to_string(),
+                stream_id: "stream-a".to_string(),
+                sequence: 2,
+                ts_unix_ms: 2,
+                dimensions: 1024,
+                vector: vec![0.0; 1024],
+            })
+            .await
+            .expect("upsert vector");
 
         let page = store
             .page_history_before(&HistoryPageRequest {

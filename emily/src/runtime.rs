@@ -3,7 +3,7 @@ use crate::error::EmilyError;
 use crate::inference::EmbeddingProvider;
 use crate::model::{
     ContextPacket, ContextQuery, DatabaseLocator, HealthSnapshot, HistoryPage, HistoryPageRequest,
-    IngestTextRequest, MemoryPolicy, TextObject,
+    IngestTextRequest, MemoryPolicy, TextObject, TextVector,
 };
 use crate::store::EmilyStore;
 use async_trait::async_trait;
@@ -65,7 +65,7 @@ impl<S: EmilyStore> EmilyRuntime<S> {
         Ok(())
     }
 
-    fn build_text_object(request: IngestTextRequest, embedding: Option<Vec<f32>>) -> TextObject {
+    fn build_text_object(request: IngestTextRequest) -> TextObject {
         let object_id = format!("{}:{}", request.stream_id, request.sequence);
         TextObject {
             id: object_id,
@@ -76,7 +76,6 @@ impl<S: EmilyStore> EmilyRuntime<S> {
             ts_unix_ms: request.ts_unix_ms,
             text: request.text,
             metadata: request.metadata,
-            embedding,
             epsilon: None,
             confidence: 1.0,
             outcome_factor: 0.5,
@@ -110,6 +109,9 @@ impl<S: EmilyStore> EmilyApi for EmilyRuntime<S> {
     }
 
     async fn close_db(&self) -> Result<(), EmilyError> {
+        if let Some(provider) = &self.embedding_provider {
+            provider.shutdown().await?;
+        }
         self.store.close().await?;
         let mut state = self.state.write().await;
         state.db_locator = None;
@@ -128,19 +130,35 @@ impl<S: EmilyStore> EmilyApi for EmilyRuntime<S> {
             ));
         }
 
-        let embedding = if let Some(provider) = &self.embedding_provider {
-            let vector = provider.embed_text(&request.text).await?;
-            if vector.is_empty() {
-                None
-            } else {
-                Some(vector)
-            }
-        } else {
-            None
-        };
-
-        let object = Self::build_text_object(request, embedding);
+        let object = Self::build_text_object(request);
         self.store.insert_text_object(&object).await?;
+        if let Some(provider) = &self.embedding_provider {
+            let vector = provider.embed_text(&object.text).await?;
+            if !vector.is_empty() {
+                if vector.len() != 1024 {
+                    return Err(EmilyError::Embedding(format!(
+                        "embedding dimension mismatch: expected 1024, received {}",
+                        vector.len()
+                    )));
+                }
+                if vector.iter().any(|value| !value.is_finite()) {
+                    return Err(EmilyError::Embedding(
+                        "embedding vector contains non-finite values".to_string(),
+                    ));
+                }
+
+                let record = TextVector {
+                    id: format!("vec:{}", object.id),
+                    object_id: object.id.clone(),
+                    stream_id: object.stream_id.clone(),
+                    sequence: object.sequence,
+                    ts_unix_ms: object.ts_unix_ms,
+                    dimensions: vector.len(),
+                    vector,
+                };
+                self.store.upsert_text_vector(&record).await?;
+            }
+        }
         Ok(object)
     }
 

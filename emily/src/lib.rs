@@ -21,5 +21,5 @@ pub use inference::{
 pub use model::{
     ContextItem, ContextPacket, ContextQuery, DatabaseLocator, HealthSnapshot, HistoryPage,
     HistoryPageRequest, IngestTextRequest, MemoryPolicy, TextEdge, TextEdgeType, TextObject,
-    TextObjectKind,
+    TextObjectKind, TextVector,
 };
