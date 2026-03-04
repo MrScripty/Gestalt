@@ -197,7 +197,7 @@ impl EmilyStore for SurrealEmilyStore {
         let client = self.active_client().await?;
         let mut response = client
             .query(
-                "SELECT id, object_id, stream_id, sequence, ts_unix_ms, dimensions, profile_id, vector FROM text_vectors WHERE object_id = $object_id LIMIT 1",
+                "SELECT type::string(id) AS id, object_id, stream_id, sequence, ts_unix_ms, dimensions, profile_id, vector FROM text_vectors WHERE object_id = $object_id LIMIT 1",
             )
             .bind(("object_id", object_id.to_string()))
             .await
