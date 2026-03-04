@@ -197,6 +197,10 @@ pub(crate) fn WorkspaceMain(
     let mut runner_drag_start = use_signal(|| None::<(f64, i32)>);
     let mut agent_drag_start = use_signal(|| None::<(f64, f64)>);
     let mut sidebar_drag_start = use_signal(|| None::<(f64, f64)>);
+    let mut renaming_header = use_signal(|| None::<SessionId>);
+    let mut rename_header_draft = use_signal(String::new);
+    let renaming_header_id = *renaming_header.read();
+    let rename_header_draft_value = rename_header_draft.read().clone();
 
     let active_layout = active_group_id
         .map(|group_id| snapshot.group_layout(group_id))
@@ -364,7 +368,6 @@ pub(crate) fn WorkspaceMain(
                                             "terminal-card agent"
                                         };
                                         let card_style = format!("border-top-color: var({});", session.status.css_var());
-                                        let badge_style = format!("background: var({});", session.status.css_var());
                                         let pane = terminal_snapshot_by_id
                                             .get(&session_id)
                                             .cloned()
@@ -380,6 +383,9 @@ pub(crate) fn WorkspaceMain(
                                         let cwd = pane.cwd;
                                         let terminal_manager_for_input = terminal_manager.read().clone();
                                         let emily_bridge_for_history = emily_bridge.read().clone();
+                                        let is_renaming_header = renaming_header_id == Some(session_id);
+                                        let title_for_header_start = session.title.clone();
+                                        let rename_header_aria = format!("Rename terminal {}", session.title);
 
                                         rsx! {
                                             article {
@@ -390,15 +396,55 @@ pub(crate) fn WorkspaceMain(
 
                                                 div { class: "terminal-head",
                                                     div {
-                                                        h4 { "{session.title}" }
+                                                        if is_renaming_header {
+                                                            input {
+                                                                class: "terminal-title-input",
+                                                                aria_label: "{rename_header_aria}",
+                                                                value: "{rename_header_draft_value}",
+                                                                oninput: move |event| rename_header_draft.set(event.value()),
+                                                                onkeydown: move |event| {
+                                                                    match event.key() {
+                                                                        Key::Enter => {
+                                                                            event.prevent_default();
+                                                                            let title = rename_header_draft.read().trim().to_string();
+                                                                            if !title.is_empty() {
+                                                                                app_state.write().rename_session(session_id, title);
+                                                                            }
+                                                                            renaming_header.set(None);
+                                                                        }
+                                                                        Key::Escape => {
+                                                                            event.prevent_default();
+                                                                            renaming_header.set(None);
+                                                                        }
+                                                                        _ => {}
+                                                                    }
+                                                                },
+                                                                onblur: move |_| {
+                                                                    let was_editing = *renaming_header.read() == Some(session_id);
+                                                                    if was_editing {
+                                                                        let title = rename_header_draft.read().trim().to_string();
+                                                                        if !title.is_empty() {
+                                                                            app_state.write().rename_session(session_id, title);
+                                                                        }
+                                                                        renaming_header.set(None);
+                                                                    }
+                                                                },
+                                                                oncontextmenu: move |event| {
+                                                                    event.stop_propagation();
+                                                                },
+                                                            }
+                                                        } else {
+                                                            h4 {
+                                                                ondoubleclick: move |event| {
+                                                                    event.stop_propagation();
+                                                                    renaming_header.set(Some(session_id));
+                                                                    rename_header_draft.set(title_for_header_start.clone());
+                                                                },
+                                                                "{session.title}"
+                                                            }
+                                                        }
                                                         p { class: "sub", "{group_name}" }
                                                         p { class: "terminal-meta", "cwd: {cwd}" }
-                                                    }
-
-                                                    span {
-                                                        class: "status-cycle",
-                                                        style: "{badge_style}",
-                                                        "{session.status.label()}"
                                                     }
                                                 }
 
@@ -518,7 +564,6 @@ pub(crate) fn WorkspaceMain(
                                             "terminal-card runner"
                                         };
                                         let card_style = format!("border-top-color: var({});", session.status.css_var());
-                                        let badge_style = format!("background: var({});", session.status.css_var());
                                         let pane = terminal_snapshot_by_id
                                             .get(&session_id)
                                             .cloned()
@@ -534,6 +579,9 @@ pub(crate) fn WorkspaceMain(
                                         let cwd = pane.cwd;
                                         let terminal_manager_for_input = terminal_manager.read().clone();
                                         let emily_bridge_for_history = emily_bridge.read().clone();
+                                        let is_renaming_header = renaming_header_id == Some(session_id);
+                                        let title_for_header_start = session.title.clone();
+                                        let rename_header_aria = format!("Rename terminal {}", session.title);
 
                                         rsx! {
                                             article {
@@ -544,15 +592,55 @@ pub(crate) fn WorkspaceMain(
 
                                                 div { class: "terminal-head",
                                                     div {
-                                                        h4 { "{session.title}" }
+                                                        if is_renaming_header {
+                                                            input {
+                                                                class: "terminal-title-input",
+                                                                aria_label: "{rename_header_aria}",
+                                                                value: "{rename_header_draft_value}",
+                                                                oninput: move |event| rename_header_draft.set(event.value()),
+                                                                onkeydown: move |event| {
+                                                                    match event.key() {
+                                                                        Key::Enter => {
+                                                                            event.prevent_default();
+                                                                            let title = rename_header_draft.read().trim().to_string();
+                                                                            if !title.is_empty() {
+                                                                                app_state.write().rename_session(session_id, title);
+                                                                            }
+                                                                            renaming_header.set(None);
+                                                                        }
+                                                                        Key::Escape => {
+                                                                            event.prevent_default();
+                                                                            renaming_header.set(None);
+                                                                        }
+                                                                        _ => {}
+                                                                    }
+                                                                },
+                                                                onblur: move |_| {
+                                                                    let was_editing = *renaming_header.read() == Some(session_id);
+                                                                    if was_editing {
+                                                                        let title = rename_header_draft.read().trim().to_string();
+                                                                        if !title.is_empty() {
+                                                                            app_state.write().rename_session(session_id, title);
+                                                                        }
+                                                                        renaming_header.set(None);
+                                                                    }
+                                                                },
+                                                                oncontextmenu: move |event| {
+                                                                    event.stop_propagation();
+                                                                },
+                                                            }
+                                                        } else {
+                                                            h4 {
+                                                                ondoubleclick: move |event| {
+                                                                    event.stop_propagation();
+                                                                    renaming_header.set(Some(session_id));
+                                                                    rename_header_draft.set(title_for_header_start.clone());
+                                                                },
+                                                                "{session.title}"
+                                                            }
+                                                        }
                                                         p { class: "sub", "{group_name}" }
                                                         p { class: "terminal-meta", "cwd: {cwd}" }
-                                                    }
-
-                                                    span {
-                                                        class: "status-cycle",
-                                                        style: "{badge_style}",
-                                                        "{session.status.label()}"
                                                     }
                                                 }
 

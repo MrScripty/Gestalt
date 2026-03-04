@@ -205,7 +205,7 @@
 .terminal-head {
   padding: 10px 12px;
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
   align-items: flex-start;
   border-bottom: 1px solid #dbe7ea;
 }
@@ -213,6 +213,23 @@
 .terminal-head h4 {
   margin: 0;
   font-size: calc(0.94rem * var(--font-scale));
+  cursor: text;
+}
+
+.terminal-title-input {
+  width: min(100%, 320px);
+  border: 1px solid #8badb7;
+  border-radius: 6px;
+  padding: 5px 8px;
+  background: #f6fbfc;
+  color: #14333a;
+  font: inherit;
+  font-size: calc(0.9rem * var(--font-scale));
+}
+
+.terminal-title-input:focus-visible {
+  outline: 2px solid #2f6fe4;
+  outline-offset: 1px;
 }
 
 .sub {
@@ -225,13 +242,6 @@
   margin: 2px 0 0;
   font-size: calc(0.68rem * var(--font-scale));
   color: #658a94;
-}
-
-.status-cycle {
-  font-size: calc(0.72rem * var(--font-scale));
-  padding: 5px 8px;
-  color: #142a2e;
-  font-weight: 700;
 }
 
 .terminal-shell {
@@ -622,8 +632,14 @@
   color: #80a193;
 }
 
-.status-cycle {
-  color: #d3e8de;
+.terminal-title-input {
+  border-color: #3e6354;
+  background: #0b1714;
+  color: #d4eadf;
+}
+
+.terminal-title-input:focus-visible {
+  outline-color: var(--accent);
 }
 
 .terminal-body {
