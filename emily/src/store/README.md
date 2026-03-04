@@ -26,6 +26,7 @@ Define `EmilyStore` as the storage boundary and keep backend details inside impl
 - `EmilyStore` trait remains backend-agnostic.
 - Backend modules map storage failures to `EmilyError`.
 - Vector writes use dedicated records (`text_vectors`) instead of embedding fields on text objects.
+- Runtime vectorization config is persisted in dedicated runtime config records.
 
 ## Revisit Triggers
 - Additional backend support is required.

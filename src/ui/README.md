@@ -28,6 +28,7 @@ Provide responsive desktop UI workflows while delegating domain behavior to lowe
 - Must preserve keyboard-first interaction.
 - Must avoid direct PTY lifecycle ownership.
 - Must coexist with polling loops currently used for runtime sync.
+- Vectorization business behavior remains Emily-owned; UI dispatches actions and renders status.
 
 ## Decision
 Keep UI responsibilities component-focused and route runtime/domain mutations through shared services and orchestrator APIs.
@@ -39,6 +40,7 @@ Keep UI responsibilities component-focused and route runtime/domain mutations th
 ## Invariants
 - UI state is transient and presentation-oriented.
 - Persistent/business state changes route through `state`, `orchestrator`, or `persistence` paths.
+- Emily vectorization settings UI is a bridge surface only; runtime authority stays in Emily APIs.
 - Components remain keyboard reachable.
 
 ## Revisit Triggers

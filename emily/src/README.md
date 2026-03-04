@@ -32,6 +32,7 @@ Use trait-based API/store abstractions with a default runtime wiring.
 - `EmilyApi` remains the primary integration contract.
 - Runtime validates inputs at API boundaries.
 - Text vectors are persisted separately from text object records.
+- Vectorization configuration and job state are Emily-owned runtime data.
 - Pantograph session lifecycle is managed by embedding providers, not by store modules.
 
 ## Revisit Triggers
