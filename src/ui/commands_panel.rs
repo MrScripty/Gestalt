@@ -562,19 +562,18 @@ fn looks_like_path(token: &str, quoted: bool) -> bool {
         return true;
     }
 
-    if let Some((base, extension)) = candidate.rsplit_once('.') {
-        if !base.is_empty()
-            && !extension.is_empty()
-            && extension.len() <= 10
-            && extension.chars().all(|ch| ch.is_ascii_alphanumeric())
-            && base.chars().all(|ch| {
-                ch.is_ascii_alphanumeric()
-                    || matches!(ch, '_' | '-' | '.' | '~')
-                    || (quoted && ch == ' ')
-            })
-        {
-            return true;
-        }
+    if let Some((base, extension)) = candidate.rsplit_once('.')
+        && !base.is_empty()
+        && !extension.is_empty()
+        && extension.len() <= 10
+        && extension.chars().all(|ch| ch.is_ascii_alphanumeric())
+        && base.chars().all(|ch| {
+            ch.is_ascii_alphanumeric()
+                || matches!(ch, '_' | '-' | '.' | '~')
+                || (quoted && ch == ' ')
+        })
+    {
+        return true;
     }
 
     false
