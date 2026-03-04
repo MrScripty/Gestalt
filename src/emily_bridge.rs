@@ -11,6 +11,7 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::sync::mpsc;
 use std::thread;
 
@@ -49,9 +50,43 @@ pub struct HistoryChunk {
     pub next_before_sequence: Option<u64>,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct BridgeHealthSnapshot {
+    pub ingest_input_success: u64,
+    pub ingest_input_error: u64,
+    pub ingest_output_success: u64,
+    pub ingest_output_error: u64,
+    pub history_query_error: u64,
+    pub context_query_error: u64,
+}
+
+#[derive(Debug, Default)]
+struct BridgeHealthCounters {
+    ingest_input_success: AtomicU64,
+    ingest_input_error: AtomicU64,
+    ingest_output_success: AtomicU64,
+    ingest_output_error: AtomicU64,
+    history_query_error: AtomicU64,
+    context_query_error: AtomicU64,
+}
+
+impl BridgeHealthCounters {
+    fn snapshot(&self) -> BridgeHealthSnapshot {
+        BridgeHealthSnapshot {
+            ingest_input_success: self.ingest_input_success.load(AtomicOrdering::Relaxed),
+            ingest_input_error: self.ingest_input_error.load(AtomicOrdering::Relaxed),
+            ingest_output_success: self.ingest_output_success.load(AtomicOrdering::Relaxed),
+            ingest_output_error: self.ingest_output_error.load(AtomicOrdering::Relaxed),
+            history_query_error: self.history_query_error.load(AtomicOrdering::Relaxed),
+            context_query_error: self.context_query_error.load(AtomicOrdering::Relaxed),
+        }
+    }
+}
+
 /// Gestalt-side adapter that feeds terminal text into Emily and exposes history queries.
 pub struct EmilyBridge {
     command_tx: mpsc::Sender<BridgeCommand>,
+    health: Arc<BridgeHealthCounters>,
 }
 
 impl EmilyBridge {
@@ -64,12 +99,14 @@ impl EmilyBridge {
     /// Starts Emily runtime worker with an explicit database locator.
     pub fn new(locator: DatabaseLocator) -> Self {
         let (command_tx, command_rx) = mpsc::channel::<BridgeCommand>();
+        let health = Arc::new(BridgeHealthCounters::default());
+        let worker_health = Arc::clone(&health);
 
         thread::spawn(move || {
-            run_worker(locator, command_rx);
+            run_worker(locator, command_rx, worker_health);
         });
 
-        Self { command_tx }
+        Self { command_tx, health }
     }
 
     pub fn page_history_before(
@@ -93,12 +130,29 @@ impl EmilyBridge {
     }
 
     pub fn recent_lines(&self, session_id: SessionId, limit: usize) -> Vec<String> {
+        self.recent_history(session_id, limit).lines
+    }
+
+    pub fn recent_history(&self, session_id: SessionId, limit: usize) -> HistoryChunk {
         self.page_history_before(session_id, None, limit)
-            .map(|chunk| {
+            .map(|mut chunk| {
                 // API returns newest-first for efficient paging. Terminal restore expects oldest-first.
-                chunk.lines.into_iter().rev().collect::<Vec<_>>()
+                chunk.lines.reverse();
+                chunk
             })
-            .unwrap_or_default()
+            .unwrap_or_else(|error| {
+                eprintln!(
+                    "Emily recent_history failed for session {session_id}: {error}"
+                );
+                HistoryChunk {
+                    lines: Vec::new(),
+                    next_before_sequence: None,
+                }
+            })
+    }
+
+    pub fn health_snapshot(&self) -> BridgeHealthSnapshot {
+        self.health.snapshot()
     }
 
     pub fn query_context(
@@ -156,7 +210,11 @@ impl TerminalMemorySink for EmilyBridge {
     }
 }
 
-fn run_worker(locator: DatabaseLocator, command_rx: mpsc::Receiver<BridgeCommand>) {
+fn run_worker(
+    locator: DatabaseLocator,
+    command_rx: mpsc::Receiver<BridgeCommand>,
+    health: Arc<BridgeHealthCounters>,
+) {
     let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -187,7 +245,7 @@ fn run_worker(locator: DatabaseLocator, command_rx: mpsc::Receiver<BridgeCommand
                     line,
                     ts_unix_ms,
                 } => {
-                    let _ = ingest_line(
+                    match ingest_line(
                         &emily_runtime,
                         &mut sequence_by_stream,
                         session_id,
@@ -196,7 +254,20 @@ fn run_worker(locator: DatabaseLocator, command_rx: mpsc::Receiver<BridgeCommand
                         ts_unix_ms,
                         TextObjectKind::UserInput,
                     )
-                    .await;
+                    .await
+                    {
+                        Ok(()) => {
+                            health
+                                .ingest_input_success
+                                .fetch_add(1, AtomicOrdering::Relaxed);
+                        }
+                        Err(error) => {
+                            health
+                                .ingest_input_error
+                                .fetch_add(1, AtomicOrdering::Relaxed);
+                            eprintln!("Emily ingest input failed for session {session_id}: {error}");
+                        }
+                    }
                 }
                 BridgeCommand::IngestOutput {
                     session_id,
@@ -204,7 +275,7 @@ fn run_worker(locator: DatabaseLocator, command_rx: mpsc::Receiver<BridgeCommand
                     line,
                     ts_unix_ms,
                 } => {
-                    let _ = ingest_line(
+                    match ingest_line(
                         &emily_runtime,
                         &mut sequence_by_stream,
                         session_id,
@@ -213,7 +284,20 @@ fn run_worker(locator: DatabaseLocator, command_rx: mpsc::Receiver<BridgeCommand
                         ts_unix_ms,
                         TextObjectKind::SystemOutput,
                     )
-                    .await;
+                    .await
+                    {
+                        Ok(()) => {
+                            health
+                                .ingest_output_success
+                                .fetch_add(1, AtomicOrdering::Relaxed);
+                        }
+                        Err(error) => {
+                            health
+                                .ingest_output_error
+                                .fetch_add(1, AtomicOrdering::Relaxed);
+                            eprintln!("Emily ingest output failed for session {session_id}: {error}");
+                        }
+                    }
                 }
                 BridgeCommand::PageHistory {
                     session_id,
@@ -233,6 +317,11 @@ fn run_worker(locator: DatabaseLocator, command_rx: mpsc::Receiver<BridgeCommand
                             next_before_sequence: page.next_before_sequence,
                         })
                         .map_err(|error| format!("Emily history query failed: {error}"));
+                    if result.is_err() {
+                        health
+                            .history_query_error
+                            .fetch_add(1, AtomicOrdering::Relaxed);
+                    }
                     let _ = response_tx.send(result);
                 }
                 BridgeCommand::QueryContext {
@@ -250,6 +339,11 @@ fn run_worker(locator: DatabaseLocator, command_rx: mpsc::Receiver<BridgeCommand
                         })
                         .await
                         .map_err(|error| format!("Emily context query failed: {error}"));
+                    if result.is_err() {
+                        health
+                            .context_query_error
+                            .fetch_add(1, AtomicOrdering::Relaxed);
+                    }
                     let _ = response_tx.send(result);
                 }
                 BridgeCommand::Shutdown => {
@@ -271,15 +365,20 @@ async fn ingest_line(
     object_kind: TextObjectKind,
 ) -> Result<(), String> {
     let stream_id = stream_id(session_id);
-    let next_sequence = sequence_by_stream.entry(stream_id.clone()).or_insert(0);
-    *next_sequence = next_sequence.saturating_add(1);
+    let cached_sequence = sequence_by_stream.get(&stream_id).copied();
+    let latest_sequence = match cached_sequence {
+        Some(sequence) => Ok(sequence),
+        None => latest_sequence_for_stream(emily_runtime, &stream_id).await,
+    };
+    let base_sequence = base_sequence_for_stream(sequence_by_stream, &stream_id, latest_sequence)?;
+    let next_sequence = base_sequence.saturating_add(1);
 
     emily_runtime
         .ingest_text(IngestTextRequest {
-            stream_id,
+            stream_id: stream_id.clone(),
             source_kind: "terminal".to_string(),
             object_kind,
-            sequence: *next_sequence,
+            sequence: next_sequence,
             ts_unix_ms,
             text: line,
             metadata: json!({ "cwd": cwd }),
@@ -287,7 +386,36 @@ async fn ingest_line(
         .await
         .map_err(|error| format!("Emily ingest failed: {error}"))?;
 
+    sequence_by_stream.insert(stream_id, next_sequence);
+
     Ok(())
+}
+
+fn base_sequence_for_stream(
+    sequence_by_stream: &HashMap<String, u64>,
+    stream_id: &str,
+    latest_sequence: Result<u64, String>,
+) -> Result<u64, String> {
+    if let Some(sequence) = sequence_by_stream.get(stream_id).copied() {
+        return Ok(sequence);
+    }
+
+    latest_sequence
+}
+
+async fn latest_sequence_for_stream(
+    emily_runtime: &Arc<EmilyRuntime<SurrealEmilyStore>>,
+    stream_id: &str,
+) -> Result<u64, String> {
+    emily_runtime
+        .page_history_before(HistoryPageRequest {
+            stream_id: stream_id.to_string(),
+            before_sequence: None,
+            limit: 1,
+        })
+        .await
+        .map(|page| page.items.first().map(|item| item.sequence).unwrap_or(0))
+        .map_err(|error| format!("Emily seed sequence query failed: {error}"))
 }
 
 fn stream_id(session_id: SessionId) -> String {
@@ -307,4 +435,37 @@ fn default_storage_path() -> PathBuf {
         .map(PathBuf::from)
         .map(|home| home.join(".local/share/gestalt/emily"))
         .unwrap_or_else(|| std::env::temp_dir().join("gestalt-emily"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::base_sequence_for_stream;
+    use std::collections::HashMap;
+
+    #[test]
+    fn base_sequence_prefers_cached_value() {
+        let mut sequence_by_stream = HashMap::new();
+        sequence_by_stream.insert("terminal:1".to_string(), 42);
+
+        let sequence = base_sequence_for_stream(
+            &sequence_by_stream,
+            "terminal:1",
+            Err("should not be used".to_string()),
+        )
+        .expect("base sequence should resolve");
+        assert_eq!(sequence, 42);
+    }
+
+    #[test]
+    fn base_sequence_propagates_seed_query_error() {
+        let sequence_by_stream = HashMap::new();
+
+        let error = base_sequence_for_stream(
+            &sequence_by_stream,
+            "terminal:9",
+            Err("seed failure".to_string()),
+        )
+        .expect_err("seed errors must propagate");
+        assert_eq!(error, "seed failure");
+    }
 }
