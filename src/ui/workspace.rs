@@ -1,7 +1,7 @@
 use crate::emily_bridge::EmilyBridge;
 use crate::orchestrator::{self, GroupOrchestratorSnapshot};
 use crate::resource_monitor::{RESOURCE_POLL_MS, ResourceSnapshot, sample_resource_snapshot};
-use crate::state::{AppState, SessionId, SessionStatus};
+use crate::state::{AppState, GroupLayout, SessionId, SessionStatus};
 use crate::terminal::{TerminalManager, TerminalSnapshot};
 use crate::ui::TerminalHistoryState;
 use crate::ui::insert_command_mode::InsertModeState;
@@ -49,9 +49,6 @@ pub(crate) fn WorkspaceMain(
     local_agent_feedback: Signal<String>,
     persistence_feedback: Signal<String>,
     refresh_tick: Signal<u64>,
-    runner_width_px: Signal<i32>,
-    agent_top_ratio: Signal<f64>,
-    runner_top_ratio: Signal<f64>,
     git_context: Signal<Option<crate::git::RepoContext>>,
     git_context_loading: Signal<bool>,
     git_refresh_nonce: Signal<u64>,
@@ -195,19 +192,24 @@ pub(crate) fn WorkspaceMain(
             )
         });
 
-    let mut runner_width_px = runner_width_px;
-    let mut agent_top_ratio = agent_top_ratio;
-    let mut runner_top_ratio = runner_top_ratio;
     let mut sidebar_open = sidebar_open;
     let persistence_feedback_value = persistence_feedback.read().clone();
     let mut runner_drag_start = use_signal(|| None::<(f64, i32)>);
     let mut agent_drag_start = use_signal(|| None::<(f64, f64)>);
     let mut sidebar_drag_start = use_signal(|| None::<(f64, f64)>);
 
-    let runner_width = (*runner_width_px.read()).clamp(RUNNER_WIDTH_MIN_PX, RUNNER_WIDTH_MAX_PX);
-    let agent_ratio = (*agent_top_ratio.read()).clamp(STACK_SPLIT_MIN_RATIO, STACK_SPLIT_MAX_RATIO);
-    let sidebar_ratio =
-        (*runner_top_ratio.read()).clamp(STACK_SPLIT_MIN_RATIO, STACK_SPLIT_MAX_RATIO);
+    let active_layout = active_group_id
+        .map(|group_id| snapshot.group_layout(group_id))
+        .unwrap_or_else(GroupLayout::default);
+    let runner_width = active_layout
+        .runner_width_px
+        .clamp(RUNNER_WIDTH_MIN_PX, RUNNER_WIDTH_MAX_PX);
+    let agent_ratio = active_layout
+        .agent_top_ratio
+        .clamp(STACK_SPLIT_MIN_RATIO, STACK_SPLIT_MAX_RATIO);
+    let sidebar_ratio = active_layout
+        .runner_top_ratio
+        .clamp(STACK_SPLIT_MIN_RATIO, STACK_SPLIT_MAX_RATIO);
     let workspace_layout_style =
         format!("--runner-width: {runner_width}px; --side-panel-width: {SIDE_PANEL_WIDTH_PX}px;");
     let sidebar_open_value = *sidebar_open.read();
@@ -242,21 +244,33 @@ pub(crate) fn WorkspaceMain(
                 if let Some((start_x, start_width)) = *runner_drag_start.read() {
                     let delta_x = pointer.x - start_x;
                     let next_width = (f64::from(start_width) - delta_x).round() as i32;
-                    runner_width_px.set(next_width.clamp(RUNNER_WIDTH_MIN_PX, RUNNER_WIDTH_MAX_PX));
+                    if let Some(group_id) = active_group_id {
+                        app_state
+                            .write()
+                            .set_group_runner_width_px(group_id, next_width);
+                    }
                 }
 
                 if let Some((start_y, start_ratio)) = *agent_drag_start.read() {
                     let delta_y = pointer.y - start_y;
                     let next_ratio = (start_ratio + (delta_y / STACK_SPLIT_DRAG_SENSITIVITY_PX))
                         .clamp(STACK_SPLIT_MIN_RATIO, STACK_SPLIT_MAX_RATIO);
-                    agent_top_ratio.set(next_ratio);
+                    if let Some(group_id) = active_group_id {
+                        app_state
+                            .write()
+                            .set_group_agent_top_ratio(group_id, next_ratio);
+                    }
                 }
 
                 if let Some((start_y, start_ratio)) = *sidebar_drag_start.read() {
                     let delta_y = pointer.y - start_y;
                     let next_ratio = (start_ratio + (delta_y / STACK_SPLIT_DRAG_SENSITIVITY_PX))
                         .clamp(STACK_SPLIT_MIN_RATIO, STACK_SPLIT_MAX_RATIO);
-                    runner_top_ratio.set(next_ratio);
+                    if let Some(group_id) = active_group_id {
+                        app_state
+                            .write()
+                            .set_group_runner_top_ratio(group_id, next_ratio);
+                    }
                 }
             },
             onmouseup: move |_| {
@@ -407,23 +421,40 @@ pub(crate) fn WorkspaceMain(
                                                     onmousedown: move |event| {
                                                         event.prevent_default();
                                                         let start_y = event.data().client_coordinates().y;
-                                                        agent_drag_start.set(Some((start_y, *agent_top_ratio.read())));
+                                                        let start_ratio = app_state
+                                                            .read()
+                                                            .group_layout(group_id)
+                                                            .agent_top_ratio;
+                                                        agent_drag_start
+                                                            .set(Some((start_y, start_ratio)));
                                                     },
                                                     onkeydown: move |event| {
                                                         match event.key() {
                                                             Key::ArrowUp => {
                                                                 event.prevent_default();
-                                                                let next = *agent_top_ratio.read() - STACK_SPLIT_STEP_RATIO;
-                                                                agent_top_ratio.set(
-                                                                    next.clamp(STACK_SPLIT_MIN_RATIO, STACK_SPLIT_MAX_RATIO),
-                                                                );
+                                                                let next = app_state
+                                                                    .read()
+                                                                    .group_layout(group_id)
+                                                                    .agent_top_ratio
+                                                                    - STACK_SPLIT_STEP_RATIO;
+                                                                app_state
+                                                                    .write()
+                                                                    .set_group_agent_top_ratio(
+                                                                        group_id, next,
+                                                                    );
                                                             }
                                                             Key::ArrowDown => {
                                                                 event.prevent_default();
-                                                                let next = *agent_top_ratio.read() + STACK_SPLIT_STEP_RATIO;
-                                                                agent_top_ratio.set(
-                                                                    next.clamp(STACK_SPLIT_MIN_RATIO, STACK_SPLIT_MAX_RATIO),
-                                                                );
+                                                                let next = app_state
+                                                                    .read()
+                                                                    .group_layout(group_id)
+                                                                    .agent_top_ratio
+                                                                    + STACK_SPLIT_STEP_RATIO;
+                                                                app_state
+                                                                    .write()
+                                                                    .set_group_agent_top_ratio(
+                                                                        group_id, next,
+                                                                    );
                                                             }
                                                             _ => {}
                                                         }
@@ -442,21 +473,33 @@ pub(crate) fn WorkspaceMain(
                                 onmousedown: move |event| {
                                     event.prevent_default();
                                     let start_x = event.data().client_coordinates().x;
-                                    runner_drag_start.set(Some((start_x, *runner_width_px.read())));
+                                    let start_width =
+                                        app_state.read().group_layout(group_id).runner_width_px;
+                                    runner_drag_start.set(Some((start_x, start_width)));
                                 },
                                 onkeydown: move |event| {
                                     match event.key() {
                                         Key::ArrowLeft => {
                                             event.prevent_default();
-                                            let next = *runner_width_px.read() + RUNNER_WIDTH_STEP_PX;
-                                            runner_width_px
-                                                .set(next.clamp(RUNNER_WIDTH_MIN_PX, RUNNER_WIDTH_MAX_PX));
+                                            let next = app_state
+                                                .read()
+                                                .group_layout(group_id)
+                                                .runner_width_px
+                                                + RUNNER_WIDTH_STEP_PX;
+                                            app_state
+                                                .write()
+                                                .set_group_runner_width_px(group_id, next);
                                         }
                                         Key::ArrowRight => {
                                             event.prevent_default();
-                                            let next = *runner_width_px.read() - RUNNER_WIDTH_STEP_PX;
-                                            runner_width_px
-                                                .set(next.clamp(RUNNER_WIDTH_MIN_PX, RUNNER_WIDTH_MAX_PX));
+                                            let next = app_state
+                                                .read()
+                                                .group_layout(group_id)
+                                                .runner_width_px
+                                                - RUNNER_WIDTH_STEP_PX;
+                                            app_state
+                                                .write()
+                                                .set_group_runner_width_px(group_id, next);
                                         }
                                         _ => {}
                                     }
@@ -539,23 +582,35 @@ pub(crate) fn WorkspaceMain(
                                     onmousedown: move |event| {
                                         event.prevent_default();
                                         let start_y = event.data().client_coordinates().y;
-                                        sidebar_drag_start.set(Some((start_y, *runner_top_ratio.read())));
+                                        let start_ratio = app_state
+                                            .read()
+                                            .group_layout(group_id)
+                                            .runner_top_ratio;
+                                        sidebar_drag_start.set(Some((start_y, start_ratio)));
                                     },
                                     onkeydown: move |event| {
                                         match event.key() {
                                             Key::ArrowUp => {
                                                 event.prevent_default();
-                                                let next = *runner_top_ratio.read() - STACK_SPLIT_STEP_RATIO;
-                                                runner_top_ratio.set(
-                                                    next.clamp(STACK_SPLIT_MIN_RATIO, STACK_SPLIT_MAX_RATIO),
-                                                );
+                                                let next = app_state
+                                                    .read()
+                                                    .group_layout(group_id)
+                                                    .runner_top_ratio
+                                                    - STACK_SPLIT_STEP_RATIO;
+                                                app_state
+                                                    .write()
+                                                    .set_group_runner_top_ratio(group_id, next);
                                             }
                                             Key::ArrowDown => {
                                                 event.prevent_default();
-                                                let next = *runner_top_ratio.read() + STACK_SPLIT_STEP_RATIO;
-                                                runner_top_ratio.set(
-                                                    next.clamp(STACK_SPLIT_MIN_RATIO, STACK_SPLIT_MAX_RATIO),
-                                                );
+                                                let next = app_state
+                                                    .read()
+                                                    .group_layout(group_id)
+                                                    .runner_top_ratio
+                                                    + STACK_SPLIT_STEP_RATIO;
+                                                app_state
+                                                    .write()
+                                                    .set_group_runner_top_ratio(group_id, next);
                                             }
                                             _ => {}
                                         }

@@ -52,8 +52,6 @@ const RAIL_WIDTH_MIN_PX: i32 = 240;
 const RAIL_WIDTH_MAX_PX: i32 = 620;
 const RAIL_SPLIT_STEP_PX: i32 = 16;
 const SHELL_SPLITTER_SIZE_PX: i32 = 8;
-const RUNNER_WIDTH_DEFAULT_PX: i32 = 340;
-const SPLIT_RATIO_DEFAULT: f64 = 0.5;
 const GUI_SCALE_STEP: f64 = 0.1;
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -140,9 +138,6 @@ pub fn App() -> Element {
     let rename_draft = use_signal(String::new);
     let mut rail_width_px = use_signal(|| RAIL_WIDTH_DEFAULT_PX);
     let mut rail_drag_start = use_signal(|| None::<(f64, i32)>);
-    let runner_width_px = use_signal(|| RUNNER_WIDTH_DEFAULT_PX);
-    let agent_top_ratio = use_signal(|| SPLIT_RATIO_DEFAULT);
-    let runner_top_ratio = use_signal(|| SPLIT_RATIO_DEFAULT);
     let git_context = use_signal(|| None::<RepoContext>);
     let git_context_loading = use_signal(|| false);
     let git_refresh_nonce = use_signal(|| 0_u64);
@@ -530,9 +525,6 @@ pub fn App() -> Element {
                 local_agent_feedback: local_agent_feedback,
                 persistence_feedback: persistence_feedback,
                 refresh_tick: refresh_tick,
-                runner_width_px: runner_width_px,
-                agent_top_ratio: agent_top_ratio,
-                runner_top_ratio: runner_top_ratio,
                 git_context: git_context,
                 git_context_loading: git_context_loading,
                 git_refresh_nonce: git_refresh_nonce,
