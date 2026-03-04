@@ -226,6 +226,50 @@ fn remove_session_updates_selected_to_same_group_when_available() {
 }
 
 #[test]
+fn group_layout_updates_are_scoped_per_group() {
+    let mut state = AppState::default();
+    let first_group = state.groups[0].id;
+    let (second_group, _) = state.create_group_with_defaults("/tmp/group-layout".to_string());
+
+    state.set_group_runner_width_px(first_group, 640);
+    state.set_group_agent_top_ratio(first_group, 0.63);
+    state.set_group_runner_top_ratio(first_group, 0.41);
+
+    let first_layout = state.group_layout(first_group);
+    let second_layout = state.group_layout(second_group);
+
+    assert_eq!(first_layout.runner_width_px, 640);
+    assert_eq!(first_layout.agent_top_ratio, 0.63);
+    assert_eq!(first_layout.runner_top_ratio, 0.41);
+    assert_eq!(second_layout.runner_width_px, 340);
+    assert_eq!(second_layout.agent_top_ratio, 0.5);
+    assert_eq!(second_layout.runner_top_ratio, 0.5);
+}
+
+#[test]
+fn group_layout_values_are_clamped_and_restored_safely() {
+    let mut state = AppState::default();
+    let group_id = state.groups[0].id;
+
+    state.set_group_runner_width_px(group_id, 10_000);
+    state.set_group_agent_top_ratio(group_id, 99.0);
+    state.set_group_runner_top_ratio(group_id, f64::NAN);
+    let clamped = state.group_layout(group_id);
+    assert_eq!(clamped.runner_width_px, 760);
+    assert_eq!(clamped.agent_top_ratio, 0.72);
+    assert_eq!(clamped.runner_top_ratio, 0.5);
+
+    state.groups[0].layout.runner_width_px = -100;
+    state.groups[0].layout.agent_top_ratio = -1.0;
+    state.groups[0].layout.runner_top_ratio = 900.0;
+    let restored = state.into_restored();
+    let restored_layout = restored.group_layout(group_id);
+    assert_eq!(restored_layout.runner_width_px, 260);
+    assert_eq!(restored_layout.agent_top_ratio, 0.28);
+    assert_eq!(restored_layout.runner_top_ratio, 0.72);
+}
+
+#[test]
 fn set_ui_scale_clamps_and_marks_state_dirty() {
     let mut state = AppState::default();
     let before = state.revision();

@@ -75,6 +75,12 @@ pub type GroupId = u32;
 pub const UI_SCALE_DEFAULT: f64 = 1.0;
 pub const UI_SCALE_MIN: f64 = 0.7;
 pub const UI_SCALE_MAX: f64 = 1.8;
+pub const GROUP_RUNNER_WIDTH_DEFAULT_PX: i32 = 340;
+pub const GROUP_SPLIT_RATIO_DEFAULT: f64 = 0.5;
+const GROUP_RUNNER_WIDTH_MIN_PX: i32 = 260;
+const GROUP_RUNNER_WIDTH_MAX_PX: i32 = 760;
+const GROUP_SPLIT_MIN_RATIO: f64 = 0.28;
+const GROUP_SPLIT_MAX_RATIO: f64 = 0.72;
 
 pub fn clamp_ui_scale(scale: f64) -> f64 {
     if !scale.is_finite() {
@@ -84,12 +90,65 @@ pub fn clamp_ui_scale(scale: f64) -> f64 {
     scale.clamp(UI_SCALE_MIN, UI_SCALE_MAX)
 }
 
+fn clamp_group_runner_width_px(width: i32) -> i32 {
+    width.clamp(GROUP_RUNNER_WIDTH_MIN_PX, GROUP_RUNNER_WIDTH_MAX_PX)
+}
+
+fn clamp_group_split_ratio(ratio: f64) -> f64 {
+    if !ratio.is_finite() {
+        return GROUP_SPLIT_RATIO_DEFAULT;
+    }
+
+    ratio.clamp(GROUP_SPLIT_MIN_RATIO, GROUP_SPLIT_MAX_RATIO)
+}
+
+fn default_group_runner_width_px() -> i32 {
+    GROUP_RUNNER_WIDTH_DEFAULT_PX
+}
+
+fn default_group_split_ratio() -> f64 {
+    GROUP_SPLIT_RATIO_DEFAULT
+}
+
+/// Persisted workspace layout controls scoped to one path group.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub struct GroupLayout {
+    #[serde(default = "default_group_runner_width_px")]
+    pub runner_width_px: i32,
+    #[serde(default = "default_group_split_ratio")]
+    pub agent_top_ratio: f64,
+    #[serde(default = "default_group_split_ratio")]
+    pub runner_top_ratio: f64,
+}
+
+impl Default for GroupLayout {
+    fn default() -> Self {
+        Self {
+            runner_width_px: GROUP_RUNNER_WIDTH_DEFAULT_PX,
+            agent_top_ratio: GROUP_SPLIT_RATIO_DEFAULT,
+            runner_top_ratio: GROUP_SPLIT_RATIO_DEFAULT,
+        }
+    }
+}
+
+impl GroupLayout {
+    fn normalized(self) -> Self {
+        Self {
+            runner_width_px: clamp_group_runner_width_px(self.runner_width_px),
+            agent_top_ratio: clamp_group_split_ratio(self.agent_top_ratio),
+            runner_top_ratio: clamp_group_split_ratio(self.runner_top_ratio),
+        }
+    }
+}
+
 /// Path-scoped tab group metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TabGroup {
     pub id: GroupId,
     pub path: String,
     pub color: String,
+    #[serde(default)]
+    pub layout: GroupLayout,
 }
 
 impl TabGroup {
@@ -175,6 +234,9 @@ impl AppState {
         self.command_library.repair_after_restore();
         self.ui_scale = clamp_ui_scale(self.ui_scale);
         self.groups.retain(|group| !group.path.trim().is_empty());
+        for group in &mut self.groups {
+            group.layout = group.layout.normalized();
+        }
 
         if self.groups.is_empty() {
             let (_, ids) = self.create_group_with_defaults(".".to_string());
@@ -274,6 +336,7 @@ impl AppState {
             id,
             path: normalized,
             color,
+            layout: GroupLayout::default(),
         });
         self.mark_dirty();
 
@@ -642,6 +705,54 @@ impl AppState {
             .iter()
             .find(|group| group.id == group_id)
             .map(|group| group.path.as_str())
+    }
+
+    /// Returns layout controls for a group identifier.
+    pub fn group_layout(&self, group_id: GroupId) -> GroupLayout {
+        self.groups
+            .iter()
+            .find(|group| group.id == group_id)
+            .map(|group| group.layout.normalized())
+            .unwrap_or_default()
+    }
+
+    /// Updates the run sidebar width for a group.
+    pub fn set_group_runner_width_px(&mut self, group_id: GroupId, width: i32) {
+        let next = clamp_group_runner_width_px(width);
+        self.update_group_layout(group_id, |layout| layout.runner_width_px = next);
+    }
+
+    /// Updates the agent stack split ratio for a group.
+    pub fn set_group_agent_top_ratio(&mut self, group_id: GroupId, ratio: f64) {
+        let next = clamp_group_split_ratio(ratio);
+        self.update_group_layout(group_id, |layout| layout.agent_top_ratio = next);
+    }
+
+    /// Updates the run/local-agent split ratio for a group.
+    pub fn set_group_runner_top_ratio(&mut self, group_id: GroupId, ratio: f64) {
+        let next = clamp_group_split_ratio(ratio);
+        self.update_group_layout(group_id, |layout| layout.runner_top_ratio = next);
+    }
+
+    fn update_group_layout(
+        &mut self,
+        group_id: GroupId,
+        update: impl FnOnce(&mut GroupLayout),
+    ) -> bool {
+        let Some(group) = self.groups.iter_mut().find(|group| group.id == group_id) else {
+            return false;
+        };
+        let before = group.layout.normalized();
+        let mut next = before;
+        update(&mut next);
+        next = next.normalized();
+        if before == next {
+            return false;
+        }
+
+        group.layout = next;
+        self.mark_dirty();
+        true
     }
 
     /// Counts sessions in a given status.
