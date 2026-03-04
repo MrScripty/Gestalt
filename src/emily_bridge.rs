@@ -141,9 +141,7 @@ impl EmilyBridge {
                 chunk
             })
             .unwrap_or_else(|error| {
-                eprintln!(
-                    "Emily recent_history failed for session {session_id}: {error}"
-                );
+                eprintln!("Emily recent_history failed for session {session_id}: {error}");
                 HistoryChunk {
                     lines: Vec::new(),
                     next_before_sequence: None,
@@ -265,7 +263,9 @@ fn run_worker(
                             health
                                 .ingest_input_error
                                 .fetch_add(1, AtomicOrdering::Relaxed);
-                            eprintln!("Emily ingest input failed for session {session_id}: {error}");
+                            eprintln!(
+                                "Emily ingest input failed for session {session_id}: {error}"
+                            );
                         }
                     }
                 }
@@ -295,7 +295,9 @@ fn run_worker(
                             health
                                 .ingest_output_error
                                 .fetch_add(1, AtomicOrdering::Relaxed);
-                            eprintln!("Emily ingest output failed for session {session_id}: {error}");
+                            eprintln!(
+                                "Emily ingest output failed for session {session_id}: {error}"
+                            );
                         }
                     }
                 }
