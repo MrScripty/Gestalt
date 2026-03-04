@@ -11,11 +11,11 @@ serde_json = "1"
 surrealdb = { version = "2.0.4", default-features = false, features = ["kv-surrealkv"] }
 thiserror = "2"
 tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
-pantograph_inference = { package = "inference", path = "../../Pantograph/crates/inference", default-features = false, optional = true }
+pantograph_workflow_service = { package = "pantograph-workflow-service", path = "../../Pantograph/crates/pantograph-workflow-service", optional = true }
 
 [dev-dependencies]
 serde_json = "1"
 
 [features]
 default = []
-pantograph = ["dep:pantograph_inference"]
+pantograph = ["dep:pantograph_workflow_service"]

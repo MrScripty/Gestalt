@@ -5,6 +5,10 @@ use async_trait::async_trait;
 #[async_trait]
 pub trait EmbeddingProvider: Send + Sync {
     async fn embed_text(&self, text: &str) -> Result<Vec<f32>, EmilyError>;
+
+    async fn shutdown(&self) -> Result<(), EmilyError> {
+        Ok(())
+    }
 }
 
 /// Default provider for deployments where embeddings are disabled.
@@ -21,34 +25,284 @@ impl EmbeddingProvider for NoopEmbeddingProvider {
 #[cfg(feature = "pantograph")]
 mod pantograph {
     use super::*;
-    use pantograph_inference::SharedGateway;
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
 
-    /// Pantograph-backed embedding provider.
-    pub struct PantographEmbeddingProvider {
-        gateway: SharedGateway,
-        model_name: String,
+    use pantograph_workflow_service::{
+        WorkflowHost, WorkflowIoNode, WorkflowIoRequest, WorkflowIoResponse, WorkflowOutputTarget,
+        WorkflowPortBinding, WorkflowPreflightRequest, WorkflowPreflightResponse,
+        WorkflowRunResponse, WorkflowService, WorkflowServiceError, WorkflowSessionCloseRequest,
+        WorkflowSessionCreateRequest, WorkflowSessionCreateResponse, WorkflowSessionRunRequest,
+    };
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct WorkflowBinding {
+        pub node_id: String,
+        pub port_id: String,
     }
 
-    impl PantographEmbeddingProvider {
-        pub fn new(gateway: SharedGateway, model_name: impl Into<String>) -> Self {
-            Self {
-                gateway,
-                model_name: model_name.into(),
-            }
-        }
-
-        /// Verify gateway readiness for embedding requests.
-        pub async fn validate(&self) -> Result<(), EmilyError> {
-            let ready = self.gateway.is_ready().await;
-            if !ready {
-                return Err(EmilyError::Embedding(
-                    "Pantograph gateway is not ready".to_string(),
+    impl WorkflowBinding {
+        pub fn new(
+            node_id: impl Into<String>,
+            port_id: impl Into<String>,
+        ) -> Result<Self, EmilyError> {
+            let node_id = node_id.into();
+            let port_id = port_id.into();
+            if node_id.trim().is_empty() {
+                return Err(EmilyError::InvalidRequest(
+                    "workflow binding node_id cannot be empty".to_string(),
                 ));
             }
-            let capabilities = self.gateway.capabilities().await;
-            if !capabilities.embeddings {
+            if port_id.trim().is_empty() {
+                return Err(EmilyError::InvalidRequest(
+                    "workflow binding port_id cannot be empty".to_string(),
+                ));
+            }
+            Ok(Self { node_id, port_id })
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    pub struct WorkflowEmbeddingConfig {
+        pub workflow_id: String,
+        pub text_input: WorkflowBinding,
+        pub vector_output: WorkflowBinding,
+        pub timeout_ms: Option<u64>,
+        pub expected_dimensions: usize,
+    }
+
+    impl WorkflowEmbeddingConfig {
+        pub fn new(
+            workflow_id: impl Into<String>,
+            text_input: WorkflowBinding,
+            vector_output: WorkflowBinding,
+            timeout_ms: Option<u64>,
+            expected_dimensions: usize,
+        ) -> Result<Self, EmilyError> {
+            let workflow_id = workflow_id.into();
+            if workflow_id.trim().is_empty() {
+                return Err(EmilyError::InvalidRequest(
+                    "workflow_id cannot be empty".to_string(),
+                ));
+            }
+            if expected_dimensions == 0 {
+                return Err(EmilyError::InvalidRequest(
+                    "expected_dimensions must be greater than zero".to_string(),
+                ));
+            }
+            Ok(Self {
+                workflow_id,
+                text_input,
+                vector_output,
+                timeout_ms,
+                expected_dimensions,
+            })
+        }
+    }
+
+    #[async_trait]
+    pub trait WorkflowSessionClient: Send + Sync {
+        async fn workflow_get_io(
+            &self,
+            request: WorkflowIoRequest,
+        ) -> Result<WorkflowIoResponse, EmilyError>;
+        async fn workflow_preflight(
+            &self,
+            request: WorkflowPreflightRequest,
+        ) -> Result<WorkflowPreflightResponse, EmilyError>;
+        async fn create_workflow_session(
+            &self,
+            request: WorkflowSessionCreateRequest,
+        ) -> Result<WorkflowSessionCreateResponse, EmilyError>;
+        async fn run_workflow_session(
+            &self,
+            request: WorkflowSessionRunRequest,
+        ) -> Result<WorkflowRunResponse, EmilyError>;
+        async fn close_workflow_session(
+            &self,
+            request: WorkflowSessionCloseRequest,
+        ) -> Result<(), EmilyError>;
+    }
+
+    /// Workflow-service-backed client for hosts that already expose a WorkflowHost runtime.
+    pub struct WorkflowServiceSessionClient<H: WorkflowHost> {
+        service: WorkflowService,
+        host: Arc<H>,
+    }
+
+    impl<H: WorkflowHost> WorkflowServiceSessionClient<H> {
+        pub fn new(host: Arc<H>) -> Self {
+            Self {
+                service: WorkflowService::new(),
+                host,
+            }
+        }
+    }
+
+    #[async_trait]
+    impl<H: WorkflowHost> WorkflowSessionClient for WorkflowServiceSessionClient<H> {
+        async fn workflow_get_io(
+            &self,
+            request: WorkflowIoRequest,
+        ) -> Result<WorkflowIoResponse, EmilyError> {
+            self.service
+                .workflow_get_io(self.host.as_ref(), request)
+                .await
+                .map_err(map_workflow_service_error)
+        }
+
+        async fn workflow_preflight(
+            &self,
+            request: WorkflowPreflightRequest,
+        ) -> Result<WorkflowPreflightResponse, EmilyError> {
+            self.service
+                .workflow_preflight(self.host.as_ref(), request)
+                .await
+                .map_err(map_workflow_service_error)
+        }
+
+        async fn create_workflow_session(
+            &self,
+            request: WorkflowSessionCreateRequest,
+        ) -> Result<WorkflowSessionCreateResponse, EmilyError> {
+            self.service
+                .create_workflow_session(self.host.as_ref(), request)
+                .await
+                .map_err(map_workflow_service_error)
+        }
+
+        async fn run_workflow_session(
+            &self,
+            request: WorkflowSessionRunRequest,
+        ) -> Result<WorkflowRunResponse, EmilyError> {
+            self.service
+                .run_workflow_session(self.host.as_ref(), request)
+                .await
+                .map_err(map_workflow_service_error)
+        }
+
+        async fn close_workflow_session(
+            &self,
+            request: WorkflowSessionCloseRequest,
+        ) -> Result<(), EmilyError> {
+            self.service
+                .close_workflow_session(request)
+                .await
+                .map_err(map_workflow_service_error)?;
+            Ok(())
+        }
+    }
+
+    fn map_workflow_service_error(error: WorkflowServiceError) -> EmilyError {
+        EmilyError::Embedding(format!(
+            "workflow request failed: {}",
+            error.to_envelope_json()
+        ))
+    }
+
+    /// Pantograph workflow-session embedding provider.
+    pub struct PantographWorkflowEmbeddingProvider {
+        client: Arc<dyn WorkflowSessionClient>,
+        config: WorkflowEmbeddingConfig,
+        session_id: Mutex<Option<String>>,
+    }
+
+    impl PantographWorkflowEmbeddingProvider {
+        pub fn new(
+            client: Arc<dyn WorkflowSessionClient>,
+            config: WorkflowEmbeddingConfig,
+        ) -> Result<Self, EmilyError> {
+            if matches!(config.timeout_ms, Some(0)) {
+                return Err(EmilyError::InvalidRequest(
+                    "timeout_ms must be greater than zero when provided".to_string(),
+                ));
+            }
+            Ok(Self {
+                client,
+                config,
+                session_id: Mutex::new(None),
+            })
+        }
+
+        pub async fn validate(&self) -> Result<(), EmilyError> {
+            let _ = self.ensure_session().await?;
+            Ok(())
+        }
+
+        async fn ensure_session(&self) -> Result<String, EmilyError> {
+            {
+                let current = self.session_id.lock().await;
+                if let Some(session_id) = current.as_ref() {
+                    return Ok(session_id.clone());
+                }
+            }
+
+            self.validate_io_and_preflight().await?;
+            let session = self
+                .client
+                .create_workflow_session(WorkflowSessionCreateRequest {
+                    workflow_id: self.config.workflow_id.clone(),
+                    usage_profile: None,
+                })
+                .await?;
+
+            let mut current = self.session_id.lock().await;
+            if let Some(session_id) = current.as_ref() {
+                return Ok(session_id.clone());
+            }
+            *current = Some(session.session_id.clone());
+            Ok(session.session_id)
+        }
+
+        async fn validate_io_and_preflight(&self) -> Result<(), EmilyError> {
+            let io = self
+                .client
+                .workflow_get_io(WorkflowIoRequest {
+                    workflow_id: self.config.workflow_id.clone(),
+                })
+                .await?;
+            if !io_contains_binding(&io.inputs, &self.config.text_input) {
+                return Err(EmilyError::Embedding(format!(
+                    "workflow input binding '{}.{}' was not discovered",
+                    self.config.text_input.node_id, self.config.text_input.port_id
+                )));
+            }
+            if !io_contains_binding(&io.outputs, &self.config.vector_output) {
+                return Err(EmilyError::Embedding(format!(
+                    "workflow output binding '{}.{}' was not discovered",
+                    self.config.vector_output.node_id, self.config.vector_output.port_id
+                )));
+            }
+
+            let preflight = self
+                .client
+                .workflow_preflight(WorkflowPreflightRequest {
+                    workflow_id: self.config.workflow_id.clone(),
+                    inputs: vec![WorkflowPortBinding {
+                        node_id: self.config.text_input.node_id.clone(),
+                        port_id: self.config.text_input.port_id.clone(),
+                        value: serde_json::json!("preflight-probe"),
+                    }],
+                    output_targets: Some(vec![WorkflowOutputTarget {
+                        node_id: self.config.vector_output.node_id.clone(),
+                        port_id: self.config.vector_output.port_id.clone(),
+                    }]),
+                })
+                .await?;
+
+            if !preflight.invalid_targets.is_empty() {
                 return Err(EmilyError::Embedding(
-                    "Active Pantograph backend does not support embeddings".to_string(),
+                    "workflow preflight rejected configured output target".to_string(),
+                ));
+            }
+            if !preflight.missing_required_inputs.is_empty() {
+                return Err(EmilyError::Embedding(
+                    "workflow preflight reported missing required inputs".to_string(),
+                ));
+            }
+            if !preflight.can_run {
+                return Err(EmilyError::Embedding(
+                    "workflow preflight reported can_run=false".to_string(),
                 ));
             }
             Ok(())
@@ -56,24 +310,300 @@ mod pantograph {
     }
 
     #[async_trait]
-    impl EmbeddingProvider for PantographEmbeddingProvider {
+    impl EmbeddingProvider for PantographWorkflowEmbeddingProvider {
         async fn embed_text(&self, text: &str) -> Result<Vec<f32>, EmilyError> {
+            if text.trim().is_empty() {
+                return Err(EmilyError::InvalidRequest(
+                    "embedding input text cannot be empty".to_string(),
+                ));
+            }
+
+            let session_id = self.ensure_session().await?;
             let response = self
-                .gateway
-                .embeddings(vec![text.to_string()], &self.model_name)
-                .await
-                .map_err(|error| {
-                    EmilyError::Embedding(format!("Pantograph embeddings request failed: {error}"))
+                .client
+                .run_workflow_session(WorkflowSessionRunRequest {
+                    session_id,
+                    inputs: vec![WorkflowPortBinding {
+                        node_id: self.config.text_input.node_id.clone(),
+                        port_id: self.config.text_input.port_id.clone(),
+                        value: serde_json::json!(text),
+                    }],
+                    output_targets: Some(vec![WorkflowOutputTarget {
+                        node_id: self.config.vector_output.node_id.clone(),
+                        port_id: self.config.vector_output.port_id.clone(),
+                    }]),
+                    timeout_ms: self.config.timeout_ms,
+                    run_id: None,
+                })
+                .await?;
+
+            let binding = response
+                .outputs
+                .iter()
+                .find(|binding| {
+                    binding.node_id == self.config.vector_output.node_id
+                        && binding.port_id == self.config.vector_output.port_id
+                })
+                .ok_or_else(|| {
+                    EmilyError::Embedding(format!(
+                        "workflow output '{}.{}' missing from run response",
+                        self.config.vector_output.node_id, self.config.vector_output.port_id
+                    ))
                 })?;
-            let vector = response.into_iter().next().map(|item| item.vector).ok_or(
-                EmilyError::Embedding("Pantograph returned no embedding vectors".to_string()),
-            )?;
-            Ok(vector)
+
+            let values = parse_vector_value(&binding.value)?;
+            if values.len() != self.config.expected_dimensions {
+                return Err(EmilyError::Embedding(format!(
+                    "workflow returned embedding dimension {}, expected {}",
+                    values.len(),
+                    self.config.expected_dimensions
+                )));
+            }
+            Ok(values)
+        }
+
+        async fn shutdown(&self) -> Result<(), EmilyError> {
+            let session_id = { self.session_id.lock().await.take() };
+            if let Some(session_id) = session_id {
+                self.client
+                    .close_workflow_session(WorkflowSessionCloseRequest { session_id })
+                    .await?;
+            }
+            Ok(())
         }
     }
 
-    pub use PantographEmbeddingProvider as Provider;
+    fn io_contains_binding(nodes: &[WorkflowIoNode], binding: &WorkflowBinding) -> bool {
+        nodes.iter().any(|node| {
+            node.node_id == binding.node_id
+                && node
+                    .ports
+                    .iter()
+                    .any(|port| port.port_id == binding.port_id)
+        })
+    }
+
+    fn parse_vector_value(value: &serde_json::Value) -> Result<Vec<f32>, EmilyError> {
+        let array = value.as_array().ok_or_else(|| {
+            EmilyError::Embedding("workflow output value is not an array".to_string())
+        })?;
+        let mut vector = Vec::with_capacity(array.len());
+        for (index, item) in array.iter().enumerate() {
+            let number = item.as_f64().ok_or_else(|| {
+                EmilyError::Embedding(format!(
+                    "workflow output vector item {} is not numeric",
+                    index
+                ))
+            })?;
+            if !number.is_finite() {
+                return Err(EmilyError::Embedding(format!(
+                    "workflow output vector item {} is not finite",
+                    index
+                )));
+            }
+            vector.push(number as f32);
+        }
+        Ok(vector)
+    }
+
+    pub use PantographWorkflowEmbeddingProvider as Provider;
+    pub use WorkflowBinding as Binding;
+    pub use WorkflowEmbeddingConfig as Config;
+    pub use WorkflowServiceSessionClient as ServiceClient;
+    pub use WorkflowSessionClient as SessionClient;
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use std::sync::Arc;
+
+        use pantograph_workflow_service::{
+            WorkflowInputTarget, WorkflowIoPort, WorkflowSessionCloseResponse,
+        };
+
+        struct MockClient {
+            io: WorkflowIoResponse,
+            preflight: WorkflowPreflightResponse,
+            run_response: WorkflowRunResponse,
+            create_calls: Mutex<u32>,
+            run_calls: Mutex<u32>,
+            close_calls: Mutex<u32>,
+        }
+
+        #[async_trait]
+        impl WorkflowSessionClient for MockClient {
+            async fn workflow_get_io(
+                &self,
+                _request: WorkflowIoRequest,
+            ) -> Result<WorkflowIoResponse, EmilyError> {
+                Ok(self.io.clone())
+            }
+
+            async fn workflow_preflight(
+                &self,
+                _request: WorkflowPreflightRequest,
+            ) -> Result<WorkflowPreflightResponse, EmilyError> {
+                Ok(self.preflight.clone())
+            }
+
+            async fn create_workflow_session(
+                &self,
+                _request: WorkflowSessionCreateRequest,
+            ) -> Result<WorkflowSessionCreateResponse, EmilyError> {
+                let mut calls = self.create_calls.lock().await;
+                *calls += 1;
+                Ok(WorkflowSessionCreateResponse {
+                    session_id: "session-1".to_string(),
+                })
+            }
+
+            async fn run_workflow_session(
+                &self,
+                _request: WorkflowSessionRunRequest,
+            ) -> Result<WorkflowRunResponse, EmilyError> {
+                let mut calls = self.run_calls.lock().await;
+                *calls += 1;
+                Ok(self.run_response.clone())
+            }
+
+            async fn close_workflow_session(
+                &self,
+                _request: WorkflowSessionCloseRequest,
+            ) -> Result<(), EmilyError> {
+                let mut calls = self.close_calls.lock().await;
+                *calls += 1;
+                let _response = WorkflowSessionCloseResponse { ok: true };
+                Ok(())
+            }
+        }
+
+        fn mock_io() -> WorkflowIoResponse {
+            WorkflowIoResponse {
+                inputs: vec![WorkflowIoNode {
+                    node_id: "text-input-1".to_string(),
+                    node_type: "text-input".to_string(),
+                    name: None,
+                    description: None,
+                    ports: vec![WorkflowIoPort {
+                        port_id: "text".to_string(),
+                        name: None,
+                        description: None,
+                        data_type: Some("string".to_string()),
+                        required: Some(true),
+                        multiple: Some(false),
+                    }],
+                }],
+                outputs: vec![WorkflowIoNode {
+                    node_id: "vector-output-1".to_string(),
+                    node_type: "vector-output".to_string(),
+                    name: None,
+                    description: None,
+                    ports: vec![WorkflowIoPort {
+                        port_id: "vector".to_string(),
+                        name: None,
+                        description: None,
+                        data_type: Some("embedding".to_string()),
+                        required: Some(false),
+                        multiple: Some(false),
+                    }],
+                }],
+            }
+        }
+
+        fn mock_preflight() -> WorkflowPreflightResponse {
+            WorkflowPreflightResponse {
+                missing_required_inputs: Vec::<WorkflowInputTarget>::new(),
+                invalid_targets: Vec::new(),
+                warnings: Vec::new(),
+                can_run: true,
+            }
+        }
+
+        #[tokio::test]
+        async fn workflow_provider_runs_session_and_extracts_vector() {
+            let vector = vec![0.0_f32; 1024];
+            let client = Arc::new(MockClient {
+                io: mock_io(),
+                preflight: mock_preflight(),
+                run_response: WorkflowRunResponse {
+                    run_id: "run-1".to_string(),
+                    outputs: vec![WorkflowPortBinding {
+                        node_id: "vector-output-1".to_string(),
+                        port_id: "vector".to_string(),
+                        value: serde_json::json!(vector),
+                    }],
+                    timing_ms: 1,
+                },
+                create_calls: Mutex::new(0),
+                run_calls: Mutex::new(0),
+                close_calls: Mutex::new(0),
+            });
+
+            let config = WorkflowEmbeddingConfig::new(
+                "wf-1",
+                WorkflowBinding::new("text-input-1", "text").expect("binding"),
+                WorkflowBinding::new("vector-output-1", "vector").expect("binding"),
+                Some(1_000),
+                1024,
+            )
+            .expect("config");
+
+            let provider =
+                PantographWorkflowEmbeddingProvider::new(client.clone(), config).expect("provider");
+            provider.validate().await.expect("validate");
+            let embedded = provider.embed_text("hello").await.expect("embed");
+            assert_eq!(embedded.len(), 1024);
+
+            provider.shutdown().await.expect("shutdown");
+
+            assert_eq!(*client.create_calls.lock().await, 1);
+            assert_eq!(*client.run_calls.lock().await, 1);
+            assert_eq!(*client.close_calls.lock().await, 1);
+        }
+
+        #[tokio::test]
+        async fn workflow_provider_rejects_dimension_mismatch() {
+            let client = Arc::new(MockClient {
+                io: mock_io(),
+                preflight: mock_preflight(),
+                run_response: WorkflowRunResponse {
+                    run_id: "run-1".to_string(),
+                    outputs: vec![WorkflowPortBinding {
+                        node_id: "vector-output-1".to_string(),
+                        port_id: "vector".to_string(),
+                        value: serde_json::json!([0.1, 0.2]),
+                    }],
+                    timing_ms: 1,
+                },
+                create_calls: Mutex::new(0),
+                run_calls: Mutex::new(0),
+                close_calls: Mutex::new(0),
+            });
+
+            let config = WorkflowEmbeddingConfig::new(
+                "wf-1",
+                WorkflowBinding::new("text-input-1", "text").expect("binding"),
+                WorkflowBinding::new("vector-output-1", "vector").expect("binding"),
+                None,
+                1024,
+            )
+            .expect("config");
+            let provider =
+                PantographWorkflowEmbeddingProvider::new(client, config).expect("provider");
+            let err = provider
+                .embed_text("hello")
+                .await
+                .expect_err("dimension mismatch must fail");
+            assert!(err.to_string().contains("expected 1024"));
+        }
+    }
 }
 
 #[cfg(feature = "pantograph")]
 pub use pantograph::Provider as PantographEmbeddingProvider;
+#[cfg(feature = "pantograph")]
+pub use pantograph::{
+    Binding as PantographWorkflowBinding, Config as PantographWorkflowEmbeddingConfig,
+    ServiceClient as PantographWorkflowServiceClient,
+    SessionClient as PantographWorkflowSessionClient,
+};

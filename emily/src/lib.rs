@@ -13,6 +13,11 @@ pub mod store;
 pub use api::EmilyApi;
 pub use error::EmilyError;
 pub use inference::{EmbeddingProvider, NoopEmbeddingProvider};
+#[cfg(feature = "pantograph")]
+pub use inference::{
+    PantographEmbeddingProvider, PantographWorkflowBinding, PantographWorkflowEmbeddingConfig,
+    PantographWorkflowServiceClient, PantographWorkflowSessionClient,
+};
 pub use model::{
     ContextItem, ContextPacket, ContextQuery, DatabaseLocator, HealthSnapshot, HistoryPage,
     HistoryPageRequest, IngestTextRequest, MemoryPolicy, TextEdge, TextEdgeType, TextObject,
