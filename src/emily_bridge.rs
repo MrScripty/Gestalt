@@ -116,6 +116,14 @@ impl EmilyBridge {
         Self::new(locator)
     }
 
+    /// Starts Emily runtime worker with default locator and explicit embedding provider.
+    pub fn new_default_with_embedding_provider(
+        embedding_provider: Arc<dyn EmbeddingProvider>,
+    ) -> Self {
+        let locator = Self::default_locator();
+        Self::with_embedding_provider(locator, Some(embedding_provider))
+    }
+
     /// Starts Emily runtime worker with an explicit database locator.
     pub fn new(locator: DatabaseLocator) -> Self {
         Self::with_embedding_provider(locator, None)

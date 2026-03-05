@@ -8,6 +8,8 @@ pub mod git;
 pub mod local_restore;
 /// Group orchestration snapshot and broadcast helpers.
 pub mod orchestrator;
+/// Pantograph workflow host bootstrap for Emily embedding provider wiring.
+pub(crate) mod pantograph_host;
 /// Input validation helpers for filesystem path boundaries.
 pub(crate) mod path_validation;
 /// Workspace load/save schema and storage routines.

@@ -17,6 +17,7 @@ mod workspace;
 use crate::emily_bridge::EmilyBridge;
 use crate::git::RepoContext;
 use crate::local_restore;
+use crate::pantograph_host::build_embedding_provider_from_env;
 use crate::persistence;
 use crate::state::{SessionId, SessionStatus, clamp_ui_scale};
 use crate::terminal::{PersistedTerminalState, TerminalManager, TerminalMemorySink};
@@ -108,7 +109,7 @@ pub fn App() -> Element {
         })
     };
     let dragging_tab = use_signal(|| None::<SessionId>);
-    let emily_bridge = use_signal(|| Arc::new(EmilyBridge::new_default()));
+    let emily_bridge = use_signal(|| Arc::new(initialize_emily_bridge()));
     let terminal_manager = {
         let emily_bridge = emily_bridge.read().clone();
         use_signal(move || {
@@ -584,6 +585,7 @@ pub fn App() -> Element {
                             } else {
                                 "not available"
                             };
+                            let provider_status = status.provider_status.clone();
                             let active_job = status.active_job.clone();
                             let last_job = status.last_job.clone();
                             let feedback = embedding_feedback.read().clone();
@@ -591,6 +593,21 @@ pub fn App() -> Element {
                                 p {
                                     class: "meta-tip",
                                     "Provider: {provider_label}"
+                                }
+                                if let Some(provider_status) = provider_status {
+                                    p { class: "meta-tip", "Provider state: {provider_status.state}" }
+                                    if let Some(session_id) = provider_status.session_id {
+                                        p { class: "meta-tip", "Session: {session_id}" }
+                                    }
+                                    if let Some(queue_items) = provider_status.queue_items {
+                                        p { class: "meta-tip", "Queued items: {queue_items}" }
+                                    }
+                                    if let Some(queued_runs) = provider_status.queued_runs {
+                                        p { class: "meta-tip", "Queued runs: {queued_runs}" }
+                                    }
+                                    if let Some(last_error) = provider_status.last_error {
+                                        p { class: "meta-tip", "Provider error: {last_error}" }
+                                    }
                                 }
                                 p {
                                     class: "meta-tip",
@@ -755,6 +772,16 @@ fn gui_scale_direction(key: &Key, ctrl: bool, meta: bool, alt: bool) -> Option<f
         Key::Character(text) if text == "+" || text == "=" => Some(GUI_SCALE_STEP),
         Key::Character(text) if text == "-" || text == "_" => Some(-GUI_SCALE_STEP),
         _ => None,
+    }
+}
+
+fn initialize_emily_bridge() -> EmilyBridge {
+    match build_embedding_provider_from_env() {
+        Ok(provider) => EmilyBridge::new_default_with_embedding_provider(provider),
+        Err(error) => {
+            eprintln!("Pantograph embedding provider unavailable: {error}");
+            EmilyBridge::new_default()
+        }
     }
 }
 

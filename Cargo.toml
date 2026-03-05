@@ -12,6 +12,12 @@ vt100 = "0.15"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
+async-trait = "0.1"
 parking_lot = "0.12"
-emily = { path = "emily" }
+emily = { path = "emily", features = ["pantograph"] }
+pantograph_workflow_service = { package = "pantograph-workflow-service", path = "../Pantograph/crates/pantograph-workflow-service" }
+node-engine = { path = "../Pantograph/crates/node-engine", features = ["inference-nodes"] }
+inference = { path = "../Pantograph/crates/inference", features = ["backend-llamacpp", "std-process"] }
+workflow-nodes = { path = "../Pantograph/crates/workflow-nodes", features = ["model-library"] }
+uuid = { version = "1", features = ["v4"] }
 rusqlite = { version = "0.32.1", features = ["bundled"] }
