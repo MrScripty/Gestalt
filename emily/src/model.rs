@@ -218,8 +218,20 @@ pub struct VectorizationJobSnapshot {
 pub struct VectorizationStatus {
     pub config: VectorizationConfig,
     pub provider_available: bool,
+    pub provider_status: Option<EmbeddingProviderStatus>,
     pub active_job: Option<VectorizationJobSnapshot>,
     pub last_job: Option<VectorizationJobSnapshot>,
+}
+
+/// Embedding provider runtime status surfaced for operational diagnostics.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbeddingProviderStatus {
+    pub state: String,
+    pub session_id: Option<String>,
+    pub queued_runs: Option<usize>,
+    pub queue_items: Option<usize>,
+    pub keep_alive: Option<bool>,
+    pub last_error: Option<String>,
 }
 
 #[cfg(test)]

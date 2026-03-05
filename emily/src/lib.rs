@@ -19,9 +19,9 @@ pub use inference::{
     PantographWorkflowServiceClient, PantographWorkflowSessionClient,
 };
 pub use model::{
-    ContextItem, ContextPacket, ContextQuery, DatabaseLocator, HealthSnapshot, HistoryPage,
-    HistoryPageRequest, IngestTextRequest, MemoryPolicy, TextEdge, TextEdgeType, TextObject,
-    TextObjectKind, TextVector, VectorizationConfig, VectorizationConfigPatch,
-    VectorizationJobKind, VectorizationJobSnapshot, VectorizationJobState, VectorizationRunRequest,
-    VectorizationStatus,
+    ContextItem, ContextPacket, ContextQuery, DatabaseLocator, EmbeddingProviderStatus,
+    HealthSnapshot, HistoryPage, HistoryPageRequest, IngestTextRequest, MemoryPolicy, TextEdge,
+    TextEdgeType, TextObject, TextObjectKind, TextVector, VectorizationConfig,
+    VectorizationConfigPatch, VectorizationJobKind, VectorizationJobSnapshot,
+    VectorizationJobState, VectorizationRunRequest, VectorizationStatus,
 };

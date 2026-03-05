@@ -183,16 +183,23 @@ impl<S: EmilyStore + 'static> EmilyRuntime<S> {
     }
 
     async fn emit_vectorization_status(&self) {
-        let snapshot = {
-            let vectorization = self.vectorization.read().await;
-            VectorizationStatus {
-                config: vectorization.config.clone(),
-                provider_available: self.embedding_provider.is_some(),
-                active_job: vectorization.active_job.clone(),
-                last_job: vectorization.last_job.clone(),
-            }
-        };
+        let snapshot = self.snapshot_vectorization_status().await;
         let _ = self.vectorization_events.send(snapshot);
+    }
+
+    async fn snapshot_vectorization_status(&self) -> VectorizationStatus {
+        let provider_status = match self.embedding_provider.as_ref() {
+            Some(provider) => provider.status().await,
+            None => None,
+        };
+        let vectorization = self.vectorization.read().await;
+        VectorizationStatus {
+            config: vectorization.config.clone(),
+            provider_available: self.embedding_provider.is_some(),
+            provider_status,
+            active_job: vectorization.active_job.clone(),
+            last_job: vectorization.last_job.clone(),
+        }
     }
 
     async fn maybe_embed_object(
@@ -314,6 +321,7 @@ impl<S: EmilyStore + 'static> EmilyRuntime<S> {
                         &vectorization,
                         &active_job_control,
                         &vectorization_events,
+                        true,
                         running,
                         VectorizationJobState::Completed,
                     )
@@ -328,6 +336,7 @@ impl<S: EmilyStore + 'static> EmilyRuntime<S> {
                         &vectorization,
                         &active_job_control,
                         &vectorization_events,
+                        true,
                         running,
                         VectorizationJobState::Cancelled,
                     )
@@ -350,8 +359,13 @@ impl<S: EmilyStore + 'static> EmilyRuntime<S> {
                                 "failed loading vector for object {}: {error}",
                                 object.id
                             ));
-                            publish_running_job(&vectorization, &vectorization_events, &running)
-                                .await;
+                            publish_running_job(
+                                &vectorization,
+                                &vectorization_events,
+                                true,
+                                &running,
+                            )
+                            .await;
                             continue;
                         }
                     },
@@ -360,7 +374,8 @@ impl<S: EmilyStore + 'static> EmilyRuntime<S> {
 
                 if !should_vectorize {
                     running.skipped = running.skipped.saturating_add(1);
-                    publish_running_job(&vectorization, &vectorization_events, &running).await;
+                    publish_running_job(&vectorization, &vectorization_events, true, &running)
+                        .await;
                     continue;
                 }
 
@@ -368,8 +383,13 @@ impl<S: EmilyStore + 'static> EmilyRuntime<S> {
                     Ok(vector) => {
                         if vector.is_empty() {
                             running.skipped = running.skipped.saturating_add(1);
-                            publish_running_job(&vectorization, &vectorization_events, &running)
-                                .await;
+                            publish_running_job(
+                                &vectorization,
+                                &vectorization_events,
+                                true,
+                                &running,
+                            )
+                            .await;
                             continue;
                         }
                         match EmilyRuntime::<S>::validate_embedding_vector(
@@ -406,13 +426,14 @@ impl<S: EmilyStore + 'static> EmilyRuntime<S> {
                         running.last_error = Some(format!("embedding call failed: {error}"));
                     }
                 }
-                publish_running_job(&vectorization, &vectorization_events, &running).await;
+                publish_running_job(&vectorization, &vectorization_events, true, &running).await;
             }
 
             finalize_job(
                 &vectorization,
                 &active_job_control,
                 &vectorization_events,
+                true,
                 running,
                 VectorizationJobState::Completed,
             )
@@ -436,6 +457,7 @@ impl<S: EmilyStore + 'static> EmilyRuntime<S> {
 async fn publish_running_job(
     vectorization: &Arc<RwLock<VectorizationRuntimeState>>,
     vectorization_events: &broadcast::Sender<VectorizationStatus>,
+    provider_available: bool,
     running: &VectorizationJobSnapshot,
 ) {
     let snapshot = {
@@ -443,7 +465,8 @@ async fn publish_running_job(
         state.active_job = Some(running.clone());
         VectorizationStatus {
             config: state.config.clone(),
-            provider_available: true,
+            provider_available,
+            provider_status: None,
             active_job: state.active_job.clone(),
             last_job: state.last_job.clone(),
         }
@@ -455,6 +478,7 @@ async fn finalize_job(
     vectorization: &Arc<RwLock<VectorizationRuntimeState>>,
     active_job_control: &Arc<Mutex<Option<ActiveJobControl>>>,
     vectorization_events: &broadcast::Sender<VectorizationStatus>,
+    provider_available: bool,
     mut running: VectorizationJobSnapshot,
     state: VectorizationJobState,
 ) {
@@ -476,7 +500,8 @@ async fn finalize_job(
         vectorization_state.last_job = Some(running);
         VectorizationStatus {
             config: vectorization_state.config.clone(),
-            provider_available: true,
+            provider_available,
+            provider_status: None,
             active_job: None,
             last_job: vectorization_state.last_job.clone(),
         }
@@ -588,13 +613,7 @@ impl<S: EmilyStore + 'static> EmilyApi for EmilyRuntime<S> {
     }
 
     async fn vectorization_status(&self) -> Result<VectorizationStatus, EmilyError> {
-        let vectorization = self.vectorization.read().await;
-        Ok(VectorizationStatus {
-            config: vectorization.config.clone(),
-            provider_available: self.embedding_provider.is_some(),
-            active_job: vectorization.active_job.clone(),
-            last_job: vectorization.last_job.clone(),
-        })
+        Ok(self.snapshot_vectorization_status().await)
     }
 
     async fn update_vectorization_config(

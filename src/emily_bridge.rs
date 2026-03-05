@@ -130,6 +130,7 @@ impl EmilyBridge {
         let initial_vectorization_status = VectorizationStatus {
             config: VectorizationConfig::default(),
             provider_available: embedding_provider.is_some(),
+            provider_status: None,
             active_job: None,
             last_job: None,
         };

@@ -1,10 +1,15 @@
 use crate::error::EmilyError;
+use crate::model::EmbeddingProviderStatus;
 use async_trait::async_trait;
 
 /// Abstraction over embedding providers used by Emily ingestion.
 #[async_trait]
 pub trait EmbeddingProvider: Send + Sync {
     async fn embed_text(&self, text: &str) -> Result<Vec<f32>, EmilyError>;
+
+    async fn status(&self) -> Option<EmbeddingProviderStatus> {
+        None
+    }
 
     async fn shutdown(&self) -> Result<(), EmilyError> {
         Ok(())
@@ -32,7 +37,10 @@ mod pantograph {
         WorkflowHost, WorkflowIoNode, WorkflowIoRequest, WorkflowIoResponse, WorkflowOutputTarget,
         WorkflowPortBinding, WorkflowPreflightRequest, WorkflowPreflightResponse,
         WorkflowRunResponse, WorkflowService, WorkflowServiceError, WorkflowSessionCloseRequest,
-        WorkflowSessionCreateRequest, WorkflowSessionCreateResponse, WorkflowSessionRunRequest,
+        WorkflowSessionCreateRequest, WorkflowSessionCreateResponse,
+        WorkflowSessionKeepAliveRequest, WorkflowSessionQueueListRequest,
+        WorkflowSessionQueueListResponse, WorkflowSessionRunRequest, WorkflowSessionState,
+        WorkflowSessionStatusRequest, WorkflowSessionStatusResponse,
     };
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -118,6 +126,18 @@ mod pantograph {
             &self,
             request: WorkflowSessionRunRequest,
         ) -> Result<WorkflowRunResponse, EmilyError>;
+        async fn workflow_get_session_status(
+            &self,
+            request: WorkflowSessionStatusRequest,
+        ) -> Result<WorkflowSessionStatusResponse, EmilyError>;
+        async fn workflow_list_session_queue(
+            &self,
+            request: WorkflowSessionQueueListRequest,
+        ) -> Result<WorkflowSessionQueueListResponse, EmilyError>;
+        async fn workflow_set_session_keep_alive(
+            &self,
+            request: WorkflowSessionKeepAliveRequest,
+        ) -> Result<(), EmilyError>;
         async fn close_workflow_session(
             &self,
             request: WorkflowSessionCloseRequest,
@@ -181,12 +201,43 @@ mod pantograph {
                 .map_err(map_workflow_service_error)
         }
 
+        async fn workflow_get_session_status(
+            &self,
+            request: WorkflowSessionStatusRequest,
+        ) -> Result<WorkflowSessionStatusResponse, EmilyError> {
+            self.service
+                .workflow_get_session_status(request)
+                .await
+                .map_err(map_workflow_service_error)
+        }
+
+        async fn workflow_list_session_queue(
+            &self,
+            request: WorkflowSessionQueueListRequest,
+        ) -> Result<WorkflowSessionQueueListResponse, EmilyError> {
+            self.service
+                .workflow_list_session_queue(request)
+                .await
+                .map_err(map_workflow_service_error)
+        }
+
+        async fn workflow_set_session_keep_alive(
+            &self,
+            request: WorkflowSessionKeepAliveRequest,
+        ) -> Result<(), EmilyError> {
+            self.service
+                .workflow_set_session_keep_alive(self.host.as_ref(), request)
+                .await
+                .map_err(map_workflow_service_error)?;
+            Ok(())
+        }
+
         async fn close_workflow_session(
             &self,
             request: WorkflowSessionCloseRequest,
         ) -> Result<(), EmilyError> {
             self.service
-                .close_workflow_session(request)
+                .close_workflow_session(self.host.as_ref(), request)
                 .await
                 .map_err(map_workflow_service_error)?;
             Ok(())
@@ -200,11 +251,21 @@ mod pantograph {
         ))
     }
 
+    #[derive(Debug, Default, Clone)]
+    struct ProviderRuntimeState {
+        session_id: Option<String>,
+        session_state: Option<WorkflowSessionState>,
+        queued_runs: Option<usize>,
+        queue_items: Option<usize>,
+        keep_alive: bool,
+        last_error: Option<String>,
+    }
+
     /// Pantograph workflow-session embedding provider.
     pub struct PantographWorkflowEmbeddingProvider {
         client: Arc<dyn WorkflowSessionClient>,
         config: WorkflowEmbeddingConfig,
-        session_id: Mutex<Option<String>>,
+        state: Mutex<ProviderRuntimeState>,
     }
 
     impl PantographWorkflowEmbeddingProvider {
@@ -220,7 +281,7 @@ mod pantograph {
             Ok(Self {
                 client,
                 config,
-                session_id: Mutex::new(None),
+                state: Mutex::new(ProviderRuntimeState::default()),
             })
         }
 
@@ -231,8 +292,8 @@ mod pantograph {
 
         async fn ensure_session(&self) -> Result<String, EmilyError> {
             {
-                let current = self.session_id.lock().await;
-                if let Some(session_id) = current.as_ref() {
+                let current = self.state.lock().await;
+                if let Some(session_id) = current.session_id.as_ref() {
                     return Ok(session_id.clone());
                 }
             }
@@ -243,15 +304,114 @@ mod pantograph {
                 .create_workflow_session(WorkflowSessionCreateRequest {
                     workflow_id: self.config.workflow_id.clone(),
                     usage_profile: None,
+                    keep_alive: true,
                 })
                 .await?;
 
-            let mut current = self.session_id.lock().await;
-            if let Some(session_id) = current.as_ref() {
+            self.client
+                .workflow_set_session_keep_alive(WorkflowSessionKeepAliveRequest {
+                    session_id: session.session_id.clone(),
+                    keep_alive: true,
+                })
+                .await?;
+
+            let status = self
+                .client
+                .workflow_get_session_status(WorkflowSessionStatusRequest {
+                    session_id: session.session_id.clone(),
+                })
+                .await
+                .ok();
+
+            let mut current = self.state.lock().await;
+            if let Some(session_id) = current.session_id.as_ref() {
                 return Ok(session_id.clone());
             }
-            *current = Some(session.session_id.clone());
+            current.session_id = Some(session.session_id.clone());
+            current.keep_alive = true;
+            current.last_error = None;
+            if let Some(status) = status {
+                current.session_state = Some(status.session.state);
+                current.queued_runs = Some(status.session.queued_runs);
+            }
             Ok(session.session_id)
+        }
+
+        async fn refresh_runtime_status(&self, session_id: &str) {
+            let session_status = self
+                .client
+                .workflow_get_session_status(WorkflowSessionStatusRequest {
+                    session_id: session_id.to_string(),
+                })
+                .await;
+            let queue_status = self
+                .client
+                .workflow_list_session_queue(WorkflowSessionQueueListRequest {
+                    session_id: session_id.to_string(),
+                })
+                .await;
+
+            let mut current = self.state.lock().await;
+            if let Ok(status) = session_status {
+                current.session_state = Some(status.session.state);
+                current.queued_runs = Some(status.session.queued_runs);
+                current.keep_alive = status.session.keep_alive;
+                current.last_error = None;
+            }
+            match queue_status {
+                Ok(status) => {
+                    current.queue_items = Some(status.items.len());
+                }
+                Err(error) => {
+                    current.last_error = Some(error.to_string());
+                }
+            }
+        }
+
+        async fn clear_session_with_error(&self, error: String) {
+            let mut current = self.state.lock().await;
+            current.session_id = None;
+            current.session_state = None;
+            current.queued_runs = None;
+            current.queue_items = None;
+            current.last_error = Some(error);
+        }
+
+        fn is_session_stale_error(error: &EmilyError) -> bool {
+            let message = error.to_string();
+            message.contains("session_not_found")
+                || message.contains("session_evicted")
+                || message.contains("queue_item_not_found")
+        }
+
+        async fn run_session_once(
+            &self,
+            session_id: String,
+            text: &str,
+        ) -> Result<WorkflowRunResponse, EmilyError> {
+            self.client
+                .workflow_set_session_keep_alive(WorkflowSessionKeepAliveRequest {
+                    session_id: session_id.clone(),
+                    keep_alive: true,
+                })
+                .await?;
+            self.client
+                .run_workflow_session(WorkflowSessionRunRequest {
+                    session_id,
+                    inputs: vec![WorkflowPortBinding {
+                        node_id: self.config.text_input.node_id.clone(),
+                        port_id: self.config.text_input.port_id.clone(),
+                        value: serde_json::json!(text),
+                    }],
+                    output_targets: Some(vec![WorkflowOutputTarget {
+                        node_id: self.config.vector_output.node_id.clone(),
+                        port_id: self.config.vector_output.port_id.clone(),
+                    }]),
+                    timeout_ms: self.config.timeout_ms,
+                    run_id: None,
+                    priority: Some(0),
+                })
+                .await
         }
 
         async fn validate_io_and_preflight(&self) -> Result<(), EmilyError> {
@@ -319,23 +479,31 @@ mod pantograph {
             }
 
             let session_id = self.ensure_session().await?;
-            let response = self
-                .client
-                .run_workflow_session(WorkflowSessionRunRequest {
-                    session_id,
-                    inputs: vec![WorkflowPortBinding {
-                        node_id: self.config.text_input.node_id.clone(),
-                        port_id: self.config.text_input.port_id.clone(),
-                        value: serde_json::json!(text),
-                    }],
-                    output_targets: Some(vec![WorkflowOutputTarget {
-                        node_id: self.config.vector_output.node_id.clone(),
-                        port_id: self.config.vector_output.port_id.clone(),
-                    }]),
-                    timeout_ms: self.config.timeout_ms,
-                    run_id: None,
-                })
-                .await?;
+            let (response, response_session_id) =
+                match self.run_session_once(session_id.clone(), text).await {
+                    Ok(response) => (response, session_id.clone()),
+                    Err(error) => {
+                        if Self::is_session_stale_error(&error) {
+                            self.clear_session_with_error(error.to_string()).await;
+                            let refreshed = self.ensure_session().await?;
+                            let response = self
+                                .run_session_once(refreshed.clone(), text)
+                                .await
+                                .map_err(|retry_error| {
+                                    if let Ok(mut state) = self.state.try_lock() {
+                                        state.last_error = Some(retry_error.to_string());
+                                    }
+                                    retry_error
+                                })?;
+                            (response, refreshed)
+                        } else {
+                            if let Ok(mut state) = self.state.try_lock() {
+                                state.last_error = Some(error.to_string());
+                            }
+                            return Err(error);
+                        }
+                    }
+                };
 
             let binding = response
                 .outputs
@@ -359,16 +527,37 @@ mod pantograph {
                     self.config.expected_dimensions
                 )));
             }
+            self.refresh_runtime_status(&response_session_id).await;
             Ok(values)
         }
 
+        async fn status(&self) -> Option<EmbeddingProviderStatus> {
+            let current = self.state.lock().await.clone();
+            Some(EmbeddingProviderStatus {
+                state: current
+                    .session_state
+                    .map(|state| format!("{state:?}"))
+                    .unwrap_or_else(|| "uninitialized".to_string()),
+                session_id: current.session_id,
+                queued_runs: current.queued_runs,
+                queue_items: current.queue_items,
+                keep_alive: Some(current.keep_alive),
+                last_error: current.last_error,
+            })
+        }
+
         async fn shutdown(&self) -> Result<(), EmilyError> {
-            let session_id = { self.session_id.lock().await.take() };
+            let session_id = { self.state.lock().await.session_id.clone() };
             if let Some(session_id) = session_id {
                 self.client
                     .close_workflow_session(WorkflowSessionCloseRequest { session_id })
                     .await?;
             }
+            let mut current = self.state.lock().await;
+            current.session_id = None;
+            current.session_state = None;
+            current.queued_runs = None;
+            current.queue_items = None;
             Ok(())
         }
     }
@@ -419,6 +608,7 @@ mod pantograph {
 
         use pantograph_workflow_service::{
             WorkflowInputTarget, WorkflowIoPort, WorkflowSessionCloseResponse,
+            WorkflowSessionQueueListResponse, WorkflowSessionState, WorkflowSessionSummary,
         };
 
         struct MockClient {
@@ -464,6 +654,40 @@ mod pantograph {
                 let mut calls = self.run_calls.lock().await;
                 *calls += 1;
                 Ok(self.run_response.clone())
+            }
+
+            async fn workflow_get_session_status(
+                &self,
+                request: WorkflowSessionStatusRequest,
+            ) -> Result<WorkflowSessionStatusResponse, EmilyError> {
+                Ok(WorkflowSessionStatusResponse {
+                    session: WorkflowSessionSummary {
+                        session_id: request.session_id,
+                        workflow_id: "wf-1".to_string(),
+                        usage_profile: None,
+                        keep_alive: true,
+                        state: WorkflowSessionState::IdleLoaded,
+                        queued_runs: 0,
+                        run_count: 1,
+                    },
+                })
+            }
+
+            async fn workflow_list_session_queue(
+                &self,
+                request: WorkflowSessionQueueListRequest,
+            ) -> Result<WorkflowSessionQueueListResponse, EmilyError> {
+                Ok(WorkflowSessionQueueListResponse {
+                    session_id: request.session_id,
+                    items: Vec::new(),
+                })
+            }
+
+            async fn workflow_set_session_keep_alive(
+                &self,
+                _request: WorkflowSessionKeepAliveRequest,
+            ) -> Result<(), EmilyError> {
+                Ok(())
             }
 
             async fn close_workflow_session(
