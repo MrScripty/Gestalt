@@ -8,6 +8,7 @@ use pantograph_workflow_service::{
     WorkflowRunRequest, WorkflowRunResponse, WorkflowService, WorkflowServiceError, capabilities,
 };
 use std::collections::{HashMap, HashSet};
+use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
@@ -484,44 +485,69 @@ fn binding_from_io(
 pub fn build_embedding_provider_from_env() -> Result<Arc<dyn EmbeddingProvider>, String> {
     let config = PantographRuntimeConfig::from_env()?;
     let host = Arc::new(GestaltPantographHost::new(config.clone())?);
-    let workflow_service = WorkflowService::new();
+    run_bootstrap_blocking(async move {
+        let workflow_service = WorkflowService::new();
+        let io = workflow_service
+            .workflow_get_io(
+                host.as_ref(),
+                WorkflowIoRequest {
+                    workflow_id: config.workflow_id.clone(),
+                },
+            )
+            .await
+            .map_err(|error| format!("workflow_get_io bootstrap failed: {error}"))?;
+
+        let (text_input, vector_output) = binding_from_io(&io, &config)?;
+
+        let embedding_config = PantographWorkflowEmbeddingConfig::new(
+            config.workflow_id,
+            text_input,
+            vector_output,
+            config.timeout_ms,
+            config.expected_dimensions,
+        )
+        .map_err(|error| error.to_string())?;
+
+        let client = Arc::new(PantographWorkflowServiceClient::new(host));
+        let provider = Arc::new(
+            PantographEmbeddingProvider::new(client, embedding_config)
+                .map_err(|error| error.to_string())?,
+        );
+        provider
+            .validate()
+            .await
+            .map_err(|error| format!("pantograph provider validation failed: {error}"))?;
+
+        let provider: Arc<dyn EmbeddingProvider> = provider;
+        Ok(provider)
+    })
+}
+
+fn run_bootstrap_blocking<F, T>(future: F) -> Result<T, String>
+where
+    F: Future<Output = Result<T, String>> + Send + 'static,
+    T: Send + 'static,
+{
+    if tokio::runtime::Handle::try_current().is_ok() {
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        std::thread::spawn(move || {
+            let result = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|error| format!("failed creating pantograph bootstrap runtime: {error}"))
+                .and_then(|runtime| runtime.block_on(future));
+            let _ = tx.send(result);
+        });
+        return rx
+            .recv()
+            .map_err(|error| format!("failed waiting for pantograph bootstrap: {error}"))?;
+    }
 
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|error| format!("failed creating pantograph bootstrap runtime: {error}"))?;
-
-    let io = runtime
-        .block_on(workflow_service.workflow_get_io(
-            host.as_ref(),
-            WorkflowIoRequest {
-                workflow_id: config.workflow_id.clone(),
-            },
-        ))
-        .map_err(|error| format!("workflow_get_io bootstrap failed: {error}"))?;
-
-    let (text_input, vector_output) = binding_from_io(&io, &config)?;
-
-    let embedding_config = PantographWorkflowEmbeddingConfig::new(
-        config.workflow_id,
-        text_input,
-        vector_output,
-        config.timeout_ms,
-        config.expected_dimensions,
-    )
-    .map_err(|error| error.to_string())?;
-
-    let client = Arc::new(PantographWorkflowServiceClient::new(host));
-    let provider = Arc::new(
-        PantographEmbeddingProvider::new(client, embedding_config)
-            .map_err(|error| error.to_string())?,
-    );
-
-    runtime
-        .block_on(provider.validate())
-        .map_err(|error| format!("pantograph provider validation failed: {error}"))?;
-
-    Ok(provider)
+    runtime.block_on(future)
 }
 
 #[allow(dead_code)]
