@@ -97,17 +97,6 @@ body {
   cursor: row-resize;
 }
 
-.brand h1 {
-  margin: 0;
-  letter-spacing: 0.04em;
-}
-
-.brand p {
-  margin: 4px 0 0;
-  color: #aac6ba;
-  font-size: calc(0.9rem * var(--font-scale));
-}
-
 .meta-label {
   margin: 0 0 8px;
   color: #a1beb2;

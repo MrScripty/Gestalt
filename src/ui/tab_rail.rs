@@ -51,11 +51,6 @@ pub(crate) fn TabRail(
 
     rsx! {
         aside { class: "tab-rail",
-            div { class: "brand",
-                h1 { "Gestalt" }
-                p { "Path-grouped terminal fleet manager" }
-            }
-
             div { class: "group-list",
                 for group in snapshot.groups.clone() {
                     {
