@@ -10,6 +10,7 @@ use std::time::Duration;
 pub(crate) fn TabRail(
     app_state: Signal<AppState>,
     terminal_manager: Signal<Arc<TerminalManager>>,
+    on_startup_nudge: EventHandler<()>,
     mut dragging_tab: Signal<Option<SessionId>>,
     mut new_group_path: Signal<String>,
     mut renaming_tab: Signal<Option<SessionId>>,
@@ -144,6 +145,7 @@ pub(crate) fn TabRail(
                                                     rename_draft.set(String::new());
                                                 }
                                                 dragging_tab.set(None);
+                                                on_startup_nudge.call(());
                                             },
                                             "X"
                                         }
@@ -221,23 +223,27 @@ pub(crate) fn TabRail(
                                                     onclick: move |_| {
                                                         if is_runner {
                                                             app_state.write().select_session(session_id);
+                                                            on_startup_nudge.call(());
                                                             return;
                                                         }
                                                         app_state.write().swap_session_with_visible_agent_slot(
                                                             session_id,
                                                             VisibleAgentSlot::Top,
                                                         );
+                                                        on_startup_nudge.call(());
                                                     },
                                                     oncontextmenu: move |event| {
                                                         event.prevent_default();
                                                         if is_runner {
                                                             app_state.write().select_session(session_id);
+                                                            on_startup_nudge.call(());
                                                             return;
                                                         }
                                                         app_state.write().swap_session_with_visible_agent_slot(
                                                             session_id,
                                                             VisibleAgentSlot::Bottom,
                                                         );
+                                                        on_startup_nudge.call(());
                                                     },
                                                     ondoubleclick: move |_| {
                                                         renaming_tab.set(Some(session_id));
@@ -312,6 +318,7 @@ pub(crate) fn TabRail(
                                                                     renaming_tab.set(None);
                                                                     rename_draft.set(String::new());
                                                                 }
+                                                                on_startup_nudge.call(());
                                                             },
                                                             oncontextmenu: move |event| {
                                                                 event.stop_propagation();

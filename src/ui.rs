@@ -11,6 +11,7 @@ mod local_agent_panel;
 mod notes_panel;
 mod run_sidebar_panel_host;
 mod sidebar_panel_host;
+mod startup;
 mod tab_rail;
 mod terminal_input;
 mod terminal_view;
@@ -27,6 +28,10 @@ use crate::ui::autosave::{AutosaveRequest, AutosaveSignature, AutosaveWorker};
 use crate::ui::git_refresh::use_git_refresh_coordinator;
 use crate::ui::insert_command_mode::InsertModeState;
 use crate::ui::sidebar_panel_host::SidebarPanelKind;
+use crate::ui::startup::{
+    DEFERRED_SESSION_START_BATCH_SIZE, STARTUP_BACKGROUND_TICK_MS, SessionStartupPriority,
+    SessionStartupTarget, has_deferred_startup_targets, startup_targets,
+};
 use crate::ui::tab_rail::TabRail;
 use crate::ui::terminal_input::measure_terminal_viewport;
 use crate::ui::workspace::WorkspaceMain;
@@ -45,9 +50,7 @@ const STYLE: &str = concat!(
 );
 const TERMINAL_REFRESH_POLL_MS: u64 = 33;
 const TERMINAL_RESIZE_POLL_MS: u64 = 180;
-const TERMINAL_STARTUP_SYNC_POLL_MS: u64 = 250;
 const AUTOSAVE_POLL_MS: u64 = 1_200;
-const EMILY_RESTORE_HISTORY_LINES: usize = 4_000;
 pub(crate) const EMILY_HISTORY_BACKFILL_PAGE_LINES: usize = 1_200;
 const TERMINAL_MIN_RESIZE_COLS: u16 = 80;
 const AUTOSAVE_QUEUE_CAPACITY: usize = 1;
@@ -111,6 +114,7 @@ pub fn App() -> Element {
         })
     };
     let dragging_tab = use_signal(|| None::<SessionId>);
+    let startup_notify = use_signal(|| Arc::new(tokio::sync::Notify::new()));
     let emily_bridge = use_signal(|| Arc::new(initialize_emily_bridge()));
     let terminal_manager = {
         let emily_bridge = emily_bridge.read().clone();
@@ -284,14 +288,30 @@ pub fn App() -> Element {
         let emily_bridge = emily_bridge.read().clone();
         let mut restored_terminals = restored_terminals;
         let mut terminal_history_state = terminal_history_state;
+        let startup_notify = startup_notify.read().clone();
         use_future(move || {
             let terminal_manager = terminal_manager.clone();
             let emily_bridge = emily_bridge.clone();
+            let startup_notify = startup_notify.clone();
             async move {
                 let mut started_session_ids = HashSet::<SessionId>::new();
+                let mut pending_history_loads = HashMap::<SessionId, usize>::new();
+                let mut first_pass = true;
 
                 loop {
-                    tokio::time::sleep(Duration::from_millis(TERMINAL_STARTUP_SYNC_POLL_MS)).await;
+                    if first_pass {
+                        first_pass = false;
+                    } else {
+                        let snapshot = app_state_signal.read().clone();
+                        if has_deferred_startup_targets(&snapshot, &started_session_ids) {
+                            tokio::select! {
+                                _ = startup_notify.notified() => {}
+                                _ = tokio::time::sleep(Duration::from_millis(STARTUP_BACKGROUND_TICK_MS)) => {}
+                            }
+                        } else {
+                            startup_notify.notified().await;
+                        }
+                    }
 
                     let snapshot = app_state_signal.read().clone();
                     let active_session_ids = snapshot
@@ -301,41 +321,54 @@ pub fn App() -> Element {
                         .collect::<HashSet<_>>();
                     started_session_ids
                         .retain(|session_id| active_session_ids.contains(session_id));
+                    pending_history_loads
+                        .retain(|session_id, _| active_session_ids.contains(session_id));
                     terminal_history_state
                         .write()
                         .retain(|session_id, _| active_session_ids.contains(session_id));
 
+                    load_pending_startup_history(
+                        &emily_bridge,
+                        &terminal_manager,
+                        &mut pending_history_loads,
+                        &mut terminal_history_state,
+                    );
+
                     let mut failed_starts = Vec::new();
+                    let mut deferred_starts = 0_usize;
                     {
                         let mut restored = restored_terminals.write();
-                        for session in &snapshot.sessions {
-                            if started_session_ids.contains(&session.id) {
+                        for target in startup_targets(&snapshot) {
+                            if started_session_ids.contains(&target.session_id) {
+                                continue;
+                            }
+                            let start_now = matches!(
+                                target.priority,
+                                SessionStartupPriority::ActiveGroupVisible
+                            ) || deferred_starts
+                                < DEFERRED_SESSION_START_BATCH_SIZE;
+                            if !start_now {
                                 continue;
                             }
 
-                            let restored_history = emily_bridge
-                                .recent_history(session.id, EMILY_RESTORE_HISTORY_LINES);
-                            let next_before_sequence = restored_history.next_before_sequence;
-                            let exhausted = next_before_sequence.is_none();
-                            if let Some(mut restored_terminal) = restored.remove(&session.id) {
-                                restored_terminal.lines = restored_history.lines;
-                                terminal_manager.seed_restored_terminal(restored_terminal);
-                            }
-                            terminal_history_state.write().insert(
-                                session.id,
-                                TerminalHistoryState {
-                                    before_sequence: next_before_sequence,
-                                    is_loading: false,
-                                    exhausted,
-                                },
-                            );
-
-                            if let Some(path) = snapshot.group_path(session.group_id) {
-                                match terminal_manager.ensure_session(session.id, path) {
-                                    Ok(()) => {
-                                        started_session_ids.insert(session.id);
+                            match start_session_target(
+                                &terminal_manager,
+                                &mut restored,
+                                &mut terminal_history_state,
+                                &mut pending_history_loads,
+                                &target,
+                            ) {
+                                Ok(()) => {
+                                    started_session_ids.insert(target.session_id);
+                                    if !matches!(
+                                        target.priority,
+                                        SessionStartupPriority::ActiveGroupVisible
+                                    ) {
+                                        deferred_starts += 1;
                                     }
-                                    Err(_) => failed_starts.push(session.id),
+                                }
+                                Err(()) => {
+                                    failed_starts.push(target.session_id);
                                 }
                             }
                         }
@@ -511,6 +544,7 @@ pub fn App() -> Element {
             TabRail {
                 app_state: app_state,
                 terminal_manager: terminal_manager,
+                on_startup_nudge: move |_| startup_notify.read().notify_one(),
                 dragging_tab: dragging_tab,
                 new_group_path: new_group_path,
                 renaming_tab: renaming_tab,
@@ -762,6 +796,65 @@ pub fn App() -> Element {
                 }
             }
         }
+    }
+}
+
+fn start_session_target(
+    terminal_manager: &TerminalManager,
+    restored: &mut HashMap<SessionId, PersistedTerminalState>,
+    terminal_history_state: &mut Signal<HashMap<SessionId, TerminalHistoryState>>,
+    pending_history_loads: &mut HashMap<SessionId, usize>,
+    target: &SessionStartupTarget,
+) -> Result<(), ()> {
+    if let Some(restored_terminal) = restored.remove(&target.session_id) {
+        terminal_manager.seed_restored_terminal(restored_terminal);
+    }
+
+    terminal_history_state.write().insert(
+        target.session_id,
+        TerminalHistoryState {
+            before_sequence: None,
+            is_loading: true,
+            exhausted: false,
+        },
+    );
+    pending_history_loads.insert(target.session_id, target.history_line_limit);
+
+    terminal_manager
+        .ensure_session(target.session_id, &target.path)
+        .map_err(|_| ())
+}
+
+fn load_pending_startup_history(
+    emily_bridge: &EmilyBridge,
+    terminal_manager: &TerminalManager,
+    pending_history_loads: &mut HashMap<SessionId, usize>,
+    terminal_history_state: &mut Signal<HashMap<SessionId, TerminalHistoryState>>,
+) {
+    let pending = pending_history_loads
+        .iter()
+        .map(|(session_id, limit)| (*session_id, *limit))
+        .collect::<Vec<_>>();
+
+    for (session_id, limit) in pending {
+        let result = emily_bridge.page_history_before(session_id, None, limit);
+        let Ok(mut chunk) = result else {
+            continue;
+        };
+
+        chunk.lines.reverse();
+        let inserted = terminal_manager
+            .prepend_history_lines(session_id, &chunk.lines)
+            .unwrap_or(0);
+        terminal_history_state.write().insert(
+            session_id,
+            TerminalHistoryState {
+                before_sequence: chunk.next_before_sequence,
+                is_loading: false,
+                exhausted: chunk.next_before_sequence.is_none() || inserted == 0,
+            },
+        );
+        pending_history_loads.remove(&session_id);
     }
 }
 
