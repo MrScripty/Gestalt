@@ -58,6 +58,7 @@ pub(crate) fn TabRail(
                         let group_color = group.color.clone();
                         let group_path = group.path.clone();
                         let group_label = group.label();
+                        let remove_group_aria_label = format!("Remove path group {group_label}");
                         let group_class = if active_group_id == Some(group_id) {
                             "group active"
                         } else {
@@ -119,7 +120,9 @@ pub(crate) fn TabRail(
                                             "+ tab"
                                         }
                                         button {
-                                            class: "pill-btn danger-btn",
+                                            class: "close-btn",
+                                            r#type: "button",
+                                            aria_label: "{remove_group_aria_label}",
                                             onclick: move |_| {
                                                 let removed_session_ids = app_state.write().remove_group(group_id);
                                                 if removed_session_ids.is_empty() {
@@ -139,7 +142,7 @@ pub(crate) fn TabRail(
                                                 }
                                                 dragging_tab.set(None);
                                             },
-                                            "remove"
+                                            "X"
                                         }
                                     }
                                 }
