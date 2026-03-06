@@ -18,6 +18,7 @@ enum NoteSegment {
 #[component]
 pub(crate) fn NotesPanel(app_state: Signal<AppState>) -> Element {
     let mut view_mode = use_signal(|| NotesViewMode::Edit);
+    let mut snippet_query = use_signal(String::new);
     let mut focused_snippet_id = use_signal(|| None::<SnippetId>);
 
     let active_group_id = app_state.read().active_group_id();
@@ -40,6 +41,20 @@ pub(crate) fn NotesPanel(app_state: Signal<AppState>) -> Element {
         .as_ref()
         .map(|note| note.markdown.clone())
         .unwrap_or_default();
+    let snippet_query_value = snippet_query.read().trim().to_lowercase();
+    let filtered_snippets = snippets
+        .iter()
+        .filter(|snippet| {
+            snippet_query_value.is_empty()
+                || snippet
+                    .text_snapshot_plain
+                    .to_lowercase()
+                    .contains(&snippet_query_value)
+                || snippet.source_cwd.to_lowercase().contains(&snippet_query_value)
+        })
+        .take(8)
+        .cloned()
+        .collect::<Vec<_>>();
 
     rsx! {
         article { class: "notes-card",
@@ -180,6 +195,66 @@ pub(crate) fn NotesPanel(app_state: Signal<AppState>) -> Element {
                     }
                 } else {
                     p { class: "notes-empty", "No notes for this path yet. Use + to add one." }
+                }
+            }
+
+            div { class: "notes-bottom-search",
+                p {
+                    class: "notes-search-hint",
+                    if *view_mode.read() == NotesViewMode::Edit {
+                        "Snippet Search: click a result to insert a reference in this note."
+                    } else {
+                        "Snippet Search: click a result to focus and pin that snippet."
+                    }
+                }
+                input {
+                    class: "notes-filter-input",
+                    placeholder: "Search snippets",
+                    value: "{snippet_query.read()}",
+                    oninput: move |event| snippet_query.set(event.value()),
+                }
+                div { class: "notes-snippet-search-list",
+                    if filtered_snippets.is_empty() {
+                        if snippets.is_empty() {
+                            p { class: "notes-empty", "No snippets yet." }
+                        } else {
+                            p { class: "notes-empty", "No snippets match this filter." }
+                        }
+                    } else {
+                        for snippet in filtered_snippets {
+                            {
+                                let snippet_id = snippet.id;
+                                let is_focused = *focused_snippet_id.read() == Some(snippet_id);
+                                let class = if is_focused {
+                                    "notes-snippet-item focused"
+                                } else {
+                                    "notes-snippet-item"
+                                };
+                                let preview = snippet_preview(&snippet.text_snapshot_plain, 160);
+                                rsx! {
+                                    button {
+                                        key: "snippet-search-{snippet_id}",
+                                        class: "{class}",
+                                        r#type: "button",
+                                        onclick: move |_| {
+                                            let _ = app_state.write().promote_snippet(snippet_id);
+                                            focused_snippet_id.set(Some(snippet_id));
+                                            if *view_mode.read() == NotesViewMode::Edit
+                                                && let Some(note_id) = selected_note_id
+                                            {
+                                                app_state.write().append_note_snippet_reference(
+                                                    note_id,
+                                                    snippet_id,
+                                                    unix_now_ms(),
+                                                );
+                                            }
+                                        },
+                                        "{preview}"
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

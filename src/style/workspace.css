@@ -466,7 +466,7 @@
   min-height: 0;
   min-width: 0;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 8px;
   padding: 10px 12px 12px;
 }
@@ -520,6 +520,27 @@
 
 .notes-content {
   min-height: 0;
+}
+
+.notes-bottom-search {
+  border-top: 1px solid #e3cda8;
+  padding-top: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.notes-search-hint {
+  margin: 0;
+  font-size: calc(0.64rem * var(--font-scale));
+  color: #6c4c23;
+}
+
+.notes-snippet-search-list {
+  max-height: 128px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .notes-markdown-input {
