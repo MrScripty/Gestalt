@@ -115,7 +115,11 @@ fn default_group_split_ratio() -> f64 {
 }
 
 fn default_note_title() -> String {
-    "Scratchpad".to_string()
+    "Note".to_string()
+}
+
+fn default_note_group_id() -> GroupId {
+    0
 }
 
 /// Durable reference to a captured text range in a terminal log stream.
@@ -168,6 +172,8 @@ pub struct Snippet {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NoteDocument {
     pub id: NoteId,
+    #[serde(default = "default_note_group_id")]
+    pub group_id: GroupId,
     #[serde(default = "default_note_title")]
     pub title: String,
     #[serde(default)]
@@ -291,24 +297,18 @@ impl Default for AppState {
 
 impl AppState {
     fn empty() -> Self {
-        let note_id = 1_u64;
         Self {
             sessions: Vec::new(),
             groups: Vec::new(),
             command_library: CommandLibrary::default(),
-            notes: vec![NoteDocument {
-                id: note_id,
-                title: default_note_title(),
-                markdown: String::new(),
-                updated_at_unix_ms: 0,
-            }],
+            notes: Vec::new(),
             snippets: Vec::new(),
             ui_scale: UI_SCALE_DEFAULT,
             selected_session: None,
-            selected_note_id: Some(note_id),
+            selected_note_id: None,
             next_session_id: 1,
             next_group_id: 1,
-            next_note_id: note_id.saturating_add(1),
+            next_note_id: 1,
             next_snippet_id: 1,
             revision: 0,
         }
@@ -380,6 +380,12 @@ impl AppState {
         } else {
             self.selected_session = self.sessions.first().map(|session| session.id);
         }
+        let fallback_group_id = self
+            .selected_session
+            .and_then(|session_id| self.sessions.iter().find(|session| session.id == session_id))
+            .map(|session| session.group_id)
+            .or_else(|| self.groups.first().map(|group| group.id))
+            .unwrap_or(1);
 
         let max_group = self.groups.iter().map(|group| group.id).max().unwrap_or(0);
         let max_session = self
@@ -388,24 +394,20 @@ impl AppState {
             .map(|session| session.id)
             .max()
             .unwrap_or(0);
-        self.notes.retain(|note| !note.title.trim().is_empty());
-        if self.notes.is_empty() {
-            let note_id = self.next_note_id.max(1);
-            self.notes.push(NoteDocument {
-                id: note_id,
-                title: default_note_title(),
-                markdown: String::new(),
-                updated_at_unix_ms: 0,
-            });
+        for note in &mut self.notes {
+            if note.group_id == 0 || !valid_group_ids.contains(&note.group_id) {
+                note.group_id = fallback_group_id;
+            }
+            if note.title.trim().is_empty() {
+                note.title = default_note_title();
+            }
         }
+        self.notes.retain(|note| !note.title.trim().is_empty());
         if self
             .selected_note_id
             .is_some_and(|selected| !self.notes.iter().any(|note| note.id == selected))
         {
             self.selected_note_id = None;
-        }
-        if self.selected_note_id.is_none() {
-            self.selected_note_id = self.notes.first().map(|note| note.id);
         }
         for snippet in &mut self.snippets {
             if snippet.log_ref.end_offset < snippet.log_ref.start_offset {
@@ -492,6 +494,7 @@ impl AppState {
             .filter(|session| session.group_id == group_id)
             .map(|session| session.id)
             .collect::<Vec<_>>();
+        self.notes.retain(|note| note.group_id != group_id);
 
         if !removed_session_ids.is_empty() {
             let removed_ids: std::collections::HashSet<SessionId> =
@@ -505,6 +508,12 @@ impl AppState {
             {
                 self.selected_session = self.sessions.first().map(|session| session.id);
             }
+        }
+        if self
+            .selected_note_id
+            .is_some_and(|selected| !self.notes.iter().any(|note| note.id == selected))
+        {
+            self.selected_note_id = None;
         }
 
         self.mark_dirty();
@@ -916,6 +925,35 @@ impl AppState {
         &self.notes
     }
 
+    /// Returns notes for one path group in insertion order.
+    pub fn notes_for_group(&self, group_id: GroupId) -> Vec<&NoteDocument> {
+        self.notes
+            .iter()
+            .filter(|note| note.group_id == group_id)
+            .collect()
+    }
+
+    /// Returns a note by identifier.
+    pub fn note_by_id(&self, note_id: NoteId) -> Option<&NoteDocument> {
+        self.notes.iter().find(|note| note.id == note_id)
+    }
+
+    /// Returns selected note for one group, falling back to first note in group.
+    pub fn selected_note_id_for_group(&self, group_id: GroupId) -> Option<NoteId> {
+        if let Some(selected) = self.selected_note_id
+            && self
+                .notes
+                .iter()
+                .any(|note| note.id == selected && note.group_id == group_id)
+        {
+            return Some(selected);
+        }
+        self.notes
+            .iter()
+            .find(|note| note.group_id == group_id)
+            .map(|note| note.id)
+    }
+
     /// Returns all snippets in display order (newest and promoted first).
     pub fn snippets(&self) -> &[Snippet] {
         &self.snippets
@@ -952,12 +990,18 @@ impl AppState {
     }
 
     /// Creates an empty note and returns its identifier.
-    pub fn create_note(&mut self, title: String, updated_at_unix_ms: i64) -> NoteId {
+    pub fn create_note_for_group(
+        &mut self,
+        group_id: GroupId,
+        title: String,
+        updated_at_unix_ms: i64,
+    ) -> NoteId {
         let trimmed = title.trim();
         let note_id = self.next_note_id;
         self.next_note_id = self.next_note_id.saturating_add(1);
         self.notes.push(NoteDocument {
             id: note_id,
+            group_id,
             title: if trimmed.is_empty() {
                 default_note_title()
             } else {
@@ -969,6 +1013,12 @@ impl AppState {
         self.selected_note_id = Some(note_id);
         self.mark_dirty();
         note_id
+    }
+
+    /// Creates an empty note in the active path group.
+    pub fn create_note(&mut self, title: String, updated_at_unix_ms: i64) -> Option<NoteId> {
+        let group_id = self.active_group_id()?;
+        Some(self.create_note_for_group(group_id, title, updated_at_unix_ms))
     }
 
     /// Updates note markdown and touched timestamp.
@@ -1215,7 +1265,7 @@ pub fn parse_snippet_reference_tokens(markdown: &str) -> Vec<SnippetId> {
 #[cfg(test)]
 mod tests {
     use super::{
-        AppState, NewSnippet, SnippetEmbeddingStatus, parse_snippet_reference_tokens,
+        AppState, NewSnippet, NoteDocument, SnippetEmbeddingStatus, parse_snippet_reference_tokens,
         snippet_reference_token,
     };
 
@@ -1275,5 +1325,49 @@ mod tests {
                 .and_then(|snippet| snippet.embedding_object_id.clone()),
             Some("obj-1".to_string())
         );
+    }
+
+    #[test]
+    fn default_state_starts_without_notes() {
+        let state = AppState::default();
+        assert!(state.notes().is_empty());
+        let active_group = state.active_group_id().expect("active group");
+        assert_eq!(state.selected_note_id_for_group(active_group), None);
+    }
+
+    #[test]
+    fn create_note_for_group_scopes_selection() {
+        let mut state = AppState::default();
+        let active_group = state.active_group_id().expect("active group");
+        let group_two = state.add_group_with_path("/tmp/other".to_string());
+
+        let note_a = state.create_note_for_group(active_group, "Build".to_string(), 100);
+        let note_b = state.create_note_for_group(group_two, "Ideas".to_string(), 200);
+
+        assert_eq!(state.selected_note_id(), Some(note_b));
+        assert_eq!(state.selected_note_id_for_group(active_group), Some(note_a));
+        assert_eq!(state.selected_note_id_for_group(group_two), Some(note_b));
+        assert_eq!(state.notes_for_group(active_group).len(), 1);
+        assert_eq!(state.notes_for_group(group_two).len(), 1);
+    }
+
+    #[test]
+    fn restore_assigns_legacy_group_zero_notes_to_active_group() {
+        let mut state = AppState::default();
+        let active_group = state.active_group_id().expect("active group");
+        state.notes.push(NoteDocument {
+            id: 999,
+            group_id: 0,
+            title: "Legacy".to_string(),
+            markdown: "old".to_string(),
+            updated_at_unix_ms: 1,
+        });
+        state.selected_note_id = Some(999);
+        state.next_note_id = 1_000;
+
+        let restored = state.into_restored();
+        let note = restored.note_by_id(999).expect("note exists");
+        assert_eq!(note.group_id, active_group);
+        assert_eq!(restored.selected_note_id(), Some(999));
     }
 }
