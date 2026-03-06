@@ -9,6 +9,7 @@ pub enum GitCommandKind {
     StageFiles,
     UnstageFiles,
     CreateCommit,
+    UpdateCommitMessage,
     CreateTag,
     CheckoutTarget,
     CreateWorktree,

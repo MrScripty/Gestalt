@@ -10,12 +10,26 @@ pub(crate) fn run_git<S>(cwd: &str, args: &[S]) -> Result<CommandOutput, GitErro
 where
     S: AsRef<str>,
 {
+    run_git_with_env(cwd, args, &[])
+}
+
+pub(crate) fn run_git_with_env<S>(
+    cwd: &str,
+    args: &[S],
+    envs: &[(String, String)],
+) -> Result<CommandOutput, GitError>
+where
+    S: AsRef<str>,
+{
     let args_owned = args
         .iter()
         .map(|arg| arg.as_ref().to_string())
         .collect::<Vec<_>>();
     let mut command = Command::new("git");
     command.current_dir(cwd).args(&args_owned);
+    for (key, value) in envs {
+        command.env(key, value);
+    }
 
     let output = command.output().map_err(|error| GitError::Io {
         details: error.to_string(),

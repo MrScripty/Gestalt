@@ -11,9 +11,11 @@ pub struct RepoSnapshot {
     pub root: String,
     pub head: Option<String>,
     pub current_branch: Option<String>,
+    pub has_upstream: bool,
     pub branches: Vec<BranchInfo>,
     pub commits: Vec<CommitInfo>,
     pub changes: Vec<FileChange>,
+    pub unstaged_count: usize,
     pub tags: Vec<TagInfo>,
 }
 
@@ -34,6 +36,8 @@ pub struct CommitInfo {
     pub body_preview: String,
     pub decorations: Vec<String>,
     pub graph_prefix: String,
+    pub parents: Vec<String>,
+    pub is_unpushed: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -75,6 +79,15 @@ impl CommitDraft {
 
         Ok(())
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct CommitDetails {
+    pub sha: String,
+    pub short_sha: String,
+    pub title: String,
+    pub message: String,
+    pub is_unpushed: bool,
 }
 
 #[derive(Debug, Clone)]

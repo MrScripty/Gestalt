@@ -169,10 +169,10 @@ pub(crate) fn parse_graph_commits(output: &str) -> Result<Vec<CommitInfo>, GitEr
         let graph_prefix = line[..split_idx].to_string();
         let payload = &line[split_idx + 1..];
         let fields = payload.split(LOG_FIELD_DELIMITER).collect::<Vec<_>>();
-        if fields.len() < 6 {
+        if fields.len() < 7 {
             return Err(GitError::ParseError {
                 command: "git log --graph".to_string(),
-                details: format!("Expected 6 fields, found {} in line '{line}'", fields.len()),
+                details: format!("Expected 7 fields, found {} in line '{line}'", fields.len()),
             });
         }
 
@@ -192,6 +192,11 @@ pub(crate) fn parse_graph_commits(output: &str) -> Result<Vec<CommitInfo>, GitEr
             body_preview: fields[4].to_string(),
             decorations,
             graph_prefix,
+            parents: fields[6]
+                .split_whitespace()
+                .map(ToString::to_string)
+                .collect(),
+            is_unpushed: false,
         });
     }
 
@@ -277,8 +282,8 @@ mod tests {
     #[test]
     fn parse_graph_commits_extracts_graph_prefix_and_fields() {
         let input = concat!(
-            "* \0aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u{1f}aaaaaaaa\u{1f}alice\u{1f}2026-03-01T10:00:00+00:00\u{1f}feat: add panel\u{1f}HEAD -> main\n",
-            "| * \0bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u{1f}bbbbbbbb\u{1f}bob\u{1f}2026-02-28T09:00:00+00:00\u{1f}fix: layout\u{1f}tag: v1.0.0\n"
+            "* \0aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u{1f}aaaaaaaa\u{1f}alice\u{1f}2026-03-01T10:00:00+00:00\u{1f}feat: add panel\u{1f}HEAD -> main\u{1f}cccccccccccccccccccccccccccccccccccccccc\n",
+            "| * \0bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u{1f}bbbbbbbb\u{1f}bob\u{1f}2026-02-28T09:00:00+00:00\u{1f}fix: layout\u{1f}tag: v1.0.0\u{1f}dddddddddddddddddddddddddddddddddddddddd eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\n"
         );
 
         let commits = parse_graph_commits(input).expect("parse should succeed");
@@ -288,6 +293,13 @@ mod tests {
         assert_eq!(commits[1].graph_prefix, "| * ");
         assert_eq!(commits[1].decorations[0], "tag: v1.0.0");
         assert_eq!(commits[0].body_preview, "feat: add panel");
+        assert_eq!(
+            commits[1].parents,
+            vec![
+                "dddddddddddddddddddddddddddddddddddddddd".to_string(),
+                "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".to_string()
+            ]
+        );
     }
 
     #[test]

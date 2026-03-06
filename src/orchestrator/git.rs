@@ -1,4 +1,6 @@
-use crate::git::{self, CheckoutTarget, CommitDraft, GitError, RepoContext, RepoPathMarks};
+use crate::git::{
+    self, CheckoutTarget, CommitDetails, CommitDraft, GitError, RepoContext, RepoPathMarks,
+};
 use crate::orchestrator::events::{
     GitCommandExecuted, GitCommandKind, OrchestratorEvent, event_bus,
 };
@@ -45,6 +47,24 @@ pub fn unstage_files(group_path: &str, paths: &[String]) -> Vec<FileOpResult> {
 pub fn create_commit(group_path: &str, draft: CommitDraft) -> Result<String, GitError> {
     let result = git::create_commit(group_path, &draft);
     emit_git_command_event(group_path, GitCommandKind::CreateCommit, result.is_ok());
+    result
+}
+
+pub fn load_commit_details(group_path: &str, sha: &str) -> Result<CommitDetails, GitError> {
+    git::load_commit_details(group_path, sha)
+}
+
+pub fn update_commit_message(
+    group_path: &str,
+    sha: &str,
+    draft: CommitDraft,
+) -> Result<(), GitError> {
+    let result = git::update_commit_message(group_path, sha, &draft);
+    emit_git_command_event(
+        group_path,
+        GitCommandKind::UpdateCommitMessage,
+        result.is_ok(),
+    );
     result
 }
 
