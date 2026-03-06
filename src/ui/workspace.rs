@@ -365,7 +365,6 @@ pub(crate) fn WorkspaceMain(
 
             if let Some(group_id) = active_group_id {
                 {
-                    let group_name = snapshot.group_label(group_id);
                     let has_agent_split = active_agents.len() > 1;
                     let agent_stack_class = if has_agent_split {
                         "agent-stack split-enabled"
@@ -462,7 +461,6 @@ pub(crate) fn WorkspaceMain(
                                                                 "{session.title}"
                                                             }
                                                         }
-                                                        p { class: "sub", "{group_name}" }
                                                         p { class: "terminal-meta", "cwd: {cwd}" }
                                                     }
                                                 }
@@ -658,7 +656,6 @@ pub(crate) fn WorkspaceMain(
                                                                 "{session.title}"
                                                             }
                                                         }
-                                                        p { class: "sub", "{group_name}" }
                                                         p { class: "terminal-meta", "cwd: {cwd}" }
                                                     }
                                                 }
