@@ -1,11 +1,11 @@
-use crate::state::SessionId;
+use crate::state::{SessionId, SnippetId};
 use crate::terminal::TerminalMemorySink;
 use emily::api::EmilyApi;
 use emily::inference::EmbeddingProvider;
 use emily::model::{
-    ContextPacket, ContextQuery, DatabaseLocator, HistoryPageRequest, IngestTextRequest,
-    TextObjectKind, VectorizationConfig, VectorizationConfigPatch, VectorizationJobSnapshot,
-    VectorizationRunRequest, VectorizationStatus,
+    ContextPacket, ContextQuery, DatabaseLocator, EmbeddingProviderStatus, HistoryPageRequest,
+    IngestTextRequest, TextObjectKind, VectorizationConfig, VectorizationConfigPatch,
+    VectorizationJobSnapshot, VectorizationRunRequest, VectorizationStatus,
 };
 use emily::runtime::EmilyRuntime;
 use emily::store::surreal::SurrealEmilyStore;
@@ -44,6 +44,10 @@ enum BridgeCommand {
         top_k: usize,
         response_tx: mpsc::Sender<Result<ContextPacket, String>>,
     },
+    IngestSnippet {
+        request: SnippetIngestRequest,
+        response_tx: mpsc::Sender<Result<SnippetIngestResult, String>>,
+    },
     UpdateVectorizationConfig {
         patch: VectorizationConfigPatch,
         response_tx: mpsc::Sender<Result<VectorizationConfig, String>>,
@@ -67,6 +71,27 @@ enum BridgeCommand {
 pub struct HistoryChunk {
     pub lines: Vec<String>,
     pub next_before_sequence: Option<u64>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SnippetIngestRequest {
+    pub snippet_id: SnippetId,
+    pub source_session_id: SessionId,
+    pub source_stream_id: String,
+    pub source_cwd: String,
+    pub source_start_offset: u64,
+    pub source_end_offset: u64,
+    pub source_start_row: u32,
+    pub source_end_row: u32,
+    pub text: String,
+    pub ts_unix_ms: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct SnippetIngestResult {
+    pub object_id: String,
+    pub embedding_profile_id: Option<String>,
+    pub embedding_dimensions: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -124,6 +149,12 @@ impl EmilyBridge {
         Self::with_embedding_provider(locator, Some(embedding_provider))
     }
 
+    /// Starts Emily runtime worker without provider and persists bootstrap error in status.
+    pub fn new_default_with_provider_error(provider_error: String) -> Self {
+        let locator = Self::default_locator();
+        Self::with_embedding_provider_bootstrap_error(locator, None, Some(provider_error))
+    }
+
     /// Starts Emily runtime worker with an explicit database locator.
     pub fn new(locator: DatabaseLocator) -> Self {
         Self::with_embedding_provider(locator, None)
@@ -134,11 +165,23 @@ impl EmilyBridge {
         locator: DatabaseLocator,
         embedding_provider: Option<Arc<dyn EmbeddingProvider>>,
     ) -> Self {
+        Self::with_embedding_provider_bootstrap_error(locator, embedding_provider, None)
+    }
+
+    fn with_embedding_provider_bootstrap_error(
+        locator: DatabaseLocator,
+        embedding_provider: Option<Arc<dyn EmbeddingProvider>>,
+        provider_bootstrap_error: Option<String>,
+    ) -> Self {
+        let initial_provider_status = fallback_provider_status(
+            embedding_provider.is_some(),
+            provider_bootstrap_error.as_deref(),
+        );
         let (command_tx, command_rx) = tokio_mpsc::unbounded_channel::<BridgeCommand>();
         let initial_vectorization_status = VectorizationStatus {
             config: VectorizationConfig::default(),
             provider_available: embedding_provider.is_some(),
-            provider_status: None,
+            provider_status: initial_provider_status,
             active_job: None,
             last_job: None,
         };
@@ -151,6 +194,7 @@ impl EmilyBridge {
             run_worker(
                 locator,
                 embedding_provider,
+                provider_bootstrap_error,
                 command_rx,
                 vectorization_status_tx,
                 worker_health,
@@ -225,6 +269,22 @@ impl EmilyBridge {
             .map_err(|error| format!("failed sending context request to Emily worker: {error}"))?;
         response_rx.recv().map_err(|error| {
             format!("failed receiving context response from Emily worker: {error}")
+        })?
+    }
+
+    pub fn ingest_snippet(
+        &self,
+        request: SnippetIngestRequest,
+    ) -> Result<SnippetIngestResult, String> {
+        let (response_tx, response_rx) = mpsc::channel();
+        self.command_tx
+            .send(BridgeCommand::IngestSnippet {
+                request,
+                response_tx,
+            })
+            .map_err(|error| format!("failed sending snippet ingest request: {error}"))?;
+        response_rx.recv().map_err(|error| {
+            format!("failed receiving snippet ingest response from Emily worker: {error}")
         })?
     }
 
@@ -334,6 +394,7 @@ impl TerminalMemorySink for EmilyBridge {
 fn run_worker(
     locator: DatabaseLocator,
     embedding_provider: Option<Arc<dyn EmbeddingProvider>>,
+    provider_bootstrap_error: Option<String>,
     mut command_rx: tokio_mpsc::UnboundedReceiver<BridgeCommand>,
     vectorization_status_tx: watch::Sender<VectorizationStatus>,
     health: Arc<BridgeHealthCounters>,
@@ -362,14 +423,21 @@ fn run_worker(
         }
 
         if let Ok(status) = emily_runtime.vectorization_status().await {
+            let status =
+                apply_provider_bootstrap_fallback(status, provider_bootstrap_error.as_deref());
             let _ = vectorization_status_tx.send(status);
         }
         let mut runtime_status_rx = emily_runtime.subscribe_vectorization_status();
         let status_tx = vectorization_status_tx.clone();
+        let provider_bootstrap_error = provider_bootstrap_error.clone();
         tokio::spawn(async move {
             loop {
                 match runtime_status_rx.recv().await {
                     Ok(status) => {
+                        let status = apply_provider_bootstrap_fallback(
+                            status,
+                            provider_bootstrap_error.as_deref(),
+                        );
                         let _ = status_tx.send(status);
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
@@ -493,6 +561,18 @@ fn run_worker(
                     }
                     let _ = response_tx.send(result);
                 }
+                BridgeCommand::IngestSnippet {
+                    request,
+                    response_tx,
+                } => {
+                    let result = ingest_snippet_object(
+                        &emily_runtime,
+                        &mut sequence_by_stream,
+                        request,
+                    )
+                    .await;
+                    let _ = response_tx.send(result);
+                }
                 BridgeCommand::UpdateVectorizationConfig { patch, response_tx } => {
                     let result = emily_runtime
                         .update_vectorization_config(patch)
@@ -550,7 +630,76 @@ async fn ingest_line(
     ts_unix_ms: i64,
     object_kind: TextObjectKind,
 ) -> Result<(), String> {
-    let stream_id = stream_id(session_id);
+    let _ = ingest_object(
+        emily_runtime,
+        sequence_by_stream,
+        stream_id(session_id),
+        "terminal".to_string(),
+        object_kind,
+        ts_unix_ms,
+        line,
+        json!({ "cwd": cwd }),
+    )
+    .await?;
+    Ok(())
+}
+
+async fn ingest_snippet_object(
+    emily_runtime: &Arc<EmilyRuntime<SurrealEmilyStore>>,
+    sequence_by_stream: &mut HashMap<String, u64>,
+    request: SnippetIngestRequest,
+) -> Result<SnippetIngestResult, String> {
+    let object = ingest_object(
+        emily_runtime,
+        sequence_by_stream,
+        snippet_stream_id(),
+        "snippet".to_string(),
+        TextObjectKind::Note,
+        request.ts_unix_ms,
+        request.text,
+        json!({
+            "snippet_id": request.snippet_id,
+            "source_session_id": request.source_session_id,
+            "source_stream_id": request.source_stream_id,
+            "source_cwd": request.source_cwd,
+            "source_start_offset": request.source_start_offset,
+            "source_end_offset": request.source_end_offset,
+            "source_start_row": request.source_start_row,
+            "source_end_row": request.source_end_row,
+        }),
+    )
+    .await?;
+    let vectorization = emily_runtime
+        .vectorization_status()
+        .await
+        .map_err(|error| format!("Emily vectorization status query failed: {error}"))?;
+    let profile = if vectorization.config.enabled && vectorization.provider_available {
+        Some(vectorization.config.profile_id)
+    } else {
+        None
+    };
+    let dimensions = if vectorization.config.enabled && vectorization.provider_available {
+        Some(vectorization.config.expected_dimensions)
+    } else {
+        None
+    };
+    Ok(SnippetIngestResult {
+        object_id: object.id,
+        embedding_profile_id: profile,
+        embedding_dimensions: dimensions,
+    })
+}
+
+async fn ingest_object(
+    emily_runtime: &Arc<EmilyRuntime<SurrealEmilyStore>>,
+    sequence_by_stream: &mut HashMap<String, u64>,
+    stream_id: String,
+    source_kind: String,
+    object_kind: TextObjectKind,
+    ts_unix_ms: i64,
+    text: String,
+    metadata: serde_json::Value,
+) -> Result<emily::model::TextObject, String> {
     let cached_sequence = sequence_by_stream.get(&stream_id).copied();
     let latest_sequence = match cached_sequence {
         Some(sequence) => Ok(sequence),
@@ -558,23 +707,20 @@ async fn ingest_line(
     };
     let base_sequence = base_sequence_for_stream(sequence_by_stream, &stream_id, latest_sequence)?;
     let next_sequence = base_sequence.saturating_add(1);
-
-    emily_runtime
+    let object = emily_runtime
         .ingest_text(IngestTextRequest {
             stream_id: stream_id.clone(),
-            source_kind: "terminal".to_string(),
+            source_kind,
             object_kind,
             sequence: next_sequence,
             ts_unix_ms,
-            text: line,
-            metadata: json!({ "cwd": cwd }),
+            text,
+            metadata,
         })
         .await
         .map_err(|error| format!("Emily ingest failed: {error}"))?;
-
     sequence_by_stream.insert(stream_id, next_sequence);
-
-    Ok(())
+    Ok(object)
 }
 
 fn base_sequence_for_stream(
@@ -608,6 +754,41 @@ fn stream_id(session_id: SessionId) -> String {
     format!("terminal:{session_id}")
 }
 
+fn snippet_stream_id() -> String {
+    "snippet:global".to_string()
+}
+
+fn fallback_provider_status(
+    provider_available: bool,
+    provider_bootstrap_error: Option<&str>,
+) -> Option<EmbeddingProviderStatus> {
+    if provider_available {
+        return None;
+    }
+    let Some(error) = provider_bootstrap_error else {
+        return None;
+    };
+    Some(EmbeddingProviderStatus {
+        state: "unavailable".to_string(),
+        session_id: None,
+        queued_runs: None,
+        queue_items: None,
+        keep_alive: None,
+        last_error: Some(error.to_string()),
+    })
+}
+
+fn apply_provider_bootstrap_fallback(
+    mut status: VectorizationStatus,
+    provider_bootstrap_error: Option<&str>,
+) -> VectorizationStatus {
+    if status.provider_status.is_none() {
+        status.provider_status =
+            fallback_provider_status(status.provider_available, provider_bootstrap_error);
+    }
+    status
+}
+
 fn default_storage_path() -> PathBuf {
     if let Ok(value) = std::env::var("GESTALT_EMILY_DB_PATH") {
         let trimmed = value.trim();
@@ -625,7 +806,11 @@ fn default_storage_path() -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use super::base_sequence_for_stream;
+    use super::{
+        apply_provider_bootstrap_fallback, base_sequence_for_stream, fallback_provider_status,
+        snippet_stream_id,
+    };
+    use emily::model::{VectorizationConfig, VectorizationStatus};
     use std::collections::HashMap;
 
     #[test]
@@ -653,5 +838,37 @@ mod tests {
         )
         .expect_err("seed errors must propagate");
         assert_eq!(error, "seed failure");
+    }
+
+    #[test]
+    fn fallback_provider_status_includes_bootstrap_error_when_unavailable() {
+        let status = fallback_provider_status(false, Some("workflow bootstrap failed"))
+            .expect("fallback status should be present");
+        assert_eq!(status.state, "unavailable");
+        assert_eq!(
+            status.last_error.as_deref(),
+            Some("workflow bootstrap failed")
+        );
+    }
+
+    #[test]
+    fn apply_provider_bootstrap_fallback_keeps_existing_provider_status() {
+        let status = VectorizationStatus {
+            config: VectorizationConfig::default(),
+            provider_available: false,
+            provider_status: fallback_provider_status(false, Some("original")),
+            active_job: None,
+            last_job: None,
+        };
+        let updated = apply_provider_bootstrap_fallback(status, Some("replacement"));
+        assert_eq!(
+            updated.provider_status.unwrap().last_error.as_deref(),
+            Some("original")
+        );
+    }
+
+    #[test]
+    fn snippet_stream_id_is_global_and_stable() {
+        assert_eq!(snippet_stream_id(), "snippet:global");
     }
 }
