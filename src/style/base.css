@@ -61,7 +61,6 @@ body {
   border-radius: 14px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
   padding: 14px;
   overflow: hidden;
 }
