@@ -26,6 +26,9 @@ const RENDER_WINDOW_MULTIPLIER: usize = 8;
 const RENDER_WINDOW_MIN_ROWS: usize = 256;
 const REFRESH_PROBE_ITERATIONS: usize = 180;
 const GIT_WATCHER_POLL_SAMPLES: usize = 12;
+const STARTUP_PROFILE_SAMPLES: usize = 12;
+const STARTUP_PROFILE_EXTRA_GROUPS: usize = 4;
+const STARTUP_PROFILE_ACTIVE_GROUP_EXTRA_SESSIONS: usize = 2;
 
 fn main() -> Result<(), String> {
     let args = std::env::args().collect::<Vec<_>>();
@@ -83,6 +86,10 @@ fn main() -> Result<(), String> {
     let orchestrator_snapshot_build_stats =
         stats_from_sorted(&refresh_profile.orchestrator_snapshot_build_us);
     let git_watcher_poll_cost_stats = stats_from_sorted(&git_watcher_poll_profile);
+    let startup_profile = profile_startup_restore(STARTUP_PROFILE_SAMPLES)?;
+    let startup_active_path_group_ready_stats =
+        stats_from_sorted(&startup_profile.active_path_group_ready_us);
+    let startup_full_restore_stats = stats_from_sorted(&startup_profile.full_restore_us);
 
     println!();
     println!("Mutex hold timings for heavy operations");
@@ -210,6 +217,28 @@ fn main() -> Result<(), String> {
         git_watcher_poll_cost_stats.p99_us,
         git_watcher_poll_cost_stats.max_us
     );
+    println!();
+    println!("Startup suspect timings");
+    println!(
+        "  startup profile sessions: active_visible={} total={}",
+        startup_profile.active_path_group_visible_sessions, startup_profile.total_sessions
+    );
+    println!(
+        "  active path group ready us: avg={} p50={} p95={} p99={} max={}",
+        startup_active_path_group_ready_stats.avg_us,
+        startup_active_path_group_ready_stats.p50_us,
+        startup_active_path_group_ready_stats.p95_us,
+        startup_active_path_group_ready_stats.p99_us,
+        startup_active_path_group_ready_stats.max_us
+    );
+    println!(
+        "  full restore us: avg={} p50={} p95={} p99={} max={}",
+        startup_full_restore_stats.avg_us,
+        startup_full_restore_stats.p50_us,
+        startup_full_restore_stats.p95_us,
+        startup_full_restore_stats.p99_us,
+        startup_full_restore_stats.max_us
+    );
 
     let baseline = profile_typing_latency(&terminal_manager, session_ids[0], TYPING_SAMPLES)?;
     println!();
@@ -317,6 +346,8 @@ fn main() -> Result<(), String> {
         orchestrator_snapshot_build: orchestrator_snapshot_build_stats,
         autosave_fingerprint: autosave_fingerprint_stats,
         git_watcher_poll_cost: git_watcher_poll_cost_stats,
+        startup_active_path_group_ready: startup_active_path_group_ready_stats,
+        startup_full_restore: startup_full_restore_stats,
         autosave_snapshot_lines_total: autosave_snapshot_lines_stats,
         baseline_lock_wait: baseline.lock_wait_stats(),
         baseline_total_send: baseline.total_send_stats(),
@@ -338,6 +369,8 @@ fn main() -> Result<(), String> {
         orchestrator_snapshot_build_p95_us: orchestrator_snapshot_build_stats.p95_us,
         autosave_fingerprint_p95_us: autosave_fingerprint_stats.p95_us,
         git_watcher_poll_cost_p95_us: git_watcher_poll_cost_stats.p95_us,
+        startup_active_path_group_ready_p95_us: startup_active_path_group_ready_stats.p95_us,
+        startup_full_restore_p95_us: startup_full_restore_stats.p95_us,
         autosave_snapshot_lines_total_p95: autosave_snapshot_lines_stats.p95_us,
         autosave_snapshot_build_p95_us: autosave_hold_stats.p95_us,
         baseline_total_send_p95_us: baseline.total_send_p95(),
@@ -752,6 +785,93 @@ fn profile_refresh_loop(
     profile
 }
 
+struct StartupProfile {
+    active_path_group_visible_sessions: usize,
+    total_sessions: usize,
+    active_path_group_ready_us: Vec<u128>,
+    full_restore_us: Vec<u128>,
+}
+
+fn profile_startup_restore(samples: usize) -> Result<StartupProfile, String> {
+    let state = build_startup_profile_state();
+    let active_group_id = state
+        .active_group_id()
+        .ok_or_else(|| "missing active group for startup profile".to_string())?;
+    let active_group_path = state
+        .group_path(active_group_id)
+        .ok_or_else(|| "missing active group path for startup profile".to_string())?
+        .to_string();
+    let active_group_session_ids = state.workspace_session_ids_for_group(active_group_id);
+    let all_sessions = state
+        .sessions
+        .iter()
+        .map(|session| {
+            (
+                session.id,
+                state
+                    .group_path(session.group_id)
+                    .unwrap_or(".")
+                    .to_string(),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    let mut active_path_group_ready_us = Vec::with_capacity(samples);
+    let mut full_restore_us = Vec::with_capacity(samples);
+
+    for _ in 0..samples {
+        let terminal_manager = TerminalManager::new();
+        let started = Instant::now();
+        for session_id in &active_group_session_ids {
+            terminal_manager
+                .ensure_session(*session_id, &active_group_path)
+                .map_err(|error| error.to_string())?;
+        }
+        active_path_group_ready_us.push(started.elapsed().as_micros());
+        drop(terminal_manager);
+
+        let terminal_manager = TerminalManager::new();
+        let started = Instant::now();
+        for (session_id, path) in &all_sessions {
+            terminal_manager
+                .ensure_session(*session_id, path)
+                .map_err(|error| error.to_string())?;
+        }
+        full_restore_us.push(started.elapsed().as_micros());
+        drop(terminal_manager);
+    }
+
+    active_path_group_ready_us.sort_unstable();
+    full_restore_us.sort_unstable();
+
+    Ok(StartupProfile {
+        active_path_group_visible_sessions: active_group_session_ids.len(),
+        total_sessions: all_sessions.len(),
+        active_path_group_ready_us,
+        full_restore_us,
+    })
+}
+
+fn build_startup_profile_state() -> AppState {
+    let mut state = AppState::default();
+    let active_group_id = state.active_group_id().expect("default active group");
+    for _ in 0..STARTUP_PROFILE_ACTIVE_GROUP_EXTRA_SESSIONS {
+        let _ = state.add_session(active_group_id);
+    }
+    for index in 0..STARTUP_PROFILE_EXTRA_GROUPS {
+        let path = format!("/tmp/gestalt-startup-profile-{index}");
+        let _ = state.create_group_with_defaults(path);
+    }
+    let first_session_id = state
+        .sessions
+        .iter()
+        .find(|session| session.group_id == active_group_id)
+        .map(|session| session.id)
+        .expect("active group session");
+    state.select_session(first_session_id);
+    state
+}
+
 fn profile_git_watcher_poll_cost(group_path: &str, samples: usize) -> Vec<u128> {
     let mut samples_us = Vec::with_capacity(samples);
     let Ok(repo_root) = gestalt::git::repo_root(group_path) else {
@@ -1002,6 +1122,8 @@ struct ProfileSummary {
     orchestrator_snapshot_build: DistributionStats,
     autosave_fingerprint: DistributionStats,
     git_watcher_poll_cost: DistributionStats,
+    startup_active_path_group_ready: DistributionStats,
+    startup_full_restore: DistributionStats,
     autosave_snapshot_lines_total: DistributionStats,
     baseline_lock_wait: DistributionStats,
     baseline_total_send: DistributionStats,
@@ -1023,6 +1145,8 @@ struct ProfileSummary {
     orchestrator_snapshot_build_p95_us: u128,
     autosave_fingerprint_p95_us: u128,
     git_watcher_poll_cost_p95_us: u128,
+    startup_active_path_group_ready_p95_us: u128,
+    startup_full_restore_p95_us: u128,
     autosave_snapshot_lines_total_p95: u128,
     autosave_snapshot_build_p95_us: u128,
     baseline_total_send_p95_us: u128,

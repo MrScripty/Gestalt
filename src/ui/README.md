@@ -20,6 +20,7 @@
 | `insert_command_mode.rs` | Insert mode state and controls |
 | `local_agent_panel.rs` | Local agent control panel |
 | `sidebar_panel_host.rs` | Sidebar container selection |
+| `startup.rs` | Startup-priority policy for active path group session restore |
 
 ## Problem
 Provide responsive desktop UI workflows while delegating domain behavior to lower layers.
@@ -27,11 +28,12 @@ Provide responsive desktop UI workflows while delegating domain behavior to lowe
 ## Constraints
 - Must preserve keyboard-first interaction.
 - Must avoid direct PTY lifecycle ownership.
+- Must keep first-interaction paths free of avoidable blocking work.
 - Must coexist with polling loops currently used for runtime sync.
 - Vectorization business behavior remains Emily-owned; UI dispatches actions and renders status.
 
 ## Decision
-Keep UI responsibilities component-focused and route runtime/domain mutations through shared services and orchestrator APIs.
+Keep UI responsibilities component-focused, route runtime/domain mutations through shared services and orchestrator APIs, and treat the active path group's visible sessions as the startup critical path.
 
 ## Alternatives Rejected
 - Single monolithic UI file: rejected due to scale.
@@ -41,6 +43,7 @@ Keep UI responsibilities component-focused and route runtime/domain mutations th
 - UI state is transient and presentation-oriented.
 - Persistent/business state changes route through `state`, `orchestrator`, or `persistence` paths.
 - Emily vectorization settings UI is a bridge surface only; runtime authority stays in Emily APIs.
+- Active path group visible sessions start before deferred sessions in other groups.
 - Components remain keyboard reachable.
 
 ## Revisit Triggers
@@ -54,7 +57,7 @@ The following loops are currently retained because upstream signal hooks are not
 | -------- | ------- | ------------- | --------------- |
 | `ui.rs` terminal refresh loop | 33 ms | PTY snapshot revisions are pull-based and shared across many sessions. | Terminal runtime publishes change events directly to UI state. |
 | `ui.rs` terminal resize loop | 180 ms | Viewport measurement is DOM-driven and currently sampled. | Reliable resize observer bridge is available in Dioxus desktop layer. |
-| `ui.rs` startup sync loop | 250 ms | Session startup depends on runtime readiness checks. | Runtime exposes deterministic startup completion events. |
+| `ui.rs` startup background tick | 120 ms + notify nudges | Deferred session startup and initial history backfill still need bounded background progress, but active path group startup is notify-driven. | Session startup and history restore are fully event-driven. |
 | `ui.rs` autosave loop | 1200 ms | Autosave worker completion and signature checks are currently drained by polling. | Autosave worker adopts callback/event notification. |
 | `file_browser_panel.rs` refresh loop | 1000 ms + nonce triggers | Uses nonce-driven event triggers with low-frequency fallback for repo/fs drift. | File-system/repo watcher events can fully replace fallback cadence. |
 | `git_refresh.rs` coordinator loop | 500 ms | Event bus + debounced scheduling still requires periodic due checks. | Scheduler is converted to timer/event queue without tick loop. |
