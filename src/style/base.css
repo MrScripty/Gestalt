@@ -137,10 +137,6 @@ body {
   box-shadow: 0 0 0 1px #86ff5d55;
 }
 
-.group.active .group-path {
-  color: #cde5da;
-}
-
 .group-header {
   display: flex;
   align-items: flex-start;
@@ -160,13 +156,6 @@ body {
 .group-header h3 {
   margin: 0;
   font-size: calc(0.92rem * var(--font-scale));
-}
-
-.group-path {
-  margin: 2px 0 0;
-  color: #9fbcaf;
-  font-size: calc(0.72rem * var(--font-scale));
-  line-break: anywhere;
 }
 
 .pill-btn,
