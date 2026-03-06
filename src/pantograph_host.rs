@@ -21,6 +21,14 @@ use workflow_nodes as _;
 
 const DEFAULT_TIMEOUT_MS: u64 = 120_000;
 const DEFAULT_EMBED_DIMENSIONS: usize = 1024;
+const EMBEDDING_MODEL_INPUT_ALIASES: [&str; 6] = [
+    "model",
+    "model_path",
+    "modelName",
+    "model_name",
+    "modelId",
+    "model_id",
+];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum DeferredProviderState {
@@ -250,32 +258,81 @@ struct HostRuntimeState {
     active_model_path: Option<PathBuf>,
 }
 
-pub struct GestaltPantographHost {
-    config: PantographRuntimeConfig,
-    gateway: Arc<InferenceGateway>,
-    runtime_state: Mutex<HostRuntimeState>,
-}
-
-impl GestaltPantographHost {
-    pub fn new(config: PantographRuntimeConfig) -> Result<Self, String> {
-        let binaries_dir = config.binaries_dir();
-        if !binaries_dir.exists() {
-            return Err(format!(
-                "pantograph binaries directory does not exist: {}",
-                binaries_dir.display()
-            ));
-        }
-        Ok(Self {
-            config,
-            gateway: Arc::new(InferenceGateway::new()),
-            runtime_state: Mutex::new(HostRuntimeState::default()),
-        })
+fn resolve_embedding_model_path_from_inputs(
+    inputs: &HashMap<String, serde_json::Value>,
+    model_path_override: Option<&Path>,
+) -> Result<PathBuf, node_engine::NodeEngineError> {
+    if let Some(model_path) = model_path_override {
+        return Ok(model_path.to_path_buf());
     }
 
-    async fn ensure_gateway_started(&self, model_path: &Path) -> Result<(), WorkflowServiceError> {
+    let value = EMBEDDING_MODEL_INPUT_ALIASES
+        .iter()
+        .find_map(|key| {
+            inputs
+                .get(*key)
+                .and_then(|value| value.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned)
+        })
+        .or_else(|| {
+            EMBEDDING_MODEL_INPUT_ALIASES.iter().find_map(|key| {
+                inputs
+                    .get("_data")
+                    .and_then(|value| value.get(*key))
+                    .and_then(|value| value.as_str())
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(ToOwned::to_owned)
+            })
+        });
+
+    value.map(PathBuf::from).ok_or_else(|| {
+        node_engine::NodeEngineError::ExecutionFailed(
+            "embedding workflow is missing a resolved model input".to_string(),
+        )
+    })
+}
+
+struct EmbeddingWorkflowTaskExecutor {
+    config: PantographRuntimeConfig,
+    gateway: Arc<InferenceGateway>,
+    runtime_state: Arc<Mutex<HostRuntimeState>>,
+    core: Arc<node_engine::CoreTaskExecutor>,
+}
+
+impl EmbeddingWorkflowTaskExecutor {
+    fn new(
+        config: PantographRuntimeConfig,
+        gateway: Arc<InferenceGateway>,
+        runtime_state: Arc<Mutex<HostRuntimeState>>,
+        core: Arc<node_engine::CoreTaskExecutor>,
+    ) -> Self {
+        Self {
+            config,
+            gateway,
+            runtime_state,
+            core,
+        }
+    }
+
+    fn resolve_model_path_from_inputs(
+        &self,
+        inputs: &HashMap<String, serde_json::Value>,
+    ) -> Result<PathBuf, node_engine::NodeEngineError> {
+        resolve_embedding_model_path_from_inputs(inputs, self.config.model_path_override.as_deref())
+    }
+
+    async fn ensure_gateway_started(
+        &self,
+        model_path: &Path,
+    ) -> Result<(), node_engine::NodeEngineError> {
         let should_restart = {
             let state = self.runtime_state.lock().map_err(|_| {
-                WorkflowServiceError::Internal("host runtime state lock poisoned".to_string())
+                node_engine::NodeEngineError::ExecutionFailed(
+                    "host runtime state lock poisoned".to_string(),
+                )
             })?;
             let same_model = state.active_model_path.as_deref() == Some(model_path);
             !same_model
@@ -300,16 +357,72 @@ impl GestaltPantographHost {
         };
 
         self.gateway.start(&backend_config).await.map_err(|error| {
-            WorkflowServiceError::RuntimeNotReady(format!(
+            node_engine::NodeEngineError::ExecutionFailed(format!(
                 "failed to start pantograph embedding gateway: {error}"
             ))
         })?;
 
         let mut state = self.runtime_state.lock().map_err(|_| {
-            WorkflowServiceError::Internal("host runtime state lock poisoned".to_string())
+            node_engine::NodeEngineError::ExecutionFailed(
+                "host runtime state lock poisoned".to_string(),
+            )
         })?;
         state.active_model_path = Some(model_path.to_path_buf());
         Ok(())
+    }
+}
+
+#[async_trait::async_trait]
+impl node_engine::TaskExecutor for EmbeddingWorkflowTaskExecutor {
+    async fn execute_task(
+        &self,
+        task_id: &str,
+        inputs: HashMap<String, serde_json::Value>,
+        context: &node_engine::Context,
+        extensions: &node_engine::ExecutorExtensions,
+    ) -> node_engine::Result<HashMap<String, serde_json::Value>> {
+        let node_type = node_engine::resolve_node_type(task_id, &inputs);
+        if node_type != "embedding" {
+            return Err(node_engine::NodeEngineError::ExecutionFailed(format!(
+                "Node type '{}' requires host-specific executor",
+                node_type
+            )));
+        }
+
+        let model_path = self.resolve_model_path_from_inputs(&inputs)?;
+        self.ensure_gateway_started(&model_path).await?;
+
+        node_engine::TaskExecutor::execute_task(
+            self.core.as_ref(),
+            task_id,
+            inputs,
+            context,
+            extensions,
+        )
+        .await
+    }
+}
+
+pub struct GestaltPantographHost {
+    config: PantographRuntimeConfig,
+    gateway: Arc<InferenceGateway>,
+    runtime_state: Arc<Mutex<HostRuntimeState>>,
+}
+
+impl GestaltPantographHost {
+    pub fn new(config: PantographRuntimeConfig) -> Result<Self, String> {
+        let binaries_dir = config.binaries_dir();
+        if !binaries_dir.exists() {
+            return Err(format!(
+                "pantograph binaries directory does not exist: {}",
+                binaries_dir.display()
+            ));
+        }
+        Ok(Self {
+            config,
+            gateway: Arc::new(InferenceGateway::new()),
+            runtime_state: Arc::new(Mutex::new(HostRuntimeState::default())),
+        })
     }
 
     fn apply_input_bindings(
@@ -438,53 +551,6 @@ impl GestaltPantographHost {
 
         outputs
     }
-
-    fn detect_model_path(
-        &self,
-        graph: &node_engine::WorkflowGraph,
-    ) -> Result<PathBuf, WorkflowServiceError> {
-        if let Some(model_path) = self.config.model_path_override.clone() {
-            return Ok(model_path);
-        }
-
-        let embedding_model_path = graph
-            .nodes
-            .iter()
-            .filter(|node| node.node_type == "embedding")
-            .find_map(|node| {
-                node.data
-                    .get("model")
-                    .and_then(|value| value.as_str())
-                    .map(|value| value.trim().to_string())
-                    .filter(|value| !value.is_empty())
-            })
-            .map(PathBuf::from);
-
-        if let Some(path) = embedding_model_path {
-            return Ok(path);
-        }
-
-        let puma_model_path = graph
-            .nodes
-            .iter()
-            .filter(|node| node.node_type == "puma-lib")
-            .find_map(|node| {
-                node.data
-                    .get("modelPath")
-                    .or_else(|| node.data.get("model_path"))
-                    .and_then(|value| value.as_str())
-                    .map(|value| value.trim().to_string())
-                    .filter(|value| !value.is_empty())
-            })
-            .map(PathBuf::from);
-
-        puma_model_path.ok_or_else(|| {
-            WorkflowServiceError::InvalidRequest(
-                "embedding workflow is missing model path metadata on embedding/puma-lib nodes"
-                    .to_string(),
-            )
-        })
-    }
 }
 
 #[async_trait::async_trait]
@@ -516,9 +582,6 @@ impl WorkflowHost for GestaltPantographHost {
         Self::apply_input_bindings(&mut graph, inputs)?;
 
         let output_node_ids = Self::resolve_output_node_ids(&graph, output_targets)?;
-        let model_path = self.detect_model_path(&graph)?;
-        self.ensure_gateway_started(&model_path).await?;
-
         let execution_id = Uuid::new_v4().to_string();
         let core = Arc::new(
             node_engine::CoreTaskExecutor::new()
@@ -526,7 +589,13 @@ impl WorkflowHost for GestaltPantographHost {
                 .with_gateway(self.gateway.clone())
                 .with_execution_id(execution_id.clone()),
         );
-        let task_executor = node_engine::CompositeTaskExecutor::new(None, core);
+        let host_executor = Arc::new(EmbeddingWorkflowTaskExecutor::new(
+            self.config.clone(),
+            self.gateway.clone(),
+            self.runtime_state.clone(),
+            core.clone(),
+        ));
+        let task_executor = node_engine::CompositeTaskExecutor::new(Some(host_executor), core);
 
         let executor = node_engine::WorkflowExecutor::new(
             execution_id,
