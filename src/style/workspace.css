@@ -543,6 +543,13 @@
   gap: 6px;
 }
 
+.notes-snippet-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+}
+
 .notes-markdown-input {
   width: 100%;
   min-height: 0;
@@ -625,6 +632,25 @@
 .notes-snippet-item.focused {
   border-color: #2f8e57;
   box-shadow: inset 0 0 0 1px #2f8e5733;
+}
+
+.notes-snippet-delete {
+  width: 28px;
+  height: 28px;
+  border: 1px solid #d2b996;
+  border-radius: 8px;
+  background: #fff7ed;
+  color: #6f3e23;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.notes-snippet-delete.holding {
+  border-color: #b83a2d;
+  background: #fbd3cf;
+  color: #5d150f;
 }
 
 .notes-snippet-meta {

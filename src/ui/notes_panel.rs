@@ -3,6 +3,8 @@ use dioxus::prelude::*;
 use pulldown_cmark::{Options, Parser, html};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+const SNIPPET_DELETE_HOLD_MS: u64 = 1_000;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum NotesViewMode {
     Edit,
@@ -20,6 +22,8 @@ pub(crate) fn NotesPanel(app_state: Signal<AppState>) -> Element {
     let mut view_mode = use_signal(|| NotesViewMode::Edit);
     let mut snippet_query = use_signal(String::new);
     let mut focused_snippet_id = use_signal(|| None::<SnippetId>);
+    let mut deleting_snippet_hold = use_signal(|| None::<SnippetId>);
+    let mut deleting_snippet_hold_nonce = use_signal(|| 0_u64);
 
     let active_group_id = app_state.read().active_group_id();
     let notes = active_group_id
@@ -225,31 +229,91 @@ pub(crate) fn NotesPanel(app_state: Signal<AppState>) -> Element {
                             {
                                 let snippet_id = snippet.id;
                                 let is_focused = *focused_snippet_id.read() == Some(snippet_id);
-                                let class = if is_focused {
+                                let item_class = if is_focused {
                                     "notes-snippet-item focused"
                                 } else {
                                     "notes-snippet-item"
                                 };
                                 let preview = snippet_preview(&snippet.text_snapshot_plain, 160);
+                                let is_holding_delete = *deleting_snippet_hold.read() == Some(snippet_id);
+                                let delete_class = if is_holding_delete {
+                                    "notes-snippet-delete holding"
+                                } else {
+                                    "notes-snippet-delete"
+                                };
                                 rsx! {
-                                    button {
+                                    div {
                                         key: "snippet-search-{snippet_id}",
-                                        class: "{class}",
-                                        r#type: "button",
-                                        onclick: move |_| {
-                                            let _ = app_state.write().promote_snippet(snippet_id);
-                                            focused_snippet_id.set(Some(snippet_id));
-                                            if *view_mode.read() == NotesViewMode::Edit
-                                                && let Some(note_id) = selected_note_id
-                                            {
-                                                app_state.write().append_note_snippet_reference(
-                                                    note_id,
-                                                    snippet_id,
-                                                    unix_now_ms(),
-                                                );
-                                            }
-                                        },
-                                        "{preview}"
+                                        class: "notes-snippet-row",
+                                        button {
+                                            class: "{item_class}",
+                                            r#type: "button",
+                                            onclick: move |_| {
+                                                let _ = app_state.write().promote_snippet(snippet_id);
+                                                focused_snippet_id.set(Some(snippet_id));
+                                                if *view_mode.read() == NotesViewMode::Edit
+                                                    && let Some(note_id) = selected_note_id
+                                                {
+                                                    app_state.write().append_note_snippet_reference(
+                                                        note_id,
+                                                        snippet_id,
+                                                        unix_now_ms(),
+                                                    );
+                                                }
+                                            },
+                                            "{preview}"
+                                        }
+
+                                        button {
+                                            class: "{delete_class}",
+                                            r#type: "button",
+                                            title: "Hold to delete snippet",
+                                            aria_label: "Hold to delete snippet",
+                                            onpointerdown: move |event| {
+                                                event.prevent_default();
+                                                event.stop_propagation();
+                                                let next_nonce = deleting_snippet_hold_nonce.read().saturating_add(1);
+                                                deleting_snippet_hold_nonce.set(next_nonce);
+                                                deleting_snippet_hold.set(Some(snippet_id));
+                                                spawn(async move {
+                                                    tokio::time::sleep(std::time::Duration::from_millis(
+                                                        SNIPPET_DELETE_HOLD_MS,
+                                                    ))
+                                                    .await;
+                                                    if *deleting_snippet_hold.read() == Some(snippet_id)
+                                                        && *deleting_snippet_hold_nonce.read() == next_nonce
+                                                    {
+                                                        let _ = app_state.write().delete_snippet(snippet_id);
+                                                        if *focused_snippet_id.read() == Some(snippet_id) {
+                                                            focused_snippet_id.set(None);
+                                                        }
+                                                        deleting_snippet_hold.set(None);
+                                                    }
+                                                });
+                                            },
+                                            onpointerup: move |event| {
+                                                event.prevent_default();
+                                                event.stop_propagation();
+                                                deleting_snippet_hold.set(None);
+                                                let next_nonce = deleting_snippet_hold_nonce.read().saturating_add(1);
+                                                deleting_snippet_hold_nonce.set(next_nonce);
+                                            },
+                                            onpointerleave: move |event| {
+                                                event.prevent_default();
+                                                event.stop_propagation();
+                                                deleting_snippet_hold.set(None);
+                                                let next_nonce = deleting_snippet_hold_nonce.read().saturating_add(1);
+                                                deleting_snippet_hold_nonce.set(next_nonce);
+                                            },
+                                            onpointercancel: move |event| {
+                                                event.prevent_default();
+                                                event.stop_propagation();
+                                                deleting_snippet_hold.set(None);
+                                                let next_nonce = deleting_snippet_hold_nonce.read().saturating_add(1);
+                                                deleting_snippet_hold_nonce.set(next_nonce);
+                                            },
+                                            {trash_icon()}
+                                        }
                                     }
                                 }
                             }
@@ -298,6 +362,27 @@ fn eye_icon(active: bool) -> Element {
             stroke_linejoin: "round",
             path { d: "M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z" }
             circle { cx: "12", cy: "12", r: "3" }
+        }
+    }
+}
+
+fn trash_icon() -> Element {
+    rsx! {
+        svg {
+            class: "notes-icon-svg",
+            view_box: "0 0 24 24",
+            width: "14",
+            height: "14",
+            fill: "none",
+            stroke: "currentColor",
+            stroke_width: "2",
+            stroke_linecap: "round",
+            stroke_linejoin: "round",
+            path { d: "M3 6h18" }
+            path { d: "M8 6V4h8v2" }
+            path { d: "M19 6l-1 14H6L5 6" }
+            path { d: "M10 11v6" }
+            path { d: "M14 11v6" }
         }
     }
 }
