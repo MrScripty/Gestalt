@@ -466,96 +466,60 @@
   min-height: 0;
   min-width: 0;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
-}
-
-.notes-head {
-  padding: 10px 12px 6px;
-  border-bottom: 1px solid #ecd8b9;
-}
-
-.notes-head h3 {
-  margin: 0;
-  font-size: calc(0.9rem * var(--font-scale));
-  color: #543818;
-}
-
-.notes-head p {
-  margin: 4px 0 0;
-  font-size: calc(0.7rem * var(--font-scale));
-  color: #7a5a2e;
-}
-
-.notes-top-tabs {
-  display: flex;
-  gap: 6px;
-  padding: 8px 12px 0;
-}
-
-.notes-tab {
-  border: 1px solid #d8b98e;
-  border-radius: 8px;
-  background: #fff5e3;
-  color: #5c4120;
-  font: inherit;
-  font-size: calc(0.72rem * var(--font-scale));
-  font-weight: 700;
-  padding: 6px 10px;
-  cursor: pointer;
-}
-
-.notes-tab.active {
-  border-color: #b7722e;
-  background: #ffe8c2;
-  color: #4a2f10;
-}
-
-.notes-body {
-  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 8px;
   padding: 10px 12px 12px;
 }
 
-.notes-editor,
-.notes-snippets {
-  min-height: 0;
-  height: 100%;
+.notes-control-row {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
-  gap: 8px;
-}
-
-.notes-doc-tabs {
-  display: flex;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 6px;
-  flex-wrap: wrap;
+  align-items: center;
 }
 
-.notes-doc-tab,
-.notes-doc-add,
-.notes-mode,
-.notes-insert-ref {
+.notes-note-select {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #d1b082;
+  border-radius: 8px;
+  background: #fffdf8;
+  padding: 7px 8px;
+  font: inherit;
+  font-size: calc(0.68rem * var(--font-scale));
+  color: #39250f;
+}
+
+.notes-icon-btn {
+  width: 30px;
+  height: 30px;
   border: 1px solid #d8b98e;
   border-radius: 8px;
   background: #fff8eb;
   color: #533616;
-  font: inherit;
-  font-size: calc(0.68rem * var(--font-scale));
-  font-weight: 700;
-  padding: 5px 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
 }
 
-.notes-doc-tab.active,
-.notes-mode.active {
+.notes-icon-btn.active {
   border-color: #2f8e57;
   background: #e4f7e8;
   color: #153d25;
 }
 
-.notes-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+.notes-icon-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.notes-icon-svg {
+  display: block;
+}
+
+.notes-content {
+  min-height: 0;
 }
 
 .notes-markdown-input {

@@ -4,12 +4,6 @@ use pulldown_cmark::{Options, Parser, html};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum NotesSection {
-    Notes,
-    Snippets,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum NotesViewMode {
     Edit,
     View,
@@ -23,315 +17,212 @@ enum NoteSegment {
 
 #[component]
 pub(crate) fn NotesPanel(app_state: Signal<AppState>) -> Element {
-    let mut section = use_signal(|| NotesSection::Notes);
     let mut view_mode = use_signal(|| NotesViewMode::Edit);
-    let mut snippet_picker_open = use_signal(|| false);
-    let mut snippet_query = use_signal(String::new);
     let mut focused_snippet_id = use_signal(|| None::<SnippetId>);
 
-    let notes = app_state.read().notes().to_vec();
+    let active_group_id = app_state.read().active_group_id();
+    let notes = active_group_id
+        .map(|group_id| {
+            app_state
+                .read()
+                .notes_for_group(group_id)
+                .into_iter()
+                .cloned()
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
     let snippets = app_state.read().snippets().to_vec();
-    let selected_note_id = app_state
-        .read()
-        .selected_note_id()
-        .or_else(|| notes.first().map(|note| note.id));
+    let selected_note_id = active_group_id
+        .and_then(|group_id| app_state.read().selected_note_id_for_group(group_id));
     let selected_note = selected_note_id
-        .and_then(|id| notes.iter().find(|note| note.id == id))
-        .cloned();
+        .and_then(|note_id| app_state.read().note_by_id(note_id).cloned());
     let selected_markdown = selected_note
         .as_ref()
         .map(|note| note.markdown.clone())
         .unwrap_or_default();
-    let snippet_query_value = snippet_query.read().trim().to_lowercase();
-
-    let filtered_snippets = snippets
-        .iter()
-        .filter(|snippet| {
-            snippet_query_value.is_empty()
-                || snippet
-                    .text_snapshot_plain
-                    .to_lowercase()
-                    .contains(&snippet_query_value)
-                || snippet.source_cwd.to_lowercase().contains(&snippet_query_value)
-        })
-        .cloned()
-        .collect::<Vec<_>>();
 
     rsx! {
         article { class: "notes-card",
-            div { class: "notes-head",
-                h3 { "Notes" }
-                p { "Markdown notes, snippet references, and captured terminal snippets." }
-            }
-
-            div { class: "notes-top-tabs", role: "tablist", aria_label: "Notes sections",
-                {
-                    let is_active = *section.read() == NotesSection::Notes;
-                    let class = if is_active {
-                        "notes-tab active"
+            div { class: "notes-control-row",
+                select {
+                    class: "notes-note-select",
+                    value: "{selected_note_id.map(|id| id.to_string()).unwrap_or_default()}",
+                    disabled: notes.is_empty(),
+                    onchange: move |event| {
+                        if let Ok(note_id) = event.value().parse::<u64>() {
+                            app_state.write().select_note(note_id);
+                        }
+                    },
+                    if notes.is_empty() {
+                        option { value: "", "-- No Notes For This Path --" }
                     } else {
-                        "notes-tab"
-                    };
-                    rsx! {
-                        button {
-                            class: "{class}",
-                            r#type: "button",
-                            onclick: move |_| section.set(NotesSection::Notes),
-                            "Notes"
+                        for note in notes.clone() {
+                            option {
+                                key: "note-select-{note.id}",
+                                value: "{note.id}",
+                                "{note.title}"
+                            }
                         }
                     }
                 }
+
+                button {
+                    class: "notes-icon-btn",
+                    r#type: "button",
+                    title: "Create note",
+                    aria_label: "Create note",
+                    onclick: move |_| {
+                        if let Some(group_id) = active_group_id {
+                            let next_index = app_state
+                                .read()
+                                .notes_for_group(group_id)
+                                .len()
+                                .saturating_add(1);
+                            let title = format!("Note {next_index}");
+                            app_state
+                                .write()
+                                .create_note_for_group(group_id, title, unix_now_ms());
+                            view_mode.set(NotesViewMode::Edit);
+                        }
+                    },
+                    {plus_icon()}
+                }
+
                 {
-                    let is_active = *section.read() == NotesSection::Snippets;
-                    let class = if is_active {
-                        "notes-tab active"
-                    } else {
-                        "notes-tab"
-                    };
+                    let is_view_mode = *view_mode.read() == NotesViewMode::View;
+                    let mut view_mode = view_mode;
                     rsx! {
                         button {
-                            class: "{class}",
-                            r#type: "button",
-                            onclick: move |_| section.set(NotesSection::Snippets),
-                            "Snippets"
-                        }
-                    }
-                }
-            }
-
-            div { class: "notes-body",
-                if *section.read() == NotesSection::Notes {
-                    div { class: "notes-editor",
-                        div { class: "notes-doc-tabs",
-                            for note in notes.clone() {
-                                {
-                                    let note_id = note.id;
-                                    let is_active = Some(note_id) == selected_note_id;
-                                    let class = if is_active {
-                                        "notes-doc-tab active"
-                                    } else {
-                                        "notes-doc-tab"
-                                    };
-                                    rsx! {
-                                        button {
-                                            key: "note-tab-{note_id}",
-                                            class: "{class}",
-                                            r#type: "button",
-                                            onclick: move |_| app_state.write().select_note(note_id),
-                                            "{note.title}"
-                                        }
-                                    }
-                                }
-                            }
-                            button {
-                                class: "notes-doc-add",
-                                r#type: "button",
-                                onclick: move |_| {
-                                    let next_index = app_state.read().notes().len().saturating_add(1);
-                                    let title = format!("Note {next_index}");
-                                    app_state.write().create_note(title, unix_now_ms());
-                                },
-                                "New Note"
-                            }
-                        }
-
-                        if let Some(note_id) = selected_note_id {
-                            div { class: "notes-toolbar",
-                                {
-                                    let edit_class = if *view_mode.read() == NotesViewMode::Edit {
-                                        "notes-mode active"
-                                    } else {
-                                        "notes-mode"
-                                    };
-                                    rsx! {
-                                        button {
-                                            class: "{edit_class}",
-                                            r#type: "button",
-                                            onclick: move |_| view_mode.set(NotesViewMode::Edit),
-                                            "Edit"
-                                        }
-                                    }
-                                }
-                                {
-                                    let view_class = if *view_mode.read() == NotesViewMode::View {
-                                        "notes-mode active"
-                                    } else {
-                                        "notes-mode"
-                                    };
-                                    rsx! {
-                                        button {
-                                            class: "{view_class}",
-                                            r#type: "button",
-                                            onclick: move |_| view_mode.set(NotesViewMode::View),
-                                            "View"
-                                        }
-                                    }
-                                }
-                                button {
-                                    class: "notes-insert-ref",
-                                    r#type: "button",
-                                    onclick: move |_| {
-                                        let is_open = *snippet_picker_open.read();
-                                        snippet_picker_open.set(!is_open);
-                                    },
-                                    "Insert Snippet Ref"
-                                }
-                            }
-
-                            if *snippet_picker_open.read() {
-                                div { class: "notes-snippet-picker",
-                                    input {
-                                        class: "notes-filter-input",
-                                        placeholder: "Search snippets",
-                                        value: "{snippet_query.read()}",
-                                        oninput: move |event| snippet_query.set(event.value()),
-                                    }
-                                    div { class: "notes-snippet-picker-list",
-                                        if filtered_snippets.is_empty() {
-                                            p { class: "notes-empty", "No snippets match this filter." }
-                                        } else {
-                                            for snippet in filtered_snippets.clone() {
-                                                {
-                                                    let snippet_id = snippet.id;
-                                                    let title = snippet_preview(&snippet.text_snapshot_plain, 80);
-                                                    rsx! {
-                                                        button {
-                                                            key: "snippet-pick-{snippet_id}",
-                                                            class: "notes-snippet-pick-btn",
-                                                            r#type: "button",
-                                                            onclick: move |_| {
-                                                                app_state.write().append_note_snippet_reference(
-                                                                    note_id,
-                                                                    snippet_id,
-                                                                    unix_now_ms(),
-                                                                );
-                                                                snippet_picker_open.set(false);
-                                                                snippet_query.set(String::new());
-                                                            },
-                                                            "{title}"
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            if *view_mode.read() == NotesViewMode::Edit {
-                                textarea {
-                                    class: "notes-markdown-input",
-                                    rows: "16",
-                                    placeholder: "Write markdown notes here...",
-                                    value: "{selected_markdown}",
-                                    oninput: move |event| {
-                                        app_state.write().update_note_markdown(
-                                            note_id,
-                                            event.value(),
-                                            unix_now_ms(),
-                                        );
-                                    },
-                                }
+                            class: if is_view_mode {
+                                "notes-icon-btn active"
                             } else {
-                                div { class: "notes-markdown-view",
-                                    for segment in split_note_segments(&selected_markdown) {
-                                        {
-                                            match segment {
-                                                NoteSegment::Markdown(markdown) => {
-                                                    if markdown.trim().is_empty() {
-                                                        rsx! { div {} }
-                                                    } else {
-                                                        let rendered = markdown_to_html(&markdown);
-                                                        rsx! {
-                                                            div {
-                                                                class: "notes-markdown-segment",
-                                                                dangerous_inner_html: "{rendered}",
-                                                            }
-                                                        }
+                                "notes-icon-btn"
+                            },
+                            r#type: "button",
+                            title: if is_view_mode {
+                                "Switch to edit mode"
+                            } else {
+                                "Switch to view mode"
+                            },
+                            aria_label: if is_view_mode {
+                                "Switch to edit mode"
+                            } else {
+                                "Switch to view mode"
+                            },
+                            disabled: selected_note_id.is_none(),
+                            onclick: move |_| {
+                                let next_mode = if *view_mode.read() == NotesViewMode::View {
+                                    NotesViewMode::Edit
+                                } else {
+                                    NotesViewMode::View
+                                };
+                                view_mode.set(next_mode);
+                            },
+                            {eye_icon(is_view_mode)}
+                        }
+                    }
+                }
+            }
+
+            div { class: "notes-content",
+                if let Some(note_id) = selected_note_id {
+                    if *view_mode.read() == NotesViewMode::Edit {
+                        textarea {
+                            class: "notes-markdown-input",
+                            rows: "16",
+                            placeholder: "Write markdown notes here...",
+                            value: "{selected_markdown}",
+                            oninput: move |event| {
+                                app_state.write().update_note_markdown(
+                                    note_id,
+                                    event.value(),
+                                    unix_now_ms(),
+                                );
+                            },
+                        }
+                    } else {
+                        div { class: "notes-markdown-view",
+                            for segment in split_note_segments(&selected_markdown) {
+                                {
+                                    match segment {
+                                        NoteSegment::Markdown(markdown) => {
+                                            if markdown.trim().is_empty() {
+                                                rsx! { div {} }
+                                            } else {
+                                                let rendered = markdown_to_html(&markdown);
+                                                rsx! {
+                                                    div {
+                                                        class: "notes-markdown-segment",
+                                                        dangerous_inner_html: "{rendered}",
                                                     }
                                                 }
-                                                NoteSegment::SnippetRef(snippet_id) => {
-                                                    let label = snippet_label(&snippets, snippet_id);
-                                                    rsx! {
-                                                        button {
-                                                            key: "note-ref-{snippet_id}",
-                                                            class: "notes-snippet-ref",
-                                                            r#type: "button",
-                                                            onclick: move |_| {
-                                                                let _ = app_state.write().promote_snippet(snippet_id);
-                                                                focused_snippet_id.set(Some(snippet_id));
-                                                                section.set(NotesSection::Snippets);
-                                                            },
-                                                            "{label}"
-                                                        }
-                                                    }
+                                            }
+                                        }
+                                        NoteSegment::SnippetRef(snippet_id) => {
+                                            let label = snippet_label(&snippets, snippet_id);
+                                            rsx! {
+                                                button {
+                                                    key: "note-ref-{snippet_id}",
+                                                    class: "notes-snippet-ref",
+                                                    r#type: "button",
+                                                    onclick: move |_| {
+                                                        let _ = app_state.write().promote_snippet(snippet_id);
+                                                        focused_snippet_id.set(Some(snippet_id));
+                                                    },
+                                                    "{label}"
                                                 }
                                             }
                                         }
                                     }
                                 }
                             }
-                        } else {
-                            p { class: "notes-empty", "No notes yet." }
                         }
                     }
                 } else {
-                    div { class: "notes-snippets",
-                        div { class: "notes-snippets-filter",
-                            input {
-                                class: "notes-filter-input",
-                                placeholder: "Search snippets",
-                                value: "{snippet_query.read()}",
-                                oninput: move |event| snippet_query.set(event.value()),
-                            }
-                        }
-                        if filtered_snippets.is_empty() {
-                            if snippets.is_empty() {
-                                p { class: "notes-empty", "No snippets yet. Highlight terminal text and press Insert, then S." }
-                            } else {
-                                p { class: "notes-empty", "No snippets match this filter." }
-                            }
-                        } else {
-                            div { class: "notes-snippet-list",
-                                for snippet in filtered_snippets {
-                                    {
-                                        let snippet_id = snippet.id;
-                                        let is_focused = *focused_snippet_id.read() == Some(snippet_id);
-                                        let class = if is_focused {
-                                            "notes-snippet-item focused"
-                                        } else {
-                                            "notes-snippet-item"
-                                        };
-                                        let preview = snippet_preview(&snippet.text_snapshot_plain, 220);
-                                        let row_range = format!(
-                                            "rows {}-{}",
-                                            snippet.log_ref.start_row,
-                                            snippet.log_ref.end_row
-                                        );
-                                        rsx! {
-                                            button {
-                                                key: "snippet-item-{snippet_id}",
-                                                class: "{class}",
-                                                r#type: "button",
-                                                onclick: move |_| {
-                                                    let _ = app_state.write().promote_snippet(snippet_id);
-                                                    focused_snippet_id.set(Some(snippet_id));
-                                                },
-                                                div { class: "notes-snippet-meta",
-                                                    span { class: "snippet-id", "Snippet #{snippet_id}" }
-                                                    span { class: "snippet-status", "{snippet.embedding_status.label()}" }
-                                                }
-                                                p { class: "snippet-preview", "{preview}" }
-                                                p { class: "snippet-source", "{snippet.source_cwd} | {row_range}" }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    p { class: "notes-empty", "No notes for this path yet. Use + to add one." }
                 }
             }
+        }
+    }
+}
+
+fn plus_icon() -> Element {
+    rsx! {
+        svg {
+            class: "notes-icon-svg",
+            view_box: "0 0 24 24",
+            width: "16",
+            height: "16",
+            fill: "none",
+            stroke: "currentColor",
+            stroke_width: "2",
+            stroke_linecap: "round",
+            stroke_linejoin: "round",
+            path { d: "M12 5v14" }
+            path { d: "M5 12h14" }
+        }
+    }
+}
+
+fn eye_icon(active: bool) -> Element {
+    let active_class = if active {
+        "notes-icon-svg active"
+    } else {
+        "notes-icon-svg"
+    };
+    rsx! {
+        svg {
+            class: "{active_class}",
+            view_box: "0 0 24 24",
+            width: "16",
+            height: "16",
+            fill: "none",
+            stroke: "currentColor",
+            stroke_width: "2",
+            stroke_linecap: "round",
+            stroke_linejoin: "round",
+            path { d: "M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z" }
+            circle { cx: "12", cy: "12", r: "3" }
         }
     }
 }
