@@ -7,7 +7,7 @@ use crate::ui::insert_command_mode::InsertModeState;
 use crate::ui::local_agent_panel::LocalAgentPanel;
 use crate::ui::sidebar_panel_host::{SidebarPanelHost, SidebarPanelKind};
 use crate::ui::terminal_view::{
-    pending_terminal_snapshot, terminal_shell, TerminalInteractionSignals,
+    SnippetHotkeyState, TerminalInteractionSignals, pending_terminal_snapshot, terminal_shell,
 };
 use crate::ui::TerminalHistoryState;
 use dioxus::prelude::*;
@@ -204,6 +204,7 @@ pub(crate) fn WorkspaceMain(
     let mut sidebar_drag_start = use_signal(|| None::<(f64, f64)>);
     let mut renaming_header = use_signal(|| None::<SessionId>);
     let mut rename_header_draft = use_signal(String::new);
+    let snippet_hotkey_state = use_signal(|| None::<SnippetHotkeyState>);
     let renaming_header_id = *renaming_header.read();
     let rename_header_draft_value = rename_header_draft.read().clone();
 
@@ -234,6 +235,7 @@ pub(crate) fn WorkspaceMain(
         focused_terminal,
         round_anchor,
         insert_mode_state,
+        snippet_hotkey_state,
     };
     let workspace_class = if runner_drag_start.read().is_some()
         || agent_drag_start.read().is_some()
@@ -470,6 +472,7 @@ pub(crate) fn WorkspaceMain(
 
                                                 {terminal_shell(
                                                     session_id,
+                                                    cwd.clone(),
                                                     terminal_is_focused,
                                                     terminal,
                                                     terminal_manager_for_input,
@@ -668,6 +671,7 @@ pub(crate) fn WorkspaceMain(
 
                                                 {terminal_shell(
                                                     session_id,
+                                                    cwd.clone(),
                                                     terminal_is_focused,
                                                     terminal,
                                                     terminal_manager_for_input,

@@ -1,6 +1,6 @@
 use crate::commands::CommandId;
-use crate::emily_bridge::EmilyBridge;
-use crate::state::{AppState, SessionId, SessionStatus};
+use crate::emily_bridge::{EmilyBridge, SnippetIngestRequest};
+use crate::state::{AppState, NewSnippet, SessionId, SessionStatus};
 use crate::terminal::{TerminalManager, TerminalSnapshot};
 use crate::ui::command_palette::{InsertCommandPalette, PaletteRow};
 use crate::ui::insert_command_mode::{
@@ -10,13 +10,24 @@ use crate::ui::insert_command_mode::{
 use crate::ui::terminal_input::{
     COPY_SELECTION_JS, READ_CLIPBOARD_JS, cursor_move_bytes, install_terminal_paste_bridge,
     install_terminal_scroll_behavior, is_terminal_scrolled_near_top, key_event_to_bytes,
-    map_click_to_terminal_cell, select_terminal_round, take_terminal_paste_buffer,
+    map_click_to_terminal_cell, read_terminal_selection, select_terminal_round,
+    take_terminal_paste_buffer,
 };
 use crate::ui::{EMILY_HISTORY_BACKFILL_PAGE_LINES, TerminalHistoryState};
 use dioxus::document;
 use dioxus::prelude::*;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+const INSERT_CHORD_TIMEOUT_MS: u64 = 1_000;
+const MAX_SNIPPET_TEXT_BYTES: usize = 32 * 1024;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct SnippetHotkeyState {
+    pub session_id: SessionId,
+    pub armed_at_unix_ms: i64,
+}
 
 #[derive(Clone, Copy)]
 pub(crate) struct TerminalInteractionSignals {
@@ -24,10 +35,12 @@ pub(crate) struct TerminalInteractionSignals {
     pub focused_terminal: Signal<Option<SessionId>>,
     pub round_anchor: Signal<Option<(SessionId, u16)>>,
     pub insert_mode_state: Signal<Option<InsertModeState>>,
+    pub snippet_hotkey_state: Signal<Option<SnippetHotkeyState>>,
 }
 
 pub(crate) fn terminal_shell(
     session_id: SessionId,
+    source_cwd: String,
     terminal_is_focused: bool,
     terminal: Arc<TerminalSnapshot>,
     terminal_manager: Arc<TerminalManager>,
@@ -39,6 +52,7 @@ pub(crate) fn terminal_shell(
     let mut focused_terminal = interaction.focused_terminal;
     let mut round_anchor = interaction.round_anchor;
     let mut insert_mode_state = interaction.insert_mode_state;
+    let mut snippet_hotkey_state = interaction.snippet_hotkey_state;
     let mut terminal_history_state = terminal_history_state;
     let shell_class = if terminal_is_focused {
         "terminal-shell focused"
@@ -75,6 +89,7 @@ pub(crate) fn terminal_shell(
     let body_id_for_click = terminal_body_id.clone();
     let body_id_for_round_select = terminal_body_id.clone();
     let body_id_for_mount = terminal_body_id.clone();
+    let body_id_for_snippet_capture = terminal_body_id.clone();
     let shell_id_for_mount = terminal_shell_id.clone();
     let shell_id_for_paste_event = terminal_shell_id.clone();
     let body_id_for_scroll = terminal_body_id.clone();
@@ -83,6 +98,7 @@ pub(crate) fn terminal_shell(
     let terminal_manager_for_paste = terminal_manager_for_keydown.clone();
     let terminal_manager_for_scroll = terminal_manager_for_keydown.clone();
     let emily_bridge_for_scroll = emily_bridge.clone();
+    let emily_bridge_for_snippet = emily_bridge.clone();
     let round_anchor_row_global = match *round_anchor.read() {
         Some((anchor_session, row)) if anchor_session == session_id => row,
         _ => cursor_row,
@@ -116,6 +132,14 @@ pub(crate) fn terminal_shell(
                 })
         })
         .collect::<Vec<_>>();
+    let snippet_row_ranges = {
+        let state = app_state.read();
+        state
+            .snippets_for_session(session_id)
+            .into_iter()
+            .map(|snippet| (snippet.log_ref.start_row, snippet.log_ref.end_row))
+            .collect::<Vec<_>>()
+    };
 
     rsx! {
         div {
@@ -196,6 +220,84 @@ pub(crate) fn terminal_shell(
                 let selected_id = active_insert_mode
                     .as_ref()
                     .and_then(|mode| selected_command_id(&command_matches, mode.highlighted_index));
+
+                if active_insert_mode.is_none() {
+                    let chord_state = snippet_hotkey_state.read().clone();
+                    if let Some(chord) = chord_state
+                        && chord.session_id == session_id
+                    {
+                        if unix_now_ms().saturating_sub(chord.armed_at_unix_ms)
+                            > i64::try_from(INSERT_CHORD_TIMEOUT_MS).unwrap_or(i64::MAX)
+                        {
+                            snippet_hotkey_state.set(None);
+                        } else if !ctrl && !alt && !shift && !meta {
+                            match &key {
+                                Key::Character(text) if text.eq_ignore_ascii_case("s") => {
+                                    event.prevent_default();
+                                    event.stop_propagation();
+                                    snippet_hotkey_state.set(None);
+                                    let body_id = body_id_for_snippet_capture.clone();
+                                    let terminal_lines = terminal.lines.clone();
+                                    let source_cwd = source_cwd.clone();
+                                    let emily_bridge = emily_bridge_for_snippet.clone();
+                                    spawn(async move {
+                                        save_selection_as_snippet(
+                                            app_state,
+                                            emily_bridge,
+                                            session_id,
+                                            source_cwd,
+                                            body_id,
+                                            terminal_lines,
+                                        )
+                                        .await;
+                                    });
+                                    return;
+                                }
+                                Key::Character(text) if text.eq_ignore_ascii_case("c") => {
+                                    event.prevent_default();
+                                    event.stop_propagation();
+                                    snippet_hotkey_state.set(None);
+                                    insert_mode_state.set(Some(InsertModeState {
+                                        session_id,
+                                        query: String::new(),
+                                        highlighted_index: 0,
+                                    }));
+                                    return;
+                                }
+                                Key::Escape | Key::Insert => {
+                                    event.prevent_default();
+                                    event.stop_propagation();
+                                    snippet_hotkey_state.set(None);
+                                    return;
+                                }
+                                _ => {
+                                    snippet_hotkey_state.set(None);
+                                }
+                            }
+                        } else {
+                            snippet_hotkey_state.set(None);
+                        }
+                    }
+
+                    if matches!(key, Key::Insert) && !ctrl && !alt && !shift && !meta {
+                        event.prevent_default();
+                        event.stop_propagation();
+                        let armed = SnippetHotkeyState {
+                            session_id,
+                            armed_at_unix_ms: unix_now_ms(),
+                        };
+                        snippet_hotkey_state.set(Some(armed));
+                        spawn(async move {
+                            tokio::time::sleep(Duration::from_millis(INSERT_CHORD_TIMEOUT_MS))
+                                .await;
+                            if snippet_hotkey_state.read().as_ref() == Some(&armed) {
+                                snippet_hotkey_state.set(None);
+                            }
+                        });
+                        return;
+                    }
+                }
+
                 match route_terminal_key(
                     active_insert_mode.as_ref(),
                     &key,
@@ -420,9 +522,18 @@ pub(crate) fn terminal_shell(
                                 .map(|line| line.as_str())
                                 .unwrap_or_default();
                             let actual_row_idx = window_start.saturating_add(row_idx);
+                            let has_snippet = snippet_row_ranges.iter().any(|(start, end)| {
+                                actual_row_idx >= usize::try_from(*start).unwrap_or(usize::MAX)
+                                    && actual_row_idx <= usize::try_from(*end).unwrap_or(0)
+                            });
+                            let line_class = if has_snippet {
+                                "terminal-line snippet-annotated"
+                            } else {
+                                "terminal-line"
+                            };
                             rsx! {
                                 div {
-                                    class: "terminal-line",
+                                    class: "{line_class}",
                                     key: "line-{session_id}-{actual_row_idx}",
                                     "data-row": "{actual_row_idx}",
                                     if show_caret && actual_row_idx == usize::from(cursor_row) {
@@ -551,16 +662,24 @@ fn split_prompt_prefix(line: &str) -> Option<(&str, &str)> {
         return Some((line, ""));
     }
 
-    if (trimmed.ends_with('$') || trimmed.ends_with('#'))
-        && (trimmed.contains('@') || trimmed.contains(':'))
+    if trimmed.ends_with('$') || trimmed.ends_with('#') {
+        return Some((line, ""));
+    }
+
+    if trimmed.contains('@')
+        && trimmed.contains(':')
+        && (trimmed.contains('/') || trimmed.contains('\\'))
     {
         return Some((line, ""));
     }
 
-    let marker = trimmed.find("$ ").or_else(|| trimmed.find("# "))?;
+    let marker = trimmed.rfind("$ ").or_else(|| trimmed.rfind("# "))?;
     let end = leading + marker + 2;
     let prefix = &line[..end];
-    if !prefix.contains('@') || !prefix.contains(':') {
+    if !(prefix.contains('@') && prefix.contains(':'))
+        && marker + 2 != trimmed.len()
+        && !prefix.contains('/')
+    {
         return None;
     }
 
@@ -719,9 +838,158 @@ fn send_input_to_session(
     }
 }
 
+fn unix_now_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+async fn save_selection_as_snippet(
+    mut app_state: Signal<AppState>,
+    emily_bridge: Arc<EmilyBridge>,
+    session_id: SessionId,
+    source_cwd: String,
+    terminal_body_id: String,
+    terminal_lines: Vec<String>,
+) {
+    let Some(selection) = read_terminal_selection(terminal_body_id).await else {
+        return;
+    };
+    let normalized_text = normalize_snippet_text(&selection.text);
+    if normalized_text.trim().is_empty() {
+        return;
+    }
+    let Some((start_offset, end_offset, start_row, end_row)) = selection_offsets(
+        &terminal_lines,
+        selection.start_row,
+        selection.start_col,
+        selection.end_row,
+        selection.end_col,
+    ) else {
+        return;
+    };
+    let now_ms = unix_now_ms();
+    let snippet_id = {
+        let mut state = app_state.write();
+        let snippet_id = state.create_snippet(NewSnippet {
+            source_session_id: session_id,
+            source_stream_id: format!("terminal:{session_id}"),
+            source_cwd: source_cwd.clone(),
+            text_snapshot_plain: normalized_text.clone(),
+            start_offset,
+            end_offset,
+            start_row,
+            end_row,
+            created_at_unix_ms: now_ms,
+        });
+        state.set_snippet_embedding_processing(snippet_id);
+        snippet_id
+    };
+    let ingest_result = emily_bridge.ingest_snippet(SnippetIngestRequest {
+        snippet_id,
+        source_session_id: session_id,
+        source_stream_id: format!("terminal:{session_id}"),
+        source_cwd,
+        source_start_offset: start_offset,
+        source_end_offset: end_offset,
+        source_start_row: start_row,
+        source_end_row: end_row,
+        text: normalized_text,
+        ts_unix_ms: now_ms,
+    });
+    let mut state = app_state.write();
+    match ingest_result {
+        Ok(result) => {
+            state.set_snippet_embedding_ready(
+                snippet_id,
+                result.object_id,
+                result.embedding_profile_id,
+                result.embedding_dimensions,
+            );
+        }
+        Err(error) => {
+            state.set_snippet_embedding_failed(snippet_id, error);
+        }
+    }
+}
+
+fn normalize_snippet_text(input: &str) -> String {
+    let normalized = input.replace('\r', "");
+    if normalized.len() <= MAX_SNIPPET_TEXT_BYTES {
+        return normalized;
+    }
+    truncate_utf8(&normalized, MAX_SNIPPET_TEXT_BYTES)
+}
+
+fn truncate_utf8(input: &str, max_bytes: usize) -> String {
+    if input.len() <= max_bytes {
+        return input.to_string();
+    }
+    let mut boundary = 0_usize;
+    for (idx, _) in input.char_indices() {
+        if idx > max_bytes {
+            break;
+        }
+        boundary = idx;
+    }
+    input[..boundary].to_string()
+}
+
+fn selection_offsets(
+    lines: &[String],
+    start_row: u32,
+    start_col: u32,
+    end_row: u32,
+    end_col: u32,
+) -> Option<(u64, u64, u32, u32)> {
+    if lines.is_empty() {
+        return None;
+    }
+    let max_row = lines.len().saturating_sub(1);
+    let start_row = usize::try_from(start_row).unwrap_or(0).min(max_row);
+    let end_row = usize::try_from(end_row).unwrap_or(0).min(max_row);
+    let start_line_chars = lines.get(start_row)?.chars().count();
+    let end_line_chars = lines.get(end_row)?.chars().count();
+    let start_col = usize::try_from(start_col)
+        .unwrap_or(start_line_chars)
+        .min(start_line_chars);
+    let end_col = usize::try_from(end_col)
+        .unwrap_or(end_line_chars)
+        .min(end_line_chars);
+    let start_offset = row_char_offset(lines, start_row)? + u64::try_from(start_col).ok()?;
+    let end_offset = row_char_offset(lines, end_row)? + u64::try_from(end_col).ok()?;
+    let (start_offset, end_offset, start_row, end_row) = if start_offset <= end_offset {
+        (
+            start_offset,
+            end_offset,
+            u32::try_from(start_row).ok()?,
+            u32::try_from(end_row).ok()?,
+        )
+    } else {
+        (
+            end_offset,
+            start_offset,
+            u32::try_from(end_row).ok()?,
+            u32::try_from(start_row).ok()?,
+        )
+    };
+    Some((start_offset, end_offset, start_row, end_row))
+}
+
+fn row_char_offset(lines: &[String], row: usize) -> Option<u64> {
+    let mut offset = 0_u64;
+    for line in lines.iter().take(row) {
+        offset = offset
+            .saturating_add(u64::try_from(line.chars().count()).ok()?)
+            .saturating_add(1);
+    }
+    Some(offset)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::is_paste_shortcut;
+    use super::{is_paste_shortcut, split_prompt_prefix};
     use dioxus::prelude::Key;
 
     #[test]
@@ -749,5 +1017,17 @@ mod tests {
     #[test]
     fn recognizes_shift_insert_as_paste() {
         assert!(is_paste_shortcut(&Key::Insert, false, false, true, false));
+    }
+
+    #[test]
+    fn recognizes_wrapped_prompt_suffix() {
+        let line = "re/Gestalt$ ";
+        assert!(split_prompt_prefix(line).is_some());
+    }
+
+    #[test]
+    fn recognizes_prompt_fragment_with_user_host_prefix() {
+        let line = "jeremy@FizzyPop:/media/jeremy/OrangeCream/Linux Softwa";
+        assert!(split_prompt_prefix(line).is_some());
     }
 }

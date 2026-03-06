@@ -1,6 +1,16 @@
 use dioxus::document;
 use dioxus::events::KeyboardEvent;
 use dioxus::prelude::{Key, ModifiersInteraction};
+use serde::Deserialize;
+
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct TerminalSelectionSnapshot {
+    pub text: String,
+    pub start_row: u32,
+    pub end_row: u32,
+    pub start_col: u32,
+    pub end_col: u32,
+}
 
 pub(crate) const READ_CLIPBOARD_JS: &str = r#"
 if (navigator.clipboard && navigator.clipboard.readText) {
@@ -254,6 +264,75 @@ return true;
         .join::<bool>()
         .await
         .unwrap_or(false)
+}
+
+pub(crate) async fn read_terminal_selection(
+    terminal_body_id: String,
+) -> Option<TerminalSelectionSnapshot> {
+    let script = format!(
+        r#"
+const root = document.getElementById({terminal_body_id:?});
+if (!root) return "";
+const selection = window.getSelection ? window.getSelection() : null;
+if (!selection || selection.rangeCount === 0) return "";
+const range = selection.getRangeAt(0);
+if (!range || range.collapsed) return "";
+
+const withinRoot = (node) => node && (node === root || root.contains(node));
+if (!withinRoot(range.commonAncestorContainer)) return "";
+
+const nearestLine = (node) => {{
+    if (!node) return null;
+    let element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+    if (!element) return null;
+    if (element.classList && element.classList.contains("terminal-line")) return element;
+    return element.closest ? element.closest(".terminal-line") : null;
+}};
+
+const startLine = nearestLine(range.startContainer);
+const endLine = nearestLine(range.endContainer);
+if (!startLine || !endLine) return "";
+if (!withinRoot(startLine) || !withinRoot(endLine)) return "";
+
+const parseRow = (line) => {{
+    const rowValue = Number.parseInt(line.dataset.row ?? "", 10);
+    return Number.isFinite(rowValue) ? Math.max(0, rowValue) : null;
+}};
+const startRow = parseRow(startLine);
+const endRow = parseRow(endLine);
+if (startRow === null || endRow === null) return "";
+
+const linePrefixLength = (line, container, offset) => {{
+    try {{
+        const prefix = document.createRange();
+        prefix.setStart(line, 0);
+        prefix.setEnd(container, offset);
+        return Math.max(0, prefix.toString().length);
+    }} catch (_) {{
+        return 0;
+    }}
+}};
+
+const startCol = linePrefixLength(startLine, range.startContainer, range.startOffset);
+const endCol = linePrefixLength(endLine, range.endContainer, range.endOffset);
+const text = selection.toString();
+if (!text) return "";
+
+return JSON.stringify({{
+    text,
+    start_row: startRow,
+    end_row: endRow,
+    start_col: startCol,
+    end_col: endCol,
+}});
+"#
+    );
+
+    let payload = document::eval(&script).join::<String>().await.ok()?;
+    if payload.is_empty() {
+        return None;
+    }
+    serde_json::from_str::<TerminalSelectionSnapshot>(&payload).ok()
 }
 
 pub(crate) async fn measure_terminal_viewport(terminal_body_id: String) -> Option<(u16, u16)> {

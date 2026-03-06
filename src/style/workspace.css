@@ -369,6 +369,11 @@
   line-height: var(--term-line-height);
 }
 
+.terminal-line.snippet-annotated {
+  background: linear-gradient(90deg, #e5f8d9 0%, #f4fde8 100%);
+  box-shadow: inset 2px 0 0 #5ca43a;
+}
+
 .terminal-text {
   color: inherit;
 }
