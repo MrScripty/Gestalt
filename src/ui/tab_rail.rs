@@ -78,6 +78,17 @@ pub(crate) fn TabRail(
                             section {
                                 class: "{group_class}",
                                 key: "group-{group_id}",
+                                ondragover: move |event| {
+                                    event.prevent_default();
+                                },
+                                ondrop: move |event| {
+                                    event.prevent_default();
+                                    if let Some(source_id) = *dragging_tab.read() {
+                                        app_state.write().move_session_to_group_end(source_id, group_id);
+                                        let _ = terminal_manager_for_drop.set_cwd(source_id, &group_path);
+                                    }
+                                    dragging_tab.set(None);
+                                },
 
                                 div {
                                     class: "group-header",
@@ -193,6 +204,7 @@ pub(crate) fn TabRail(
                                                         event.prevent_default();
                                                     },
                                                     ondrop: move |event| {
+                                                        event.stop_propagation();
                                                         event.prevent_default();
                                                         if let Some(source_id) = *dragging_tab.read() {
                                                             app_state.write().move_session_before(source_id, session_id);
@@ -307,21 +319,6 @@ pub(crate) fn TabRail(
                                     }
                                 }
 
-                                div {
-                                    class: "group-drop-target",
-                                    ondragover: move |event| {
-                                        event.prevent_default();
-                                    },
-                                    ondrop: move |event| {
-                                        event.prevent_default();
-                                        if let Some(source_id) = *dragging_tab.read() {
-                                            app_state.write().move_session_to_group_end(source_id, group_id);
-                                            let _ = terminal_manager_for_drop.set_cwd(source_id, &group_path);
-                                        }
-                                        dragging_tab.set(None);
-                                    },
-                                    "Drop tab here to move into this path"
-                                }
                             }
                         }
                     }

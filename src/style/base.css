@@ -314,16 +314,6 @@ body {
   font-size: calc(0.78rem * var(--font-scale));
 }
 
-.group-drop-target {
-  margin-top: 8px;
-  border: 1px dashed #4b7163;
-  border-radius: 8px;
-  color: #9db9ae;
-  font-size: calc(0.74rem * var(--font-scale));
-  text-align: center;
-  padding: 7px;
-}
-
 .rail-footer {
   border-top: 1px solid #315144;
   padding-top: 10px;
