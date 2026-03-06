@@ -785,11 +785,53 @@ pub async fn run_workflow_once_from_env(text: &str) -> Result<WorkflowRunRespons
 
 #[cfg(test)]
 mod tests {
-    use super::DeferredEmbeddingProvider;
+    use super::{
+        DeferredEmbeddingProvider, PantographRuntimeConfig, binding_from_io,
+        resolve_embedding_model_path_from_inputs,
+    };
     use emily::inference::EmbeddingProvider;
     use emily::model::EmbeddingProviderStatus;
-    use std::sync::Arc;
+    use pantograph_workflow_service::{WorkflowHost, WorkflowIoRequest, WorkflowService};
+    use std::collections::HashMap;
+    use std::path::{Path, PathBuf};
+    use std::sync::{Arc, Mutex};
     use std::time::Duration;
+
+    struct RecordingEmbeddingExecutor {
+        recorded_models: Arc<Mutex<Vec<PathBuf>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl node_engine::TaskExecutor for RecordingEmbeddingExecutor {
+        async fn execute_task(
+            &self,
+            task_id: &str,
+            inputs: HashMap<String, serde_json::Value>,
+            _context: &node_engine::Context,
+            _extensions: &node_engine::ExecutorExtensions,
+        ) -> node_engine::Result<HashMap<String, serde_json::Value>> {
+            let node_type = node_engine::resolve_node_type(task_id, &inputs);
+            if node_type != "embedding" {
+                return Err(node_engine::NodeEngineError::ExecutionFailed(format!(
+                    "Node type '{}' requires host-specific executor",
+                    node_type
+                )));
+            }
+
+            let model_path = resolve_embedding_model_path_from_inputs(&inputs, None)?;
+            self.recorded_models
+                .lock()
+                .expect("recorded model lock")
+                .push(model_path);
+
+            let mut outputs = HashMap::new();
+            outputs.insert(
+                "embedding".to_string(),
+                serde_json::json!([0.25_f32, 0.5_f32]),
+            );
+            Ok(outputs)
+        }
+    }
 
     #[derive(Default)]
     struct TestProvider;
@@ -809,6 +851,20 @@ mod tests {
                 keep_alive: Some(true),
                 last_error: None,
             })
+        }
+    }
+
+    fn test_config() -> PantographRuntimeConfig {
+        PantographRuntimeConfig {
+            pantograph_root: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../Pantograph"),
+            workflow_id: "Embedding".to_string(),
+            timeout_ms: Some(1_000),
+            expected_dimensions: 1024,
+            text_input_node_id: None,
+            text_input_port_id: None,
+            vector_output_node_id: None,
+            vector_output_port_id: None,
+            model_path_override: None,
         }
     }
 
@@ -852,5 +908,93 @@ mod tests {
             .block_on(provider.embed_text("hello"))
             .expect("embed should wait for readiness");
         assert_eq!(vector, vec![5.0]);
+    }
+
+    #[test]
+    fn resolve_embedding_model_path_prefers_bound_input_over_stale_node_data() {
+        let mut inputs = HashMap::new();
+        inputs.insert(
+            "model".to_string(),
+            serde_json::json!("/models/from-edge.gguf"),
+        );
+        inputs.insert(
+            "_data".to_string(),
+            serde_json::json!({
+                "model": "/models/from-node-data.gguf",
+            }),
+        );
+
+        let model_path =
+            resolve_embedding_model_path_from_inputs(&inputs, None).expect("model path");
+        assert_eq!(model_path, PathBuf::from("/models/from-edge.gguf"));
+    }
+
+    #[tokio::test]
+    async fn test_embedding_workflow_uses_puma_lib_model_path_for_execution() {
+        let config = test_config();
+        let host = super::GestaltPantographHost::new(config.clone()).expect("host");
+        let service = WorkflowService::new();
+        let io = service
+            .workflow_get_io(
+                &host,
+                WorkflowIoRequest {
+                    workflow_id: config.workflow_id.clone(),
+                },
+            )
+            .await
+            .expect("workflow io");
+        let (text_input, vector_output) = binding_from_io(&io, &config).expect("bindings");
+
+        let stored = pantograph_workflow_service::capabilities::load_and_validate_workflow(
+            &config.workflow_id,
+            &host.workflow_roots(),
+        )
+        .expect("stored workflow");
+        let mut graph = stored.to_workflow_graph(&config.workflow_id);
+        super::GestaltPantographHost::apply_input_bindings(
+            &mut graph,
+            &[pantograph_workflow_service::WorkflowPortBinding {
+                node_id: text_input.node_id.clone(),
+                port_id: text_input.port_id.clone(),
+                value: serde_json::json!("from emily"),
+            }],
+        )
+        .expect("input binding");
+
+        let output_node_id = graph
+            .nodes
+            .iter()
+            .find(|node| node.id == vector_output.node_id)
+            .expect("vector output node")
+            .id
+            .clone();
+
+        let recorded_models = Arc::new(Mutex::new(Vec::<PathBuf>::new()));
+        let host_executor = Arc::new(RecordingEmbeddingExecutor {
+            recorded_models: recorded_models.clone(),
+        });
+        let core = Arc::new(node_engine::CoreTaskExecutor::new());
+        let task_executor = node_engine::CompositeTaskExecutor::new(Some(host_executor), core);
+        let executor = node_engine::WorkflowExecutor::new(
+            "test-exec",
+            graph,
+            Arc::new(node_engine::NullEventSink),
+        );
+
+        let outputs = executor
+            .demand(&output_node_id, &task_executor)
+            .await
+            .expect("workflow execution");
+        assert_eq!(outputs["vector"], serde_json::json!([0.25_f64, 0.5_f64]));
+
+        let expected_model_path = Path::new(
+            "/media/jeremy/OrangeCream/Linux Software/Pumas-Library/shared-resources/models/embedding/qwen3/qwen3-embedding-06b-gguf",
+        );
+        let stale_model_path = Path::new(
+            "/media/jeremy/OrangeCream/Linux Software/Pumas-Library/shared-resources/models/embedding/Qwen/Qwen3-Embedding-06B-GGUF",
+        );
+        let recorded = recorded_models.lock().expect("recorded models");
+        assert_eq!(recorded.as_slice(), &[expected_model_path.to_path_buf()]);
+        assert_ne!(recorded[0], stale_model_path);
     }
 }
