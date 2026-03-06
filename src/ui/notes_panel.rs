@@ -179,10 +179,15 @@ pub(crate) fn NotesPanel(app_state: Signal<AppState>) -> Element {
                                         }
                                         NoteSegment::SnippetRef(snippet_id) => {
                                             let label = snippet_label(&snippets, snippet_id);
+                                            let class = if snippet_exists(&snippets, snippet_id) {
+                                                "notes-snippet-ref"
+                                            } else {
+                                                "notes-snippet-ref missing"
+                                            };
                                             rsx! {
                                                 button {
                                                     key: "note-ref-{snippet_id}",
-                                                    class: "notes-snippet-ref",
+                                                    class: "{class}",
                                                     r#type: "button",
                                                     onclick: move |_| {
                                                         let _ = app_state.write().promote_snippet(snippet_id);
@@ -206,9 +211,9 @@ pub(crate) fn NotesPanel(app_state: Signal<AppState>) -> Element {
                 p {
                     class: "notes-search-hint",
                     if *view_mode.read() == NotesViewMode::Edit {
-                        "Snippet Search: click a result to insert a reference in this note."
+                        "Snippet Search: click to insert reference. Hold trash for 1 second to delete."
                     } else {
-                        "Snippet Search: click a result to focus and pin that snippet."
+                        "Snippet Search: click to focus and pin. Hold trash for 1 second to delete."
                     }
                 }
                 input {
@@ -446,7 +451,11 @@ fn snippet_label(snippets: &[Snippet], snippet_id: SnippetId) -> String {
         .iter()
         .find(|snippet| snippet.id == snippet_id)
         .map(|snippet| format!("Snippet #{snippet_id}: {}", snippet_preview(&snippet.text_snapshot_plain, 40)))
-        .unwrap_or_else(|| format!("Snippet #{snippet_id}"))
+        .unwrap_or_else(|| format!("Missing snippet #{snippet_id}"))
+}
+
+fn snippet_exists(snippets: &[Snippet], snippet_id: SnippetId) -> bool {
+    snippets.iter().any(|snippet| snippet.id == snippet_id)
 }
 
 fn unix_now_ms() -> i64 {

@@ -598,6 +598,12 @@
   cursor: pointer;
 }
 
+.notes-snippet-ref.missing {
+  border-color: #d57a7a;
+  background: #fdecec;
+  color: #6d1f1f;
+}
+
 .notes-snippet-picker {
   border: 1px solid #d8b98e;
   border-radius: 8px;
@@ -651,6 +657,8 @@
   border-color: #b83a2d;
   background: #fbd3cf;
   color: #5d150f;
+  box-shadow: 0 0 0 2px #b83a2d44 inset;
+  animation: hold-pulse 1s linear infinite;
 }
 
 .notes-snippet-meta {
@@ -695,6 +703,20 @@
   margin: 0;
   font-size: calc(0.7rem * var(--font-scale));
   color: #74552b;
+}
+
+@keyframes hold-pulse {
+  0% {
+    filter: saturate(1);
+  }
+
+  50% {
+    filter: saturate(1.35);
+  }
+
+  100% {
+    filter: saturate(1);
+  }
 }
 
 .orchestrator-head {
