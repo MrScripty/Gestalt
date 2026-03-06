@@ -58,6 +58,7 @@ pub(crate) fn TabRail(
                         let group_color = group.color.clone();
                         let group_path = group.path.clone();
                         let group_label = group.label();
+                        let add_tab_aria_label = format!("Add tab to path group {group_label}");
                         let remove_group_aria_label = format!("Remove path group {group_label}");
                         let group_class = if active_group_id == Some(group_id) {
                             "group active"
@@ -100,6 +101,8 @@ pub(crate) fn TabRail(
                                     div { class: "group-header-actions",
                                         button {
                                             class: "pill-btn",
+                                            r#type: "button",
+                                            aria_label: "{add_tab_aria_label}",
                                             onclick: move |_| {
                                                 let (session_id, path) = {
                                                     let mut state = app_state.write();
@@ -117,7 +120,7 @@ pub(crate) fn TabRail(
                                                     app_state.write().set_session_status(session_id, SessionStatus::Error);
                                                 }
                                             },
-                                            "+ tab"
+                                            "+"
                                         }
                                         button {
                                             class: "close-btn",
