@@ -1112,6 +1112,17 @@ impl AppState {
         true
     }
 
+    /// Deletes one snippet object by identifier.
+    pub fn delete_snippet(&mut self, snippet_id: SnippetId) -> bool {
+        let before_len = self.snippets.len();
+        self.snippets.retain(|snippet| snippet.id != snippet_id);
+        if self.snippets.len() == before_len {
+            return false;
+        }
+        self.mark_dirty();
+        true
+    }
+
     /// Marks snippet embedding as processing.
     pub fn set_snippet_embedding_processing(&mut self, snippet_id: SnippetId) -> bool {
         let Some(snippet) = self.snippets.iter_mut().find(|snippet| snippet.id == snippet_id)
@@ -1325,6 +1336,18 @@ mod tests {
                 .and_then(|snippet| snippet.embedding_object_id.clone()),
             Some("obj-1".to_string())
         );
+    }
+
+    #[test]
+    fn delete_snippet_removes_only_snippet_object() {
+        let mut state = AppState::default();
+        let first = state.create_snippet(sample_snippet(100, "first"));
+        let second = state.create_snippet(sample_snippet(200, "second"));
+
+        assert!(state.delete_snippet(first));
+        assert!(state.snippet_by_id(first).is_none());
+        assert!(state.snippet_by_id(second).is_some());
+        assert!(!state.delete_snippet(first));
     }
 
     #[test]
