@@ -1,4 +1,4 @@
-use crate::git::{CheckoutTarget, CommitDraft, RepoContext};
+use crate::git::{CheckoutTarget, CommitDetails, CommitDraft, RepoContext};
 use crate::state::AppState;
 use crate::terminal::TerminalManager;
 use crate::ui::git_helpers::{bump_refresh_nonce, create_group_for_worktree, toggle_bool_signal};
@@ -19,6 +19,14 @@ pub(crate) fn GitPanel(
     let mut op_feedback = use_signal(String::new);
     let op_feedback_value = op_feedback.read().clone();
     let mut selected_commit = use_signal(String::new);
+    let mut selected_commit_details = use_signal(|| None::<CommitDetails>);
+    let selected_commit_details_value = selected_commit_details.read().clone();
+    let mut selected_commit_details_error = use_signal(String::new);
+    let selected_commit_details_error_value = selected_commit_details_error.read().clone();
+    let mut editing_commit = use_signal(|| None::<String>);
+    let editing_commit_value = editing_commit.read().clone();
+    let mut edit_title = use_signal(String::new);
+    let mut edit_message = use_signal(String::new);
     let mut commit_title = use_signal(String::new);
     let mut commit_message = use_signal(String::new);
     let mut tag_name = use_signal(String::new);
@@ -83,11 +91,20 @@ pub(crate) fn GitPanel(
                             };
                             let commit_title_value = commit_title.read().clone();
                             let commit_message_value = commit_message.read().clone();
+                            let edit_title_value = edit_title.read().clone();
+                            let edit_message_value = edit_message.read().clone();
                             let tag_name_value = tag_name.read().clone();
                             let tag_message_value = tag_message.read().clone();
                             let worktree_path_value = worktree_path.read().clone();
                             let worktree_target_input_value = worktree_target.read().clone();
                             let auto_workspace_checked = *auto_workspace.read();
+                            let max_graph_columns = snapshot
+                                .commits
+                                .iter()
+                                .map(|commit| commit.graph_prefix.chars().count())
+                                .max()
+                                .unwrap_or(1)
+                                .max(1);
                             let recent_tags = snapshot
                                 .tags
                                 .iter()
@@ -167,9 +184,25 @@ pub(crate) fn GitPanel(
                                 section { class: "git-section",
                                     h4 { "Commit Tree (Newest First)" }
                                     div { class: "git-commit-list",
+                                        div {
+                                            class: "git-summary-node",
+                                            div {
+                                                class: "git-tree-lanes",
+                                                style: "grid-template-columns: repeat({max_graph_columns}, 10px);",
+                                                span { class: "git-lane git-lane-node" }
+                                                for _ in 1..max_graph_columns {
+                                                    span { class: "git-lane git-lane-empty" }
+                                                }
+                                            }
+                                            span { class: "git-summary-label", "Unstaged files: {snapshot.unstaged_count}" }
+                                        }
                                         for commit in snapshot.commits.clone() {
                                             {
                                                 let commit_sha = commit.sha.clone();
+                                                let commit_for_click = commit.clone();
+                                                let commit_for_edit = commit.clone();
+                                                let details_group_path = active_group_path.clone();
+                                                let edit_group_path = active_group_path.clone();
                                                 let selected_class = if selected_commit_value == commit.sha {
                                                     "git-commit-row selected"
                                                 } else {
@@ -184,17 +217,147 @@ pub(crate) fn GitPanel(
                                                     button {
                                                         class: "{selected_class}",
                                                         r#type: "button",
-                                                        onclick: move |_| selected_commit.set(commit_sha.clone()),
+                                                        onclick: move |_| {
+                                                            selected_commit.set(commit_sha.clone());
+                                                            editing_commit.set(None);
+                                                            selected_commit_details_error.set(String::new());
+                                                            match crate::orchestrator::git::load_commit_details(&details_group_path, &commit_for_click.sha) {
+                                                                Ok(details) => selected_commit_details.set(Some(details)),
+                                                                Err(error) => {
+                                                                    selected_commit_details.set(None);
+                                                                    selected_commit_details_error.set(error.to_string());
+                                                                }
+                                                            }
+                                                        },
+                                                        ondoubleclick: move |_| {
+                                                            if !commit_for_edit.is_unpushed {
+                                                                op_feedback.set("Only unpushed commits can be edited.".to_string());
+                                                                return;
+                                                            }
+                                                            selected_commit.set(commit_for_edit.sha.clone());
+                                                            selected_commit_details_error.set(String::new());
+                                                            match crate::orchestrator::git::load_commit_details(&edit_group_path, &commit_for_edit.sha) {
+                                                                Ok(details) => {
+                                                                    if details.is_unpushed {
+                                                                        edit_title.set(details.title.clone());
+                                                                        edit_message.set(details.message.clone());
+                                                                        editing_commit.set(Some(details.sha.clone()));
+                                                                        selected_commit_details.set(Some(details));
+                                                                    } else {
+                                                                        editing_commit.set(None);
+                                                                        selected_commit_details.set(Some(details));
+                                                                        op_feedback.set("This commit is already pushed and cannot be edited.".to_string());
+                                                                    }
+                                                                }
+                                                                Err(error) => {
+                                                                    editing_commit.set(None);
+                                                                    selected_commit_details.set(None);
+                                                                    selected_commit_details_error.set(error.to_string());
+                                                                }
+                                                            }
+                                                        },
                                                         div {
                                                             class: "git-commit-line",
-                                                            span { class: "git-graph", "{commit.graph_prefix}" }
+                                                            div {
+                                                                class: "git-tree-lanes",
+                                                                style: "grid-template-columns: repeat({max_graph_columns}, 10px);",
+                                                                for lane in graph_lanes(&commit.graph_prefix, max_graph_columns) {
+                                                                    span { class: "{lane}" }
+                                                                }
+                                                            }
                                                             span { class: "git-subject", "{commit.subject}" }
+                                                            if commit.is_unpushed {
+                                                                span { class: "git-commit-badge", "Unpushed" }
+                                                            }
                                                         }
                                                         p { class: "git-meta", "{commit.short_sha} • {commit.author} • {commit.authored_at}{decoration_text}" }
                                                     }
                                                 }
                                             }
                                         }
+                                    }
+                                    if let Some(details) = selected_commit_details_value.clone() {
+                                        div { class: "git-commit-details",
+                                            h5 { "Selected Commit" }
+                                            p { class: "git-meta", "Short ID: {details.short_sha}" }
+                                            if editing_commit_value.as_deref() == Some(details.sha.as_str()) {
+                                                input {
+                                                    class: "git-input",
+                                                    disabled: op_inflight_value,
+                                                    value: "{edit_title_value}",
+                                                    oninput: move |event| edit_title.set(event.value()),
+                                                }
+                                                textarea {
+                                                    class: "git-textarea",
+                                                    disabled: op_inflight_value,
+                                                    rows: "5",
+                                                    value: "{edit_message_value}",
+                                                    oninput: move |event| edit_message.set(event.value()),
+                                                }
+                                                {
+                                                    let save_group_path = active_group_path.clone();
+                                                    let save_sha = details.sha.clone();
+                                                    rsx! {
+                                                div { class: "git-change-actions",
+                                                    button {
+                                                        class: "git-action-btn git-action-primary",
+                                                        disabled: op_inflight_value,
+                                                        onclick: move |_| {
+                                                            if !start_operation(op_inflight, op_feedback) {
+                                                                return;
+                                                            }
+                                                            let draft = CommitDraft {
+                                                                title: edit_title.read().clone(),
+                                                                message: edit_message.read().clone(),
+                                                            };
+                                                            match crate::orchestrator::git::update_commit_message(
+                                                                &save_group_path,
+                                                                &save_sha,
+                                                                draft,
+                                                            ) {
+                                                                Ok(_) => {
+                                                                    op_feedback.set("Commit message updated.".to_string());
+                                                                    editing_commit.set(None);
+                                                                    selected_commit.set(String::new());
+                                                                    selected_commit_details.set(None);
+                                                                    selected_commit_details_error.set(String::new());
+                                                                    edit_title.set(String::new());
+                                                                    edit_message.set(String::new());
+                                                                    bump_refresh_nonce(git_refresh_nonce);
+                                                                }
+                                                                Err(error) => op_feedback.set(error.to_string()),
+                                                            }
+                                                            finish_operation(op_inflight);
+                                                        },
+                                                        "Save Edit"
+                                                    }
+                                                    button {
+                                                        class: "git-action-btn",
+                                                        disabled: op_inflight_value,
+                                                        onclick: move |_| {
+                                                            editing_commit.set(None);
+                                                            edit_title.set(String::new());
+                                                            edit_message.set(String::new());
+                                                        },
+                                                        "Cancel"
+                                                    }
+                                                }
+                                                    }
+                                                }
+                                            } else {
+                                                p { class: "git-commit-details-title", "{details.title}" }
+                                                pre { class: "git-commit-details-message", "{details.message}" }
+                                                if details.is_unpushed {
+                                                    p { class: "git-meta", "Double-click this node to edit title and message." }
+                                                } else if !snapshot.has_upstream {
+                                                    p { class: "git-meta", "No upstream configured, so unpushed status is unavailable." }
+                                                } else {
+                                                    p { class: "git-meta", "This commit has already been pushed and is read-only." }
+                                                }
+                                            }
+                                        }
+                                    } else if !selected_commit_details_error_value.is_empty() {
+                                        p { class: "git-meta", "{selected_commit_details_error_value}" }
                                     }
                                     button {
                                         class: "git-action-btn",
@@ -511,4 +674,45 @@ fn start_operation(mut op_inflight: Signal<bool>, mut op_feedback: Signal<String
 
 fn finish_operation(mut op_inflight: Signal<bool>) {
     op_inflight.set(false);
+}
+
+fn graph_lanes(graph_prefix: &str, width: usize) -> Vec<&'static str> {
+    let mut lanes = graph_prefix.chars().collect::<Vec<_>>();
+    if lanes.is_empty() {
+        lanes.push('*');
+    }
+    while lanes.len() < width {
+        lanes.push(' ');
+    }
+
+    lanes
+        .into_iter()
+        .take(width)
+        .map(graph_lane_class)
+        .collect()
+}
+
+fn graph_lane_class(value: char) -> &'static str {
+    match value {
+        '*' => "git-lane git-lane-node",
+        '|' => "git-lane git-lane-vert",
+        '/' => "git-lane git-lane-diag-left",
+        '\\' => "git-lane git-lane-diag-right",
+        '_' | '-' => "git-lane git-lane-horiz",
+        _ => "git-lane git-lane-empty",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{graph_lane_class, graph_lanes};
+
+    #[test]
+    fn graph_lanes_pads_to_requested_width() {
+        let lanes = graph_lanes("| * ", 6);
+        assert_eq!(lanes.len(), 6);
+        assert_eq!(lanes[0], graph_lane_class('|'));
+        assert_eq!(lanes[2], graph_lane_class('*'));
+        assert_eq!(lanes[5], graph_lane_class(' '));
+    }
 }
