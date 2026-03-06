@@ -89,7 +89,6 @@ pub(crate) fn TabRail(
                                     style: "border-left-color: {group_color};",
                                     div {
                                         h3 { "{group_label}" }
-                                        p { class: "group-path", "{group_path}" }
                                     }
                                     div { class: "group-header-actions",
                                         button {
