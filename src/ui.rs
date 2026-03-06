@@ -8,6 +8,8 @@ mod git_panel;
 mod git_refresh;
 mod insert_command_mode;
 mod local_agent_panel;
+mod notes_panel;
+mod run_sidebar_panel_host;
 mod sidebar_panel_host;
 mod tab_rail;
 mod terminal_input;
@@ -780,7 +782,7 @@ fn initialize_emily_bridge() -> EmilyBridge {
         Ok(provider) => EmilyBridge::new_default_with_embedding_provider(provider),
         Err(error) => {
             eprintln!("Pantograph embedding provider unavailable: {error}");
-            EmilyBridge::new_default()
+            EmilyBridge::new_default_with_provider_error(error)
         }
     }
 }

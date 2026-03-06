@@ -4,7 +4,7 @@ use crate::resource_monitor::{sample_resource_snapshot, ResourceSnapshot, RESOUR
 use crate::state::{AppState, GroupLayout, SessionId, SessionStatus};
 use crate::terminal::{TerminalManager, TerminalSnapshot};
 use crate::ui::insert_command_mode::InsertModeState;
-use crate::ui::local_agent_panel::LocalAgentPanel;
+use crate::ui::run_sidebar_panel_host::{RunSidebarPanelHost, RunSidebarPanelKind};
 use crate::ui::sidebar_panel_host::{SidebarPanelHost, SidebarPanelKind};
 use crate::ui::terminal_view::{
     SnippetHotkeyState, TerminalInteractionSignals, pending_terminal_snapshot, terminal_shell,
@@ -205,6 +205,7 @@ pub(crate) fn WorkspaceMain(
     let mut renaming_header = use_signal(|| None::<SessionId>);
     let mut rename_header_draft = use_signal(String::new);
     let snippet_hotkey_state = use_signal(|| None::<SnippetHotkeyState>);
+    let run_sidebar_panel = use_signal(|| RunSidebarPanelKind::LocalAgent);
     let renaming_header_id = *renaming_header.read();
     let rename_header_draft_value = rename_header_draft.read().clone();
 
@@ -731,19 +732,14 @@ pub(crate) fn WorkspaceMain(
                                     },
                                 }
 
-                                if let Some(group_orchestrator) = orchestrator_snapshot.clone() {
-                                    LocalAgentPanel {
-                                        app_state: app_state,
-                                        terminal_manager: terminal_manager,
-                                        group_id: group_id,
-                                        group_orchestrator: group_orchestrator,
-                                        local_agent_command: local_agent_command,
-                                        local_agent_feedback: local_agent_feedback,
-                                    }
-                                } else {
-                                    div { class: "sidebar-panel-empty",
-                                        p { "Local agent context is not available." }
-                                    }
+                                RunSidebarPanelHost {
+                                    app_state: app_state,
+                                    terminal_manager: terminal_manager,
+                                    group_id: group_id,
+                                    group_orchestrator: orchestrator_snapshot.clone(),
+                                    local_agent_command: local_agent_command,
+                                    local_agent_feedback: local_agent_feedback,
+                                    run_sidebar_panel: run_sidebar_panel,
                                 }
                             }
 

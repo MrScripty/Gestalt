@@ -21,3 +21,4 @@ inference = { path = "../Pantograph/crates/inference", features = ["backend-llam
 workflow-nodes = { path = "../Pantograph/crates/workflow-nodes", features = ["model-library"] }
 uuid = { version = "1", features = ["v4"] }
 rusqlite = { version = "0.32.1", features = ["bundled"] }
+pulldown-cmark = "0.12"
