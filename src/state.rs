@@ -72,6 +72,10 @@ pub enum VisibleAgentSlot {
 pub type SessionId = u32;
 /// Opaque identifier for a workspace path group.
 pub type GroupId = u32;
+/// Opaque identifier for a persisted note entry.
+pub type NoteId = u64;
+/// Opaque identifier for a captured terminal snippet.
+pub type SnippetId = u64;
 pub const UI_SCALE_DEFAULT: f64 = 1.0;
 pub const UI_SCALE_MIN: f64 = 0.7;
 pub const UI_SCALE_MAX: f64 = 1.8;
@@ -108,6 +112,82 @@ fn default_group_runner_width_px() -> i32 {
 
 fn default_group_split_ratio() -> f64 {
     GROUP_SPLIT_RATIO_DEFAULT
+}
+
+fn default_note_title() -> String {
+    "Scratchpad".to_string()
+}
+
+/// Durable reference to a captured text range in a terminal log stream.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SnippetLogRef {
+    pub session_id: SessionId,
+    pub stream_id: String,
+    pub start_offset: u64,
+    pub end_offset: u64,
+    pub start_row: u32,
+    pub end_row: u32,
+}
+
+/// Embedding pipeline status tracked for one snippet.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum SnippetEmbeddingStatus {
+    Pending,
+    Processing,
+    Ready,
+    Failed,
+}
+
+impl SnippetEmbeddingStatus {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Pending => "Pending",
+            Self::Processing => "Processing",
+            Self::Ready => "Ready",
+            Self::Failed => "Failed",
+        }
+    }
+}
+
+/// One captured snippet anchored to terminal history metadata.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Snippet {
+    pub id: SnippetId,
+    pub created_at_unix_ms: i64,
+    pub source_cwd: String,
+    pub text_snapshot_plain: String,
+    pub log_ref: SnippetLogRef,
+    pub embedding_status: SnippetEmbeddingStatus,
+    pub embedding_object_id: Option<String>,
+    pub embedding_profile_id: Option<String>,
+    pub embedding_dimensions: Option<usize>,
+    pub embedding_error: Option<String>,
+}
+
+/// Persisted markdown note surfaced in the Notes section.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NoteDocument {
+    pub id: NoteId,
+    #[serde(default = "default_note_title")]
+    pub title: String,
+    #[serde(default)]
+    pub markdown: String,
+    #[serde(default)]
+    pub updated_at_unix_ms: i64,
+}
+
+/// Input payload used to create a snippet.
+#[derive(Debug, Clone)]
+pub struct NewSnippet {
+    pub source_session_id: SessionId,
+    pub source_stream_id: String,
+    pub source_cwd: String,
+    pub text_snapshot_plain: String,
+    pub start_offset: u64,
+    pub end_offset: u64,
+    pub start_row: u32,
+    pub end_row: u32,
+    pub created_at_unix_ms: i64,
 }
 
 /// Persisted workspace layout controls scoped to one path group.
@@ -178,11 +258,21 @@ pub struct AppState {
     pub groups: Vec<TabGroup>,
     #[serde(default)]
     pub command_library: CommandLibrary,
+    #[serde(default)]
+    pub notes: Vec<NoteDocument>,
+    #[serde(default)]
+    pub snippets: Vec<Snippet>,
     #[serde(default = "default_ui_scale")]
     ui_scale: f64,
     pub selected_session: Option<SessionId>,
+    #[serde(default)]
+    pub selected_note_id: Option<NoteId>,
     next_session_id: SessionId,
     next_group_id: GroupId,
+    #[serde(default = "default_next_note_id")]
+    next_note_id: NoteId,
+    #[serde(default = "default_next_snippet_id")]
+    next_snippet_id: SnippetId,
     #[serde(skip, default)]
     revision: u64,
 }
@@ -201,14 +291,25 @@ impl Default for AppState {
 
 impl AppState {
     fn empty() -> Self {
+        let note_id = 1_u64;
         Self {
             sessions: Vec::new(),
             groups: Vec::new(),
             command_library: CommandLibrary::default(),
+            notes: vec![NoteDocument {
+                id: note_id,
+                title: default_note_title(),
+                markdown: String::new(),
+                updated_at_unix_ms: 0,
+            }],
+            snippets: Vec::new(),
             ui_scale: UI_SCALE_DEFAULT,
             selected_session: None,
+            selected_note_id: Some(note_id),
             next_session_id: 1,
             next_group_id: 1,
+            next_note_id: note_id.saturating_add(1),
+            next_snippet_id: 1,
             revision: 0,
         }
     }
@@ -287,8 +388,41 @@ impl AppState {
             .map(|session| session.id)
             .max()
             .unwrap_or(0);
+        self.notes.retain(|note| !note.title.trim().is_empty());
+        if self.notes.is_empty() {
+            let note_id = self.next_note_id.max(1);
+            self.notes.push(NoteDocument {
+                id: note_id,
+                title: default_note_title(),
+                markdown: String::new(),
+                updated_at_unix_ms: 0,
+            });
+        }
+        if self
+            .selected_note_id
+            .is_some_and(|selected| !self.notes.iter().any(|note| note.id == selected))
+        {
+            self.selected_note_id = None;
+        }
+        if self.selected_note_id.is_none() {
+            self.selected_note_id = self.notes.first().map(|note| note.id);
+        }
+        for snippet in &mut self.snippets {
+            if snippet.log_ref.end_offset < snippet.log_ref.start_offset {
+                std::mem::swap(&mut snippet.log_ref.start_offset, &mut snippet.log_ref.end_offset);
+            }
+            if snippet.log_ref.end_row < snippet.log_ref.start_row {
+                std::mem::swap(&mut snippet.log_ref.start_row, &mut snippet.log_ref.end_row);
+            }
+        }
+        self.snippets
+            .retain(|snippet| !snippet.text_snapshot_plain.trim().is_empty());
+        let max_note = self.notes.iter().map(|note| note.id).max().unwrap_or(0);
+        let max_snippet = self.snippets.iter().map(|snippet| snippet.id).max().unwrap_or(0);
         self.next_group_id = self.next_group_id.max(max_group.saturating_add(1));
         self.next_session_id = self.next_session_id.max(max_session.saturating_add(1));
+        self.next_note_id = self.next_note_id.max(max_note.saturating_add(1));
+        self.next_snippet_id = self.next_snippet_id.max(max_snippet.saturating_add(1));
     }
 
     /// Creates a group and seeds default Agent/Runner sessions.
@@ -777,6 +911,209 @@ impl AppState {
         &self.command_library.commands
     }
 
+    /// Returns all notes in insertion order.
+    pub fn notes(&self) -> &[NoteDocument] {
+        &self.notes
+    }
+
+    /// Returns all snippets in display order (newest and promoted first).
+    pub fn snippets(&self) -> &[Snippet] {
+        &self.snippets
+    }
+
+    /// Returns a snippet by identifier.
+    pub fn snippet_by_id(&self, snippet_id: SnippetId) -> Option<&Snippet> {
+        self.snippets.iter().find(|snippet| snippet.id == snippet_id)
+    }
+
+    /// Returns snippets originating from one terminal session.
+    pub fn snippets_for_session(&self, session_id: SessionId) -> Vec<&Snippet> {
+        self.snippets
+            .iter()
+            .filter(|snippet| snippet.log_ref.session_id == session_id)
+            .collect()
+    }
+
+    /// Returns the selected note identifier.
+    pub fn selected_note_id(&self) -> Option<NoteId> {
+        self.selected_note_id
+    }
+
+    /// Selects the active note.
+    pub fn select_note(&mut self, note_id: NoteId) {
+        if self.selected_note_id == Some(note_id) {
+            return;
+        }
+        if !self.notes.iter().any(|note| note.id == note_id) {
+            return;
+        }
+        self.selected_note_id = Some(note_id);
+        self.mark_dirty();
+    }
+
+    /// Creates an empty note and returns its identifier.
+    pub fn create_note(&mut self, title: String, updated_at_unix_ms: i64) -> NoteId {
+        let trimmed = title.trim();
+        let note_id = self.next_note_id;
+        self.next_note_id = self.next_note_id.saturating_add(1);
+        self.notes.push(NoteDocument {
+            id: note_id,
+            title: if trimmed.is_empty() {
+                default_note_title()
+            } else {
+                trimmed.to_string()
+            },
+            markdown: String::new(),
+            updated_at_unix_ms,
+        });
+        self.selected_note_id = Some(note_id);
+        self.mark_dirty();
+        note_id
+    }
+
+    /// Updates note markdown and touched timestamp.
+    pub fn update_note_markdown(
+        &mut self,
+        note_id: NoteId,
+        markdown: String,
+        updated_at_unix_ms: i64,
+    ) -> bool {
+        let Some(note) = self.notes.iter_mut().find(|note| note.id == note_id) else {
+            return false;
+        };
+        if note.markdown == markdown && note.updated_at_unix_ms == updated_at_unix_ms {
+            return false;
+        }
+        note.markdown = markdown;
+        note.updated_at_unix_ms = updated_at_unix_ms;
+        self.mark_dirty();
+        true
+    }
+
+    /// Appends a markdown snippet reference token to a note.
+    pub fn append_note_snippet_reference(
+        &mut self,
+        note_id: NoteId,
+        snippet_id: SnippetId,
+        updated_at_unix_ms: i64,
+    ) -> bool {
+        let Some(note) = self.notes.iter_mut().find(|note| note.id == note_id) else {
+            return false;
+        };
+        let token = snippet_reference_token(snippet_id);
+        if !note.markdown.is_empty() && !note.markdown.ends_with('\n') {
+            note.markdown.push('\n');
+        }
+        note.markdown.push_str(&token);
+        note.markdown.push('\n');
+        note.updated_at_unix_ms = updated_at_unix_ms;
+        self.mark_dirty();
+        true
+    }
+
+    /// Creates a snippet and returns its identifier.
+    pub fn create_snippet(&mut self, new_snippet: NewSnippet) -> SnippetId {
+        let snippet_id = self.next_snippet_id;
+        self.next_snippet_id = self.next_snippet_id.saturating_add(1);
+        let mut log_ref = SnippetLogRef {
+            session_id: new_snippet.source_session_id,
+            stream_id: new_snippet.source_stream_id,
+            start_offset: new_snippet.start_offset.min(new_snippet.end_offset),
+            end_offset: new_snippet.start_offset.max(new_snippet.end_offset),
+            start_row: new_snippet.start_row.min(new_snippet.end_row),
+            end_row: new_snippet.start_row.max(new_snippet.end_row),
+        };
+        if log_ref.end_offset < log_ref.start_offset {
+            std::mem::swap(&mut log_ref.start_offset, &mut log_ref.end_offset);
+        }
+        if log_ref.end_row < log_ref.start_row {
+            std::mem::swap(&mut log_ref.start_row, &mut log_ref.end_row);
+        }
+        self.snippets.insert(
+            0,
+            Snippet {
+                id: snippet_id,
+                created_at_unix_ms: new_snippet.created_at_unix_ms,
+                source_cwd: new_snippet.source_cwd,
+                text_snapshot_plain: new_snippet.text_snapshot_plain,
+                log_ref,
+                embedding_status: SnippetEmbeddingStatus::Pending,
+                embedding_object_id: None,
+                embedding_profile_id: None,
+                embedding_dimensions: None,
+                embedding_error: None,
+            },
+        );
+        self.mark_dirty();
+        snippet_id
+    }
+
+    /// Promotes one snippet to the top of the snippets list.
+    pub fn promote_snippet(&mut self, snippet_id: SnippetId) -> bool {
+        let Some(index) = self.snippets.iter().position(|snippet| snippet.id == snippet_id) else {
+            return false;
+        };
+        if index == 0 {
+            return false;
+        }
+        let snippet = self.snippets.remove(index);
+        self.snippets.insert(0, snippet);
+        self.mark_dirty();
+        true
+    }
+
+    /// Marks snippet embedding as processing.
+    pub fn set_snippet_embedding_processing(&mut self, snippet_id: SnippetId) -> bool {
+        let Some(snippet) = self.snippets.iter_mut().find(|snippet| snippet.id == snippet_id)
+        else {
+            return false;
+        };
+        if snippet.embedding_status == SnippetEmbeddingStatus::Processing {
+            return false;
+        }
+        snippet.embedding_status = SnippetEmbeddingStatus::Processing;
+        snippet.embedding_error = None;
+        self.mark_dirty();
+        true
+    }
+
+    /// Marks snippet embedding as ready.
+    pub fn set_snippet_embedding_ready(
+        &mut self,
+        snippet_id: SnippetId,
+        embedding_object_id: String,
+        embedding_profile_id: Option<String>,
+        embedding_dimensions: Option<usize>,
+    ) -> bool {
+        let Some(snippet) = self.snippets.iter_mut().find(|snippet| snippet.id == snippet_id)
+        else {
+            return false;
+        };
+        snippet.embedding_status = SnippetEmbeddingStatus::Ready;
+        snippet.embedding_object_id = Some(embedding_object_id);
+        snippet.embedding_profile_id = embedding_profile_id;
+        snippet.embedding_dimensions = embedding_dimensions;
+        snippet.embedding_error = None;
+        self.mark_dirty();
+        true
+    }
+
+    /// Marks snippet embedding as failed.
+    pub fn set_snippet_embedding_failed(
+        &mut self,
+        snippet_id: SnippetId,
+        error: String,
+    ) -> bool {
+        let Some(snippet) = self.snippets.iter_mut().find(|snippet| snippet.id == snippet_id)
+        else {
+            return false;
+        };
+        snippet.embedding_status = SnippetEmbeddingStatus::Failed;
+        snippet.embedding_error = Some(error);
+        self.mark_dirty();
+        true
+    }
+
     /// Returns the persisted GUI font scale.
     pub fn ui_scale(&self) -> f64 {
         clamp_ui_scale(self.ui_scale)
@@ -841,4 +1178,102 @@ impl AppState {
 
 fn default_ui_scale() -> f64 {
     UI_SCALE_DEFAULT
+}
+
+fn default_next_note_id() -> NoteId {
+    1
+}
+
+fn default_next_snippet_id() -> SnippetId {
+    1
+}
+
+/// Returns the markdown token used to reference a snippet inside notes.
+pub fn snippet_reference_token(snippet_id: SnippetId) -> String {
+    format!("[[snippet:{snippet_id}]]")
+}
+
+/// Parses snippet identifiers referenced by markdown snippet tokens.
+pub fn parse_snippet_reference_tokens(markdown: &str) -> Vec<SnippetId> {
+    const PREFIX: &str = "[[snippet:";
+    let mut refs = Vec::new();
+    let mut remainder = markdown;
+    while let Some(prefix_idx) = remainder.find(PREFIX) {
+        let candidate = &remainder[prefix_idx + PREFIX.len()..];
+        let Some(end_idx) = candidate.find("]]") else {
+            break;
+        };
+        let raw_id = &candidate[..end_idx];
+        if let Ok(snippet_id) = raw_id.trim().parse::<SnippetId>() {
+            refs.push(snippet_id);
+        }
+        remainder = &candidate[end_idx + 2..];
+    }
+    refs
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        AppState, NewSnippet, SnippetEmbeddingStatus, parse_snippet_reference_tokens,
+        snippet_reference_token,
+    };
+
+    fn sample_snippet(created_at_unix_ms: i64, text: &str) -> NewSnippet {
+        NewSnippet {
+            source_session_id: 7,
+            source_stream_id: "terminal:7".to_string(),
+            source_cwd: "/tmp".to_string(),
+            text_snapshot_plain: text.to_string(),
+            start_offset: 10,
+            end_offset: 40,
+            start_row: 3,
+            end_row: 5,
+            created_at_unix_ms,
+        }
+    }
+
+    #[test]
+    fn snippet_reference_tokens_round_trip() {
+        let token = snippet_reference_token(42);
+        assert_eq!(token, "[[snippet:42]]");
+        assert_eq!(
+            parse_snippet_reference_tokens("a [[snippet:2]] b [[snippet:44]]"),
+            vec![2, 44]
+        );
+    }
+
+    #[test]
+    fn create_snippet_prepends_to_collection() {
+        let mut state = AppState::default();
+        let first_id = state.create_snippet(sample_snippet(100, "first"));
+        let second_id = state.create_snippet(sample_snippet(200, "second"));
+        assert_eq!(state.snippets().first().map(|snippet| snippet.id), Some(second_id));
+        assert_eq!(state.snippets().get(1).map(|snippet| snippet.id), Some(first_id));
+    }
+
+    #[test]
+    fn snippet_embedding_status_transitions() {
+        let mut state = AppState::default();
+        let snippet_id = state.create_snippet(sample_snippet(100, "hello"));
+        assert_eq!(
+            state
+                .snippet_by_id(snippet_id)
+                .map(|snippet| snippet.embedding_status),
+            Some(SnippetEmbeddingStatus::Pending)
+        );
+        assert!(state.set_snippet_embedding_processing(snippet_id));
+        assert!(state.set_snippet_embedding_ready(
+            snippet_id,
+            "obj-1".to_string(),
+            Some("qwen3-0.6b".to_string()),
+            Some(1024),
+        ));
+        assert_eq!(
+            state
+                .snippet_by_id(snippet_id)
+                .and_then(|snippet| snippet.embedding_object_id.clone()),
+            Some("obj-1".to_string())
+        );
+    }
 }
