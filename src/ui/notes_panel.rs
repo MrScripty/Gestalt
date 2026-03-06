@@ -37,10 +37,10 @@ pub(crate) fn NotesPanel(app_state: Signal<AppState>) -> Element {
         })
         .unwrap_or_default();
     let snippets = app_state.read().snippets().to_vec();
-    let selected_note_id = active_group_id
-        .and_then(|group_id| app_state.read().selected_note_id_for_group(group_id));
-    let selected_note = selected_note_id
-        .and_then(|note_id| app_state.read().note_by_id(note_id).cloned());
+    let selected_note_id =
+        active_group_id.and_then(|group_id| app_state.read().selected_note_id_for_group(group_id));
+    let selected_note =
+        selected_note_id.and_then(|note_id| app_state.read().note_by_id(note_id).cloned());
     let selected_markdown = selected_note
         .as_ref()
         .map(|note| note.markdown.clone())
@@ -54,7 +54,10 @@ pub(crate) fn NotesPanel(app_state: Signal<AppState>) -> Element {
                     .text_snapshot_plain
                     .to_lowercase()
                     .contains(&snippet_query_value)
-                || snippet.source_cwd.to_lowercase().contains(&snippet_query_value)
+                || snippet
+                    .source_cwd
+                    .to_lowercase()
+                    .contains(&snippet_query_value)
         })
         .take(8)
         .cloned()
@@ -450,7 +453,12 @@ fn snippet_label(snippets: &[Snippet], snippet_id: SnippetId) -> String {
     snippets
         .iter()
         .find(|snippet| snippet.id == snippet_id)
-        .map(|snippet| format!("Snippet #{snippet_id}: {}", snippet_preview(&snippet.text_snapshot_plain, 40)))
+        .map(|snippet| {
+            format!(
+                "Snippet #{snippet_id}: {}",
+                snippet_preview(&snippet.text_snapshot_plain, 40)
+            )
+        })
         .unwrap_or_else(|| format!("Missing snippet #{snippet_id}"))
 }
 

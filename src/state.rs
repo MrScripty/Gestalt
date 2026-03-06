@@ -382,7 +382,11 @@ impl AppState {
         }
         let fallback_group_id = self
             .selected_session
-            .and_then(|session_id| self.sessions.iter().find(|session| session.id == session_id))
+            .and_then(|session_id| {
+                self.sessions
+                    .iter()
+                    .find(|session| session.id == session_id)
+            })
             .map(|session| session.group_id)
             .or_else(|| self.groups.first().map(|group| group.id))
             .unwrap_or(1);
@@ -411,7 +415,10 @@ impl AppState {
         }
         for snippet in &mut self.snippets {
             if snippet.log_ref.end_offset < snippet.log_ref.start_offset {
-                std::mem::swap(&mut snippet.log_ref.start_offset, &mut snippet.log_ref.end_offset);
+                std::mem::swap(
+                    &mut snippet.log_ref.start_offset,
+                    &mut snippet.log_ref.end_offset,
+                );
             }
             if snippet.log_ref.end_row < snippet.log_ref.start_row {
                 std::mem::swap(&mut snippet.log_ref.start_row, &mut snippet.log_ref.end_row);
@@ -420,7 +427,12 @@ impl AppState {
         self.snippets
             .retain(|snippet| !snippet.text_snapshot_plain.trim().is_empty());
         let max_note = self.notes.iter().map(|note| note.id).max().unwrap_or(0);
-        let max_snippet = self.snippets.iter().map(|snippet| snippet.id).max().unwrap_or(0);
+        let max_snippet = self
+            .snippets
+            .iter()
+            .map(|snippet| snippet.id)
+            .max()
+            .unwrap_or(0);
         self.next_group_id = self.next_group_id.max(max_group.saturating_add(1));
         self.next_session_id = self.next_session_id.max(max_session.saturating_add(1));
         self.next_note_id = self.next_note_id.max(max_note.saturating_add(1));
@@ -961,7 +973,9 @@ impl AppState {
 
     /// Returns a snippet by identifier.
     pub fn snippet_by_id(&self, snippet_id: SnippetId) -> Option<&Snippet> {
-        self.snippets.iter().find(|snippet| snippet.id == snippet_id)
+        self.snippets
+            .iter()
+            .find(|snippet| snippet.id == snippet_id)
     }
 
     /// Returns snippets originating from one terminal session.
@@ -1100,7 +1114,11 @@ impl AppState {
 
     /// Promotes one snippet to the top of the snippets list.
     pub fn promote_snippet(&mut self, snippet_id: SnippetId) -> bool {
-        let Some(index) = self.snippets.iter().position(|snippet| snippet.id == snippet_id) else {
+        let Some(index) = self
+            .snippets
+            .iter()
+            .position(|snippet| snippet.id == snippet_id)
+        else {
             return false;
         };
         if index == 0 {
@@ -1125,7 +1143,10 @@ impl AppState {
 
     /// Marks snippet embedding as processing.
     pub fn set_snippet_embedding_processing(&mut self, snippet_id: SnippetId) -> bool {
-        let Some(snippet) = self.snippets.iter_mut().find(|snippet| snippet.id == snippet_id)
+        let Some(snippet) = self
+            .snippets
+            .iter_mut()
+            .find(|snippet| snippet.id == snippet_id)
         else {
             return false;
         };
@@ -1146,7 +1167,10 @@ impl AppState {
         embedding_profile_id: Option<String>,
         embedding_dimensions: Option<usize>,
     ) -> bool {
-        let Some(snippet) = self.snippets.iter_mut().find(|snippet| snippet.id == snippet_id)
+        let Some(snippet) = self
+            .snippets
+            .iter_mut()
+            .find(|snippet| snippet.id == snippet_id)
         else {
             return false;
         };
@@ -1160,12 +1184,11 @@ impl AppState {
     }
 
     /// Marks snippet embedding as failed.
-    pub fn set_snippet_embedding_failed(
-        &mut self,
-        snippet_id: SnippetId,
-        error: String,
-    ) -> bool {
-        let Some(snippet) = self.snippets.iter_mut().find(|snippet| snippet.id == snippet_id)
+    pub fn set_snippet_embedding_failed(&mut self, snippet_id: SnippetId, error: String) -> bool {
+        let Some(snippet) = self
+            .snippets
+            .iter_mut()
+            .find(|snippet| snippet.id == snippet_id)
         else {
             return false;
         };
@@ -1309,8 +1332,14 @@ mod tests {
         let mut state = AppState::default();
         let first_id = state.create_snippet(sample_snippet(100, "first"));
         let second_id = state.create_snippet(sample_snippet(200, "second"));
-        assert_eq!(state.snippets().first().map(|snippet| snippet.id), Some(second_id));
-        assert_eq!(state.snippets().get(1).map(|snippet| snippet.id), Some(first_id));
+        assert_eq!(
+            state.snippets().first().map(|snippet| snippet.id),
+            Some(second_id)
+        );
+        assert_eq!(
+            state.snippets().get(1).map(|snippet| snippet.id),
+            Some(first_id)
+        );
     }
 
     #[test]

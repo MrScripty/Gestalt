@@ -565,12 +565,9 @@ fn run_worker(
                     request,
                     response_tx,
                 } => {
-                    let result = ingest_snippet_object(
-                        &emily_runtime,
-                        &mut sequence_by_stream,
-                        request,
-                    )
-                    .await;
+                    let result =
+                        ingest_snippet_object(&emily_runtime, &mut sequence_by_stream, request)
+                            .await;
                     let _ = response_tx.send(result);
                 }
                 BridgeCommand::UpdateVectorizationConfig { patch, response_tx } => {

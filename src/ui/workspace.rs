@@ -1,15 +1,15 @@
 use crate::emily_bridge::EmilyBridge;
 use crate::orchestrator::{self, GroupOrchestratorSnapshot};
-use crate::resource_monitor::{sample_resource_snapshot, ResourceSnapshot, RESOURCE_POLL_MS};
+use crate::resource_monitor::{RESOURCE_POLL_MS, ResourceSnapshot, sample_resource_snapshot};
 use crate::state::{AppState, GroupLayout, SessionId, SessionStatus};
 use crate::terminal::{TerminalManager, TerminalSnapshot};
+use crate::ui::TerminalHistoryState;
 use crate::ui::insert_command_mode::InsertModeState;
 use crate::ui::run_sidebar_panel_host::{RunSidebarPanelHost, RunSidebarPanelKind};
 use crate::ui::sidebar_panel_host::{SidebarPanelHost, SidebarPanelKind};
 use crate::ui::terminal_view::{
     SnippetHotkeyState, TerminalInteractionSignals, pending_terminal_snapshot, terminal_shell,
 };
-use crate::ui::TerminalHistoryState;
 use dioxus::prelude::*;
 use emily::model::VectorizationStatus;
 use std::collections::HashMap;
