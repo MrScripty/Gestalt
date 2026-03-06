@@ -301,7 +301,6 @@ pub(crate) fn WorkspaceMain(
                             b { "{active_path}" }
                         }
                     }
-                    p { class: "meta-tip", "Each group defaults to Agent A + Agent B + blue Run/Compile pane." }
                     if !persistence_feedback_value.is_empty() {
                         p { class: "meta-tip", "{persistence_feedback_value}" }
                     }
