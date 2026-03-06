@@ -1,18 +1,19 @@
 use crate::emily_bridge::EmilyBridge;
 use crate::orchestrator::{self, GroupOrchestratorSnapshot};
-use crate::resource_monitor::{RESOURCE_POLL_MS, ResourceSnapshot, sample_resource_snapshot};
+use crate::resource_monitor::{sample_resource_snapshot, ResourceSnapshot, RESOURCE_POLL_MS};
 use crate::state::{AppState, GroupLayout, SessionId, SessionStatus};
 use crate::terminal::{TerminalManager, TerminalSnapshot};
-use crate::ui::TerminalHistoryState;
 use crate::ui::insert_command_mode::InsertModeState;
 use crate::ui::local_agent_panel::LocalAgentPanel;
 use crate::ui::sidebar_panel_host::{SidebarPanelHost, SidebarPanelKind};
 use crate::ui::terminal_view::{
-    TerminalInteractionSignals, pending_terminal_snapshot, terminal_shell,
+    pending_terminal_snapshot, terminal_shell, TerminalInteractionSignals,
 };
+use crate::ui::TerminalHistoryState;
 use dioxus::prelude::*;
 use emily::model::VectorizationStatus;
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -398,7 +399,10 @@ pub(crate) fn WorkspaceMain(
                                                 is_runtime_ready: false,
                                             });
                                         let terminal = pane.terminal;
-                                        let cwd = pane.cwd;
+                                        let cwd = format_cwd_for_display(
+                                            &pane.cwd,
+                                            snapshot.group_path(session.group_id).unwrap_or("."),
+                                        );
                                         let terminal_manager_for_input = terminal_manager.read().clone();
                                         let emily_bridge_for_history = emily_bridge.read().clone();
                                         let is_renaming_header = renaming_header_id == Some(session_id);
@@ -593,7 +597,10 @@ pub(crate) fn WorkspaceMain(
                                                 is_runtime_ready: false,
                                             });
                                         let terminal = pane.terminal;
-                                        let cwd = pane.cwd;
+                                        let cwd = format_cwd_for_display(
+                                            &pane.cwd,
+                                            snapshot.group_path(session.group_id).unwrap_or("."),
+                                        );
                                         let terminal_manager_for_input = terminal_manager.read().clone();
                                         let emily_bridge_for_history = emily_bridge.read().clone();
                                         let is_renaming_header = renaming_header_id == Some(session_id);
@@ -875,11 +882,21 @@ fn format_bytes_compact(bytes: u64) -> String {
     }
 }
 
+fn format_cwd_for_display(cwd: &str, workspace_path: &str) -> String {
+    let cwd_path = Path::new(cwd);
+    let workspace_root = Path::new(workspace_path);
+    match cwd_path.strip_prefix(workspace_root) {
+        Ok(relative) if relative.as_os_str().is_empty() => ".".to_string(),
+        Ok(relative) => relative.to_string_lossy().into_owned(),
+        Err(_) => cwd.to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        derive_session_status_from_activity, format_bytes_compact, percent_used,
-        run_sidebar_style_for_panel,
+        derive_session_status_from_activity, format_bytes_compact, format_cwd_for_display,
+        percent_used, run_sidebar_style_for_panel,
     };
     use crate::state::SessionStatus;
     use crate::ui::sidebar_panel_host::SidebarPanelKind;
@@ -902,6 +919,35 @@ mod tests {
         assert_eq!(format_bytes_compact(500), "500 B");
         assert_eq!(format_bytes_compact(2_048), "2.0 KiB");
         assert_eq!(format_bytes_compact(1_572_864), "1.5 MiB");
+    }
+
+    #[test]
+    fn format_cwd_for_display_returns_dot_for_workspace_root() {
+        let root = std::env::temp_dir().join("gestalt-cwd-root");
+        let root_str = root.to_string_lossy().into_owned();
+        assert_eq!(format_cwd_for_display(&root_str, &root_str), ".");
+    }
+
+    #[test]
+    fn format_cwd_for_display_strips_workspace_prefix() {
+        let root = std::env::temp_dir().join("gestalt-cwd-root");
+        let cwd = root.join("src").join("ui");
+        let expected = std::path::PathBuf::from("src")
+            .join("ui")
+            .to_string_lossy()
+            .into_owned();
+        let root_str = root.to_string_lossy().into_owned();
+        let cwd_str = cwd.to_string_lossy().into_owned();
+        assert_eq!(format_cwd_for_display(&cwd_str, &root_str), expected);
+    }
+
+    #[test]
+    fn format_cwd_for_display_keeps_absolute_for_non_descendant() {
+        let root = std::env::temp_dir().join("gestalt-cwd-root");
+        let outside = std::env::temp_dir().join("gestalt-cwd-outside");
+        let root_str = root.to_string_lossy().into_owned();
+        let outside_str = outside.to_string_lossy().into_owned();
+        assert_eq!(format_cwd_for_display(&outside_str, &root_str), outside_str);
     }
 
     #[test]
