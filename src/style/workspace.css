@@ -274,7 +274,6 @@
   background: var(--runner-blue-soft);
 }
 
-.terminal-card.runner .sub,
 .terminal-card.runner .terminal-meta {
   color: #264b86;
 }
@@ -307,12 +306,6 @@
 .terminal-title-input:focus-visible {
   outline: 2px solid #2f6fe4;
   outline-offset: 1px;
-}
-
-.sub {
-  margin: 2px 0 0;
-  font-size: calc(0.72rem * var(--font-scale));
-  color: #5a777f;
 }
 
 .terminal-meta {
@@ -692,17 +685,12 @@
   background: #1a2a44;
 }
 
-.terminal-card.runner .sub,
 .terminal-card.runner .terminal-meta {
   color: #a8c3f3;
 }
 
 .terminal-head {
   border-bottom-color: #2f4b40;
-}
-
-.sub {
-  color: #8eafa1;
 }
 
 .terminal-meta {
