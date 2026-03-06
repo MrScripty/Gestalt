@@ -20,7 +20,7 @@ mod workspace;
 use crate::emily_bridge::EmilyBridge;
 use crate::git::RepoContext;
 use crate::local_restore;
-use crate::pantograph_host::build_embedding_provider_from_env;
+use crate::pantograph_host::build_deferred_embedding_provider_from_env;
 use crate::persistence;
 use crate::state::{SessionId, SessionStatus, clamp_ui_scale};
 use crate::terminal::{PersistedTerminalState, TerminalManager, TerminalMemorySink};
@@ -871,7 +871,7 @@ fn gui_scale_direction(key: &Key, ctrl: bool, meta: bool, alt: bool) -> Option<f
 }
 
 fn initialize_emily_bridge() -> EmilyBridge {
-    match build_embedding_provider_from_env() {
+    match build_deferred_embedding_provider_from_env() {
         Ok(provider) => EmilyBridge::new_default_with_embedding_provider(provider),
         Err(error) => {
             eprintln!("Pantograph embedding provider unavailable: {error}");

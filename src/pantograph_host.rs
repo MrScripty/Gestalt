@@ -1,7 +1,9 @@
+use emily::error::EmilyError;
 use emily::inference::{
     EmbeddingProvider, PantographEmbeddingProvider, PantographWorkflowBinding,
     PantographWorkflowEmbeddingConfig, PantographWorkflowServiceClient,
 };
+use emily::model::EmbeddingProviderStatus;
 use inference::{BackendConfig, InferenceGateway, StdProcessSpawner};
 use pantograph_workflow_service::{
     WorkflowHost, WorkflowIoRequest, WorkflowOutputTarget, WorkflowPortBinding, WorkflowRunOptions,
@@ -11,6 +13,7 @@ use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use tokio::sync::watch;
 use uuid::Uuid;
 
 // Ensure workflow node descriptors are linked into this binary.
@@ -18,6 +21,130 @@ use workflow_nodes as _;
 
 const DEFAULT_TIMEOUT_MS: u64 = 120_000;
 const DEFAULT_EMBED_DIMENSIONS: usize = 1024;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum DeferredProviderState {
+    Bootstrapping,
+    Ready,
+    Failed(String),
+}
+
+struct DeferredEmbeddingProvider {
+    provider: Arc<Mutex<Option<Arc<dyn EmbeddingProvider>>>>,
+    state_rx: watch::Receiver<DeferredProviderState>,
+}
+
+impl DeferredEmbeddingProvider {
+    fn spawn<F>(bootstrap: F) -> Arc<dyn EmbeddingProvider>
+    where
+        F: FnOnce() -> Result<Arc<dyn EmbeddingProvider>, String> + Send + 'static,
+    {
+        let provider = Arc::new(Mutex::new(None));
+        let (state_tx, state_rx) = watch::channel(DeferredProviderState::Bootstrapping);
+        let worker_provider = Arc::clone(&provider);
+
+        std::thread::spawn(move || match bootstrap() {
+            Ok(ready_provider) => {
+                if let Ok(mut slot) = worker_provider.lock() {
+                    *slot = Some(ready_provider);
+                }
+                let _ = state_tx.send(DeferredProviderState::Ready);
+            }
+            Err(error) => {
+                let _ = state_tx.send(DeferredProviderState::Failed(error));
+            }
+        });
+
+        Arc::new(Self { provider, state_rx })
+    }
+
+    fn provider_clone(&self) -> Result<Option<Arc<dyn EmbeddingProvider>>, EmilyError> {
+        self.provider
+            .lock()
+            .map(|guard| guard.clone())
+            .map_err(|_| EmilyError::Embedding("deferred provider lock poisoned".to_string()))
+    }
+}
+
+#[async_trait::async_trait]
+impl EmbeddingProvider for DeferredEmbeddingProvider {
+    async fn embed_text(&self, text: &str) -> Result<Vec<f32>, EmilyError> {
+        let mut state_rx = self.state_rx.clone();
+        loop {
+            let state = state_rx.borrow().clone();
+            match state {
+                DeferredProviderState::Bootstrapping => {
+                    state_rx.changed().await.map_err(|_| {
+                        EmilyError::Embedding(
+                            "deferred provider bootstrap channel closed".to_string(),
+                        )
+                    })?;
+                }
+                DeferredProviderState::Ready => {
+                    let provider = self.provider_clone()?.ok_or_else(|| {
+                        EmilyError::Embedding(
+                            "deferred provider reported ready without provider".to_string(),
+                        )
+                    })?;
+                    return provider.embed_text(text).await;
+                }
+                DeferredProviderState::Failed(error) => {
+                    return Err(EmilyError::Embedding(error));
+                }
+            }
+        }
+    }
+
+    async fn status(&self) -> Option<EmbeddingProviderStatus> {
+        let state = self.state_rx.borrow().clone();
+        match state {
+            DeferredProviderState::Bootstrapping => Some(EmbeddingProviderStatus {
+                state: "bootstrapping".to_string(),
+                session_id: None,
+                queued_runs: None,
+                queue_items: None,
+                keep_alive: None,
+                last_error: None,
+            }),
+            DeferredProviderState::Ready => {
+                let provider = self.provider_clone().ok().flatten();
+                match provider {
+                    Some(provider) => provider.status().await.or(Some(EmbeddingProviderStatus {
+                        state: "ready".to_string(),
+                        session_id: None,
+                        queued_runs: None,
+                        queue_items: None,
+                        keep_alive: None,
+                        last_error: None,
+                    })),
+                    None => Some(EmbeddingProviderStatus {
+                        state: "ready".to_string(),
+                        session_id: None,
+                        queued_runs: None,
+                        queue_items: None,
+                        keep_alive: None,
+                        last_error: None,
+                    }),
+                }
+            }
+            DeferredProviderState::Failed(error) => Some(EmbeddingProviderStatus {
+                state: "unavailable".to_string(),
+                session_id: None,
+                queued_runs: None,
+                queue_items: None,
+                keep_alive: None,
+                last_error: Some(error),
+            }),
+        }
+    }
+
+    async fn shutdown(&self) -> Result<(), EmilyError> {
+        if let Some(provider) = self.provider_clone()? {
+            provider.shutdown().await?;
+        }
+        Ok(())
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct PantographRuntimeConfig {
@@ -482,8 +609,9 @@ fn binding_from_io(
     Ok((input_binding, output_binding))
 }
 
-pub fn build_embedding_provider_from_env() -> Result<Arc<dyn EmbeddingProvider>, String> {
-    let config = PantographRuntimeConfig::from_env()?;
+fn bootstrap_embedding_provider(
+    config: PantographRuntimeConfig,
+) -> Result<Arc<dyn EmbeddingProvider>, String> {
     let host = Arc::new(GestaltPantographHost::new(config.clone())?);
     run_bootstrap_blocking(async move {
         let workflow_service = WorkflowService::new();
@@ -521,6 +649,13 @@ pub fn build_embedding_provider_from_env() -> Result<Arc<dyn EmbeddingProvider>,
         let provider: Arc<dyn EmbeddingProvider> = provider;
         Ok(provider)
     })
+}
+
+pub fn build_deferred_embedding_provider_from_env() -> Result<Arc<dyn EmbeddingProvider>, String> {
+    let config = PantographRuntimeConfig::from_env()?;
+    Ok(DeferredEmbeddingProvider::spawn(move || {
+        bootstrap_embedding_provider(config)
+    }))
 }
 
 fn run_bootstrap_blocking<F, T>(future: F) -> Result<T, String>
@@ -577,4 +712,76 @@ pub async fn run_workflow_once_from_env(text: &str) -> Result<WorkflowRunRespons
         )
         .await
         .map_err(|error| error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DeferredEmbeddingProvider;
+    use emily::inference::EmbeddingProvider;
+    use emily::model::EmbeddingProviderStatus;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    #[derive(Default)]
+    struct TestProvider;
+
+    #[async_trait::async_trait]
+    impl EmbeddingProvider for TestProvider {
+        async fn embed_text(&self, text: &str) -> Result<Vec<f32>, emily::error::EmilyError> {
+            Ok(vec![text.len() as f32])
+        }
+
+        async fn status(&self) -> Option<EmbeddingProviderStatus> {
+            Some(EmbeddingProviderStatus {
+                state: "ready".to_string(),
+                session_id: None,
+                queued_runs: None,
+                queue_items: None,
+                keep_alive: Some(true),
+                last_error: None,
+            })
+        }
+    }
+
+    #[test]
+    fn deferred_provider_reports_bootstrapping_then_failure() {
+        let provider = DeferredEmbeddingProvider::spawn(|| {
+            std::thread::sleep(Duration::from_millis(20));
+            Err("bootstrap failed".to_string())
+        });
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+
+        let initial = runtime
+            .block_on(provider.status())
+            .expect("initial status should be present");
+        assert_eq!(initial.state, "bootstrapping");
+
+        std::thread::sleep(Duration::from_millis(40));
+        let failed = runtime
+            .block_on(provider.status())
+            .expect("failed status should be present");
+        assert_eq!(failed.state, "unavailable");
+        assert_eq!(failed.last_error.as_deref(), Some("bootstrap failed"));
+    }
+
+    #[test]
+    fn deferred_provider_waits_for_bootstrap_before_embedding() {
+        let provider = DeferredEmbeddingProvider::spawn(|| {
+            std::thread::sleep(Duration::from_millis(20));
+            let provider: Arc<dyn EmbeddingProvider> = Arc::new(TestProvider);
+            Ok(provider)
+        });
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+
+        let vector = runtime
+            .block_on(provider.embed_text("hello"))
+            .expect("embed should wait for readiness");
+        assert_eq!(vector, vec![5.0]);
+    }
 }
