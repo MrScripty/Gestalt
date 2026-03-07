@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 pub enum CommandKind {
     BroadcastSendLine,
     BroadcastInterrupt,
+    LocalAgentSendLine,
+    LocalAgentInterrupt,
     GitStageFiles,
     GitUnstageFiles,
     GitCreateCommit,
@@ -25,6 +27,17 @@ pub enum CommandPayload {
         line: String,
     },
     BroadcastInterrupt {
+        group_id: GroupId,
+        group_path: String,
+        session_ids: Vec<SessionId>,
+    },
+    LocalAgentSendLine {
+        group_id: GroupId,
+        group_path: String,
+        session_ids: Vec<SessionId>,
+        line: String,
+    },
+    LocalAgentInterrupt {
         group_id: GroupId,
         group_path: String,
         session_ids: Vec<SessionId>,
@@ -70,6 +83,8 @@ impl CommandPayload {
         match self {
             Self::BroadcastSendLine { .. } => CommandKind::BroadcastSendLine,
             Self::BroadcastInterrupt { .. } => CommandKind::BroadcastInterrupt,
+            Self::LocalAgentSendLine { .. } => CommandKind::LocalAgentSendLine,
+            Self::LocalAgentInterrupt { .. } => CommandKind::LocalAgentInterrupt,
             Self::GitStageFiles { .. } => CommandKind::GitStageFiles,
             Self::GitUnstageFiles { .. } => CommandKind::GitUnstageFiles,
             Self::GitCreateCommit { .. } => CommandKind::GitCreateCommit,
@@ -83,7 +98,9 @@ impl CommandPayload {
     pub fn group_id(&self) -> Option<GroupId> {
         match self {
             Self::BroadcastSendLine { group_id, .. }
-            | Self::BroadcastInterrupt { group_id, .. } => Some(*group_id),
+            | Self::BroadcastInterrupt { group_id, .. }
+            | Self::LocalAgentSendLine { group_id, .. }
+            | Self::LocalAgentInterrupt { group_id, .. } => Some(*group_id),
             _ => None,
         }
     }
@@ -92,6 +109,8 @@ impl CommandPayload {
         match self {
             Self::BroadcastSendLine { group_path, .. }
             | Self::BroadcastInterrupt { group_path, .. }
+            | Self::LocalAgentSendLine { group_path, .. }
+            | Self::LocalAgentInterrupt { group_path, .. }
             | Self::GitStageFiles { group_path, .. }
             | Self::GitUnstageFiles { group_path, .. }
             | Self::GitCreateCommit { group_path, .. }
@@ -166,6 +185,11 @@ pub enum ReceiptPayload {
     Broadcast {
         ok_count: usize,
         fail_count: usize,
+    },
+    LocalAgent {
+        ok_count: usize,
+        fail_count: usize,
+        action: String,
     },
     Git {
         ok_count: usize,

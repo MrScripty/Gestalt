@@ -209,7 +209,16 @@ pub fn broadcast_line_to_group(
     }
 
     let results = send_line_to_sessions(terminal_manager, &session_ids, line);
-    record_broadcast_results(&store, &command_id, &results, now_ms);
+    finalize_group_write(
+        &store,
+        &command_id,
+        &results,
+        now_ms,
+        ReceiptPayload::Broadcast {
+            ok_count: 0,
+            fail_count: 0,
+        },
+    );
     results
 }
 
@@ -261,15 +270,115 @@ pub fn interrupt_group(
     }
 
     let results = interrupt_sessions(terminal_manager, &session_ids);
-    record_broadcast_results(&store, &command_id, &results, now_ms);
+    finalize_group_write(
+        &store,
+        &command_id,
+        &results,
+        now_ms,
+        ReceiptPayload::Broadcast {
+            ok_count: 0,
+            fail_count: 0,
+        },
+    );
     results
 }
 
-fn record_broadcast_results(
+/// Sends a local-agent command to every session in one group and records a distinct lifecycle.
+pub fn send_local_agent_command_to_group(
+    app_state: &AppState,
+    terminal_manager: &TerminalManager,
+    group_id: GroupId,
+    line: &str,
+) -> Vec<SessionWriteResult> {
+    let session_ids = group_session_ids(app_state, group_id);
+    let group_path = app_state.group_path(group_id).unwrap_or(".").to_string();
+    let now_ms = current_unix_ms();
+    let command_id = Uuid::new_v4().to_string();
+    let store = OrchestrationLogStore::default();
+
+    if let Err(error) = store.record_command(NewCommandRecord {
+        command_id: command_id.clone(),
+        timeline_id: command_id.clone(),
+        requested_at_unix_ms: now_ms,
+        recorded_at_unix_ms: now_ms,
+        payload: CommandPayload::LocalAgentSendLine {
+            group_id,
+            group_path,
+            session_ids: session_ids.clone(),
+            line: line.to_string(),
+        },
+    }) {
+        return log_blocked_results(
+            &session_ids,
+            format!("failed recording orchestration command: {error}"),
+        );
+    }
+
+    let results = send_line_to_sessions(terminal_manager, &session_ids, line);
+    finalize_group_write(
+        &store,
+        &command_id,
+        &results,
+        now_ms,
+        ReceiptPayload::LocalAgent {
+            ok_count: 0,
+            fail_count: 0,
+            action: "send_line".to_string(),
+        },
+    );
+    results
+}
+
+/// Sends Ctrl+C to every session in one group from the local-agent panel and records it separately.
+pub fn interrupt_local_agent_group(
+    app_state: &AppState,
+    terminal_manager: &TerminalManager,
+    group_id: GroupId,
+) -> Vec<SessionWriteResult> {
+    let session_ids = group_session_ids(app_state, group_id);
+    let group_path = app_state.group_path(group_id).unwrap_or(".").to_string();
+    let now_ms = current_unix_ms();
+    let command_id = Uuid::new_v4().to_string();
+    let store = OrchestrationLogStore::default();
+
+    if let Err(error) = store.record_command(NewCommandRecord {
+        command_id: command_id.clone(),
+        timeline_id: command_id.clone(),
+        requested_at_unix_ms: now_ms,
+        recorded_at_unix_ms: now_ms,
+        payload: CommandPayload::LocalAgentInterrupt {
+            group_id,
+            group_path,
+            session_ids: session_ids.clone(),
+        },
+    }) {
+        return log_blocked_results(
+            &session_ids,
+            format!("failed recording orchestration command: {error}"),
+        );
+    }
+
+    let results = interrupt_sessions(terminal_manager, &session_ids);
+    finalize_group_write(
+        &store,
+        &command_id,
+        &results,
+        now_ms,
+        ReceiptPayload::LocalAgent {
+            ok_count: 0,
+            fail_count: 0,
+            action: "interrupt".to_string(),
+        },
+    );
+    results
+}
+
+fn finalize_group_write(
     store: &OrchestrationLogStore,
     command_id: &str,
     results: &[SessionWriteResult],
     started_at_unix_ms: i64,
+    receipt_payload: ReceiptPayload,
 ) {
     let mut ok_count = 0usize;
     let mut fail_count = 0usize;
@@ -309,16 +418,29 @@ fn record_broadcast_results(
         ReceiptStatus::PartiallySucceeded
     };
     let completed_at_unix_ms = current_unix_ms();
+    let payload = match receipt_payload {
+        ReceiptPayload::Broadcast { .. } => ReceiptPayload::Broadcast {
+            ok_count,
+            fail_count,
+        },
+        ReceiptPayload::LocalAgent { action, .. } => ReceiptPayload::LocalAgent {
+            ok_count,
+            fail_count,
+            action,
+        },
+        ReceiptPayload::Git { .. } => ReceiptPayload::Git {
+            ok_count,
+            fail_count,
+            summary: String::new(),
+        },
+    };
     let _ = store.finalize_receipt(
         command_id,
         NewReceiptRecord {
             completed_at_unix_ms,
             recorded_at_unix_ms: completed_at_unix_ms,
             status,
-            payload: ReceiptPayload::Broadcast {
-                ok_count,
-                fail_count,
-            },
+            payload,
         },
     );
 }

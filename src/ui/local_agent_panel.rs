@@ -50,7 +50,7 @@ pub(crate) fn LocalAgentPanel(
                             }
 
                             let state_snapshot = app_state.read().clone();
-                            let results = orchestrator::broadcast_line_to_group(
+                            let results = orchestrator::send_local_agent_command_to_group(
                                 &state_snapshot,
                                 &terminal_manager_for_send,
                                 group_id,
@@ -77,7 +77,7 @@ pub(crate) fn LocalAgentPanel(
                         class: "orchestrator-btn interrupt",
                         onclick: move |_| {
                             let state_snapshot = app_state.read().clone();
-                            let results = orchestrator::interrupt_group(
+                            let results = orchestrator::interrupt_local_agent_group(
                                 &state_snapshot,
                                 &terminal_manager_for_interrupt,
                                 group_id,

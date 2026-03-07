@@ -1,5 +1,5 @@
 use gestalt::orchestration_log::{
-    CommandPayload, EventPayload, NewCommandRecord, NewEventRecord, NewReceiptRecord,
+    CommandKind, CommandPayload, EventPayload, NewCommandRecord, NewEventRecord, NewReceiptRecord,
     OrchestrationLogStore, ReceiptPayload, ReceiptStatus, TimelineEntry,
 };
 use gestalt::orchestrator;
@@ -196,6 +196,63 @@ fn group_broadcast_records_failed_timeline_when_sessions_are_unavailable() {
         })
         .count();
     assert_eq!(failed_events, 3);
+
+    unsafe {
+        std::env::remove_var("GESTALT_ORCHESTRATION_DB_PATH");
+    }
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn local_agent_send_records_distinct_timeline_kind() {
+    let _guard = env_lock().lock().expect("env lock");
+    let path = unique_db_path("orchestration-log-local-agent");
+    unsafe {
+        std::env::set_var("GESTALT_ORCHESTRATION_DB_PATH", &path);
+    }
+
+    let state = AppState::default();
+    let group_id = state.groups[0].id;
+    let terminal_manager = TerminalManager::new();
+
+    let results = orchestrator::send_local_agent_command_to_group(
+        &state,
+        &terminal_manager,
+        group_id,
+        "cargo check",
+    );
+    assert_eq!(results.len(), 3);
+    assert!(results.iter().all(|result| result.error.is_some()));
+
+    let store = OrchestrationLogStore::default();
+    let recent = store
+        .load_recent_commands(1)
+        .expect("recent command should load");
+    assert_eq!(recent.len(), 1);
+    assert_eq!(recent[0].kind, CommandKind::LocalAgentSendLine);
+    let timeline = store
+        .load_timeline(&recent[0].command_id)
+        .expect("timeline should load");
+    assert_eq!(timeline.len(), 5);
+    assert!(matches!(timeline.first(), Some(TimelineEntry::Command(_))));
+    assert!(matches!(timeline.last(), Some(TimelineEntry::Receipt(_))));
+
+    let receipt = timeline.last().expect("receipt entry should exist");
+    match receipt {
+        TimelineEntry::Receipt(receipt) => match &receipt.payload {
+            ReceiptPayload::LocalAgent {
+                ok_count,
+                fail_count,
+                action,
+            } => {
+                assert_eq!(*ok_count, 0);
+                assert_eq!(*fail_count, 3);
+                assert_eq!(action, "send_line");
+            }
+            other => panic!("expected local-agent receipt, got {other:?}"),
+        },
+        other => panic!("expected receipt entry, got {other:?}"),
+    }
 
     unsafe {
         std::env::remove_var("GESTALT_ORCHESTRATION_DB_PATH");

@@ -548,6 +548,8 @@ fn kind_name(kind: CommandKind) -> &'static str {
     match kind {
         CommandKind::BroadcastSendLine => "broadcast_send_line",
         CommandKind::BroadcastInterrupt => "broadcast_interrupt",
+        CommandKind::LocalAgentSendLine => "local_agent_send_line",
+        CommandKind::LocalAgentInterrupt => "local_agent_interrupt",
         CommandKind::GitStageFiles => "git_stage_files",
         CommandKind::GitUnstageFiles => "git_unstage_files",
         CommandKind::GitCreateCommit => "git_create_commit",
@@ -562,6 +564,8 @@ fn parse_command_kind(value: &str) -> Result<CommandKind, serde_json::Error> {
     match value {
         "broadcast_send_line" => Ok(CommandKind::BroadcastSendLine),
         "broadcast_interrupt" => Ok(CommandKind::BroadcastInterrupt),
+        "local_agent_send_line" => Ok(CommandKind::LocalAgentSendLine),
+        "local_agent_interrupt" => Ok(CommandKind::LocalAgentInterrupt),
         "git_stage_files" => Ok(CommandKind::GitStageFiles),
         "git_unstage_files" => Ok(CommandKind::GitUnstageFiles),
         "git_create_commit" => Ok(CommandKind::GitCreateCommit),
