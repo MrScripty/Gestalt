@@ -279,7 +279,7 @@ pub(crate) fn terminal_shell(
                         }
                     }
 
-                    if matches!(key, Key::Insert) && !ctrl && !alt && !shift && !meta {
+                    if is_snippet_hotkey_trigger(&key, ctrl, alt, shift, meta) {
                         event.prevent_default();
                         event.stop_propagation();
                         let armed = SnippetHotkeyState {
@@ -694,6 +694,10 @@ fn is_paste_shortcut(key: &Key, ctrl: bool, alt: bool, shift: bool, meta: bool) 
     }
 }
 
+fn is_snippet_hotkey_trigger(key: &Key, ctrl: bool, alt: bool, shift: bool, meta: bool) -> bool {
+    matches!(key, Key::Insert) && alt && !ctrl && !shift && !meta
+}
+
 fn paste_clipboard_into_terminal(
     terminal_manager: Arc<TerminalManager>,
     app_state: Signal<AppState>,
@@ -989,7 +993,7 @@ fn row_char_offset(lines: &[String], row: usize) -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_paste_shortcut, split_prompt_prefix};
+    use super::{is_paste_shortcut, is_snippet_hotkey_trigger, split_prompt_prefix};
     use dioxus::prelude::Key;
 
     #[test]
@@ -1017,6 +1021,24 @@ mod tests {
     #[test]
     fn recognizes_shift_insert_as_paste() {
         assert!(is_paste_shortcut(&Key::Insert, false, false, true, false));
+    }
+
+    #[test]
+    fn snippet_hotkey_requires_alt_insert() {
+        assert!(is_snippet_hotkey_trigger(
+            &Key::Insert,
+            false,
+            true,
+            false,
+            false,
+        ));
+        assert!(!is_snippet_hotkey_trigger(
+            &Key::Insert,
+            false,
+            false,
+            false,
+            false,
+        ));
     }
 
     #[test]
