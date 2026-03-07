@@ -1,3 +1,4 @@
+mod autosave;
 pub mod events;
 pub mod git;
 pub mod repo_watcher;
@@ -6,6 +7,10 @@ mod session;
 mod startup;
 mod workspace;
 
+pub use autosave::{
+    AutosaveController, AutosaveFeedback, AutosaveRequest, AutosaveResult, AutosaveSignature,
+    AutosaveWorker,
+};
 pub use runtime::{
     GroupOrchestratorSnapshot, GroupTerminalState, SessionRuntimeView, SessionWriteResult,
     TerminalRound, broadcast_line_to_group, group_session_ids, interrupt_group,

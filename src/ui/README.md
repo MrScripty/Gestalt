@@ -14,7 +14,6 @@
 | `file_browser_panel.rs` | File browser and selection stats UI |
 | `git_panel.rs` | Git actions and metadata UI |
 | `git_refresh.rs` | Git refresh coordination hook |
-| `autosave.rs` | Background autosave worker integration |
 | `git_helpers.rs` | Shared helper actions for Git UI |
 | `command_palette.rs` | Palette interactions |
 | `insert_command_mode.rs` | Insert mode state and controls |
@@ -48,6 +47,7 @@ path while leaving startup/session coordination ownership outside presentation m
 - Active path group visible sessions start before deferred sessions in other groups.
 - Components remain keyboard reachable.
 - Startup/session lifecycle coordination is consumed from orchestrator facades rather than duplicated across UI surfaces.
+- Autosave feedback is rendered in UI, but debounce/inflight worker coordination is consumed from orchestrator.
 
 ## Revisit Triggers
 - Component files exceed maintainability limits.
