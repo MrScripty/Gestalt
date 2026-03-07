@@ -242,6 +242,13 @@ pub fn repo_root(group_path: &str) -> Result<String, GitError> {
         .to_string())
 }
 
+pub fn git_dir(group_path: &str) -> Result<String, GitError> {
+    Ok(run_git(group_path, &["rev-parse", "--absolute-git-dir"])?
+        .stdout
+        .trim()
+        .to_string())
+}
+
 pub fn repo_change_fingerprint_from_root(repo_root: &str) -> Result<String, GitError> {
     let status = run_git(
         repo_root,

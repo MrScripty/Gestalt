@@ -2668,6 +2668,7 @@ dependencies = [
  "emily",
  "inference",
  "node-engine",
+ "notify",
  "pantograph-workflow-service",
  "parking_lot",
  "portable-pty",
