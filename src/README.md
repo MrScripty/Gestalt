@@ -22,6 +22,7 @@ Application source modules for Gestalt's state model, command library, terminal 
 ## Design Decisions
 - `state` stays framework-agnostic and serializable, including command library persistence.
 - `terminal` owns live runtime processes and exposes snapshots.
+- `terminal` should avoid redundant scrollback cloning on hot PTY read and resize paths; snapshot rebuild work should use locked line views where possible before publishing a new immutable snapshot.
 - `emily_bridge` adapts terminal line events into Emily generic text objects.
 - `emily_bridge` can inject an optional Emily embedding provider at worker startup and exposes vectorization control commands.
 - Pantograph embedding bootstrap is deferred so provider validation does not block initial UI interaction.

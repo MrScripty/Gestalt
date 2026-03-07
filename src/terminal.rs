@@ -216,8 +216,8 @@ impl TerminalManager {
         let cwd = Arc::new(RwLock::new(session_cwd));
         let initial_snapshot = {
             let parser = parser.lock();
-            let scrollback_lines = scrollback.read().lines.clone();
-            terminal_snapshot_from_parser(&parser, &scrollback_lines)
+            let scrollback = scrollback.read();
+            terminal_snapshot_from_parser(&parser, &scrollback.lines)
         };
         let snapshot_cache = Arc::new(RwLock::new(Arc::new(initial_snapshot)));
         let snapshot_revision = Arc::new(AtomicU64::new(1));
@@ -397,8 +397,8 @@ impl TerminalManager {
                 )
             };
             if inserted > 0 {
-                let scrollback_lines = runtime.scrollback.read().lines.clone();
-                let snapshot = terminal_snapshot_from_parser(&parser, &scrollback_lines);
+                let scrollback = runtime.scrollback.read();
+                let snapshot = terminal_snapshot_from_parser(&parser, &scrollback.lines);
                 *runtime.snapshot_cache.write() = Arc::new(snapshot);
                 runtime.snapshot_revision.fetch_add(1, Ordering::Relaxed);
             }
@@ -443,8 +443,8 @@ impl TerminalManager {
 
         let mut parser = runtime.parser.lock();
         parser.set_size(rows, cols);
-        let scrollback_lines = runtime.scrollback.read().lines.clone();
-        let snapshot = terminal_snapshot_from_parser(&parser, &scrollback_lines);
+        let scrollback = runtime.scrollback.read();
+        let snapshot = terminal_snapshot_from_parser(&parser, &scrollback.lines);
         *runtime.snapshot_cache.write() = Arc::new(snapshot);
         runtime.snapshot_revision.fetch_add(1, Ordering::Relaxed);
 
@@ -543,10 +543,12 @@ fn spawn_reader_thread(context: ReaderThreadContext) {
                         let mut parser = parser.lock();
                         parser.process(&buffer[..read]);
 
-                        let (scrollback_lines, emitted_lines) = {
+                        let (snapshot, emitted_lines) = {
                             let mut scrollback = scrollback.write();
                             let emitted_lines = scrollback.process_bytes(&buffer[..read]);
-                            (scrollback.lines.clone(), emitted_lines)
+                            let snapshot =
+                                terminal_snapshot_from_parser(&parser, &scrollback.lines);
+                            (snapshot, emitted_lines)
                         };
 
                         if let Some(memory_sink) = memory_sink.as_ref()
@@ -558,7 +560,7 @@ fn spawn_reader_thread(context: ReaderThreadContext) {
                             }
                         }
 
-                        terminal_snapshot_from_parser(&parser, &scrollback_lines)
+                        snapshot
                     };
                     *snapshot_cache.write() = Arc::new(snapshot);
                     snapshot_revision.fetch_add(1, Ordering::Relaxed);
