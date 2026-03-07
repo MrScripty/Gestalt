@@ -259,3 +259,95 @@ fn local_agent_send_records_distinct_timeline_kind() {
     }
     let _ = std::fs::remove_file(path);
 }
+
+#[test]
+fn recent_activity_for_group_path_includes_receipt_status() {
+    let _guard = env_lock().lock().expect("env lock");
+    let path = unique_db_path("orchestration-log-activity");
+    let store = OrchestrationLogStore::new(path.clone());
+    let recorded_at = now_ms();
+
+    store
+        .record_command(NewCommandRecord {
+            command_id: "cmd-activity-1".to_string(),
+            timeline_id: "cmd-activity-1".to_string(),
+            requested_at_unix_ms: recorded_at - 20,
+            recorded_at_unix_ms: recorded_at - 20,
+            payload: CommandPayload::LocalAgentSendLine {
+                group_id: 1,
+                group_path: "/tmp/activity".to_string(),
+                session_ids: vec![9, 10],
+                line: "cargo check".to_string(),
+            },
+        })
+        .expect("command should record");
+    store
+        .finalize_receipt(
+            "cmd-activity-1",
+            NewReceiptRecord {
+                completed_at_unix_ms: recorded_at - 10,
+                recorded_at_unix_ms: recorded_at - 10,
+                status: ReceiptStatus::Succeeded,
+                payload: ReceiptPayload::LocalAgent {
+                    ok_count: 2,
+                    fail_count: 0,
+                    action: "send_line".to_string(),
+                },
+            },
+        )
+        .expect("receipt should record");
+
+    store
+        .record_command(NewCommandRecord {
+            command_id: "cmd-activity-2".to_string(),
+            timeline_id: "cmd-activity-2".to_string(),
+            requested_at_unix_ms: recorded_at,
+            recorded_at_unix_ms: recorded_at,
+            payload: CommandPayload::GitCreateCommit {
+                group_path: "/tmp/activity".to_string(),
+                title: "feat: capture orchestration activity".to_string(),
+                has_message_body: false,
+            },
+        })
+        .expect("command should record");
+    store
+        .finalize_receipt(
+            "cmd-activity-2",
+            NewReceiptRecord {
+                completed_at_unix_ms: recorded_at + 1,
+                recorded_at_unix_ms: recorded_at + 1,
+                status: ReceiptStatus::Failed,
+                payload: ReceiptPayload::Git {
+                    ok_count: 0,
+                    fail_count: 1,
+                    summary: "commit failed".to_string(),
+                },
+            },
+        )
+        .expect("receipt should record");
+
+    let activity = store
+        .load_recent_activity_for_group_path("/tmp/activity", 4)
+        .expect("recent activity should load");
+    assert_eq!(activity.len(), 2);
+    assert_eq!(activity[0].command.command_id, "cmd-activity-2");
+    assert_eq!(
+        activity[0]
+            .receipt
+            .as_ref()
+            .expect("receipt should exist")
+            .status,
+        ReceiptStatus::Failed
+    );
+    assert_eq!(activity[1].command.command_id, "cmd-activity-1");
+    assert_eq!(
+        activity[1]
+            .receipt
+            .as_ref()
+            .expect("receipt should exist")
+            .status,
+        ReceiptStatus::Succeeded
+    );
+
+    let _ = std::fs::remove_file(path);
+}

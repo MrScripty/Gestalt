@@ -2,7 +2,7 @@ use crate::orchestration_log::error::OrchestrationLogError;
 use crate::orchestration_log::model::{
     CommandKind, CommandPayload, CommandRecord, EventKind, EventPayload, EventRecord,
     NewCommandRecord, NewEventRecord, NewReceiptRecord, ReceiptPayload, ReceiptRecord,
-    ReceiptStatus, TimelineEntry,
+    ReceiptStatus, RecentActivityRecord, TimelineEntry,
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use std::path::{Path, PathBuf};
@@ -368,6 +368,68 @@ impl OrchestrationLogStore {
         Ok(commands)
     }
 
+    pub fn load_recent_activity(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<RecentActivityRecord>, OrchestrationLogError> {
+        self.load_recent_activity_query(
+            "SELECT
+                c.command_id,
+                c.timeline_id,
+                c.sequence_in_timeline,
+                c.kind,
+                c.group_id,
+                c.group_path,
+                c.requested_at_unix_ms,
+                c.recorded_at_unix_ms,
+                c.payload_json,
+                r.command_id,
+                r.timeline_id,
+                r.sequence_in_timeline,
+                r.status,
+                r.completed_at_unix_ms,
+                r.recorded_at_unix_ms,
+                r.payload_json
+             FROM orchestration_commands c
+             LEFT JOIN orchestration_receipts r ON r.command_id = c.command_id
+             ORDER BY c.requested_at_unix_ms DESC, c.sequence_in_timeline DESC
+             LIMIT ?1",
+            params![limit as i64],
+        )
+    }
+
+    pub fn load_recent_activity_for_group_path(
+        &self,
+        group_path: &str,
+        limit: usize,
+    ) -> Result<Vec<RecentActivityRecord>, OrchestrationLogError> {
+        self.load_recent_activity_query(
+            "SELECT
+                c.command_id,
+                c.timeline_id,
+                c.sequence_in_timeline,
+                c.kind,
+                c.group_id,
+                c.group_path,
+                c.requested_at_unix_ms,
+                c.recorded_at_unix_ms,
+                c.payload_json,
+                r.command_id,
+                r.timeline_id,
+                r.sequence_in_timeline,
+                r.status,
+                r.completed_at_unix_ms,
+                r.recorded_at_unix_ms,
+                r.payload_json
+             FROM orchestration_commands c
+             LEFT JOIN orchestration_receipts r ON r.command_id = c.command_id
+             WHERE c.group_path = ?1
+             ORDER BY c.requested_at_unix_ms DESC, c.sequence_in_timeline DESC
+             LIMIT ?2",
+            params![group_path, limit as i64],
+        )
+    }
+
     fn open_connection(&self) -> Result<Connection, OrchestrationLogError> {
         let parent = self
             .path
@@ -387,6 +449,26 @@ impl OrchestrationLogStore {
             })?;
         ensure_schema(&connection)?;
         Ok(connection)
+    }
+
+    fn load_recent_activity_query<P: rusqlite::Params>(
+        &self,
+        sql: &str,
+        params: P,
+    ) -> Result<Vec<RecentActivityRecord>, OrchestrationLogError> {
+        let connection = self.open_connection()?;
+        let mut statement = connection
+            .prepare(sql)
+            .map_err(OrchestrationLogError::Query)?;
+        let rows = statement
+            .query_map(params, decode_recent_activity_row)
+            .map_err(OrchestrationLogError::Query)?;
+
+        let mut activity = Vec::new();
+        for row in rows {
+            activity.push(row.map_err(OrchestrationLogError::DecodeRow)?);
+        }
+        Ok(activity)
     }
 }
 
@@ -538,6 +620,63 @@ fn decode_receipt_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ReceiptRecord
         recorded_at_unix_ms: row.get(5)?,
         payload,
     })
+}
+
+fn decode_recent_activity_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RecentActivityRecord> {
+    let command_payload_json: String = row.get(8)?;
+    let command_payload: CommandPayload =
+        serde_json::from_str(&command_payload_json).map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(
+                8,
+                rusqlite::types::Type::Text,
+                Box::new(error),
+            )
+        })?;
+    let command = CommandRecord {
+        command_id: row.get(0)?,
+        timeline_id: row.get(1)?,
+        sequence_in_timeline: row.get(2)?,
+        kind: parse_command_kind(&row.get::<_, String>(3)?).map_err(to_sql_decode_error)?,
+        group_id: row
+            .get::<_, Option<i64>>(4)?
+            .and_then(|value| u32::try_from(value).ok()),
+        group_path: row.get(5)?,
+        requested_at_unix_ms: row.get(6)?,
+        recorded_at_unix_ms: row.get(7)?,
+        payload: command_payload,
+    };
+
+    let receipt = match row.get::<_, Option<String>>(9)? {
+        Some(command_id) => {
+            let payload_json: String = row
+                .get::<_, Option<String>>(15)?
+                .unwrap_or_else(|| "null".to_string());
+            let payload: ReceiptPayload = serde_json::from_str(&payload_json).map_err(|error| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    15,
+                    rusqlite::types::Type::Text,
+                    Box::new(error),
+                )
+            })?;
+            Some(ReceiptRecord {
+                command_id,
+                timeline_id: row
+                    .get::<_, Option<String>>(10)?
+                    .unwrap_or_else(|| command.timeline_id.clone()),
+                sequence_in_timeline: row.get::<_, Option<i64>>(11)?.unwrap_or_default(),
+                status: parse_receipt_status(
+                    &row.get::<_, Option<String>>(12)?.unwrap_or_default(),
+                )
+                .map_err(to_sql_decode_error)?,
+                completed_at_unix_ms: row.get::<_, Option<i64>>(13)?.unwrap_or_default(),
+                recorded_at_unix_ms: row.get::<_, Option<i64>>(14)?.unwrap_or_default(),
+                payload,
+            })
+        }
+        None => None,
+    };
+
+    Ok(RecentActivityRecord { command, receipt })
 }
 
 fn to_sql_decode_error(error: serde_json::Error) -> rusqlite::Error {

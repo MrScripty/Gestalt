@@ -259,6 +259,12 @@ pub struct ReceiptRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecentActivityRecord {
+    pub command: CommandRecord,
+    pub receipt: Option<ReceiptRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TimelineEntry {
     Command(CommandRecord),
     Event(EventRecord),
