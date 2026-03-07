@@ -6,6 +6,8 @@ pub mod emily_bridge;
 pub mod git;
 /// SQLite-backed local terminal restore projection.
 pub mod local_restore;
+/// SQLite-backed durable command/event/receipt timelines for orchestrated actions.
+pub mod orchestration_log;
 /// Group orchestration snapshot and broadcast helpers.
 pub mod orchestrator;
 /// Pantograph workflow host bootstrap for Emily embedding provider wiring.
