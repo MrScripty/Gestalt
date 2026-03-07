@@ -1,15 +1,15 @@
 use crate::path_validation;
-use crate::resource_monitor::{RESOURCE_POLL_MS, ResourceSnapshot, sample_resource_snapshot};
+use crate::resource_monitor::ResourceSnapshot;
 use crate::state::{AppState, SessionId, SessionStatus, VisibleAgentSlot};
 use crate::terminal::TerminalManager;
 use dioxus::prelude::*;
 use std::sync::Arc;
-use std::time::Duration;
 
 #[component]
 pub(crate) fn TabRail(
     app_state: Signal<AppState>,
     terminal_manager: Signal<Arc<TerminalManager>>,
+    resource_snapshot: Signal<ResourceSnapshot>,
     on_startup_nudge: EventHandler<()>,
     mut dragging_tab: Signal<Option<SessionId>>,
     mut new_group_path: Signal<String>,
@@ -17,31 +17,6 @@ pub(crate) fn TabRail(
     mut rename_draft: Signal<String>,
 ) -> Element {
     let snapshot = app_state.read().clone();
-    let mut resource_snapshot = use_signal(ResourceSnapshot::default);
-    {
-        let terminal_manager = terminal_manager.read().clone();
-        use_future(move || {
-            let terminal_manager = terminal_manager.clone();
-            async move {
-                loop {
-                    tokio::time::sleep(Duration::from_millis(RESOURCE_POLL_MS)).await;
-                    let session_roots = {
-                        let state = app_state.read();
-                        state
-                            .sessions
-                            .iter()
-                            .filter_map(|session| {
-                                terminal_manager
-                                    .session_process_id(session.id)
-                                    .map(|pid| (session.id, pid))
-                            })
-                            .collect::<Vec<_>>()
-                    };
-                    resource_snapshot.set(sample_resource_snapshot(&session_roots));
-                }
-            }
-        });
-    }
     let resource_snapshot_value = resource_snapshot.read().clone();
     let active_group_id = snapshot.active_group_id();
     let renaming_tab_id = *renaming_tab.read();

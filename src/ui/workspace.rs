@@ -1,6 +1,6 @@
 use crate::emily_bridge::EmilyBridge;
 use crate::orchestrator::{self, GroupOrchestratorSnapshot};
-use crate::resource_monitor::{RESOURCE_POLL_MS, ResourceSnapshot, sample_resource_snapshot};
+use crate::resource_monitor::ResourceSnapshot;
 use crate::state::{AppState, GroupLayout, SessionId, SessionStatus};
 use crate::terminal::{TerminalManager, TerminalSnapshot};
 use crate::ui::TerminalHistoryState;
@@ -45,6 +45,7 @@ pub(crate) fn WorkspaceMain(
     emily_bridge: Signal<Arc<EmilyBridge>>,
     vectorization_status: Signal<VectorizationStatus>,
     terminal_manager: Signal<Arc<TerminalManager>>,
+    resource_snapshot: Signal<ResourceSnapshot>,
     focused_terminal: Signal<Option<SessionId>>,
     round_anchor: Signal<Option<(SessionId, u16)>>,
     terminal_history_state: Signal<HashMap<SessionId, TerminalHistoryState>>,
@@ -103,31 +104,6 @@ pub(crate) fn WorkspaceMain(
         });
     }
 
-    let mut resource_snapshot = use_signal(ResourceSnapshot::default);
-    {
-        let terminal_manager = terminal_manager.read().clone();
-        use_future(move || {
-            let terminal_manager = terminal_manager.clone();
-            async move {
-                loop {
-                    tokio::time::sleep(Duration::from_millis(RESOURCE_POLL_MS)).await;
-                    let session_roots = {
-                        let state = app_state.read();
-                        state
-                            .sessions
-                            .iter()
-                            .filter_map(|session| {
-                                terminal_manager
-                                    .session_process_id(session.id)
-                                    .map(|pid| (session.id, pid))
-                            })
-                            .collect::<Vec<_>>()
-                    };
-                    resource_snapshot.set(sample_resource_snapshot(&session_roots));
-                }
-            }
-        });
-    }
     let resource_snapshot_value = resource_snapshot.read().clone();
     let vectorization_status_value = vectorization_status.read().clone();
     let snapshot = app_state.read().clone();

@@ -63,6 +63,8 @@ The following loops are currently retained because upstream signal hooks are not
 | `file_browser_panel.rs` refresh loop | 1000 ms + nonce triggers | Uses nonce-driven event triggers with low-frequency fallback for repo/fs drift. | File-system/repo watcher events can fully replace fallback cadence. |
 | `git_refresh.rs` coordinator loop | 500 ms | Event bus + debounced scheduling still requires periodic due checks. | Scheduler is converted to timer/event queue without tick loop. |
 
+Resource polling is root-owned in `ui.rs`; child components consume the shared snapshot rather than starting duplicate samplers.
+
 ## Dependencies
 **Internal:** `state`, `terminal`, `orchestrator`, `git`, `persistence`  
 **External:** `dioxus`, `tokio`

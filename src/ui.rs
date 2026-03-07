@@ -22,6 +22,7 @@ use crate::git::RepoContext;
 use crate::local_restore;
 use crate::pantograph_host::build_deferred_embedding_provider_from_env;
 use crate::persistence;
+use crate::resource_monitor::{RESOURCE_POLL_MS, ResourceSnapshot, sample_resource_snapshot};
 use crate::state::{SessionId, SessionStatus, clamp_ui_scale};
 use crate::terminal::{PersistedTerminalState, TerminalManager, TerminalMemorySink};
 use crate::ui::autosave::{AutosaveRequest, AutosaveSignature, AutosaveWorker};
@@ -174,6 +175,32 @@ pub fn App() -> Element {
                         break;
                     }
                     vectorization_status.set(receiver.borrow().clone());
+                }
+            }
+        });
+    }
+
+    let mut resource_snapshot = use_signal(ResourceSnapshot::default);
+    {
+        let terminal_manager = terminal_manager.read().clone();
+        use_future(move || {
+            let terminal_manager = terminal_manager.clone();
+            async move {
+                loop {
+                    tokio::time::sleep(Duration::from_millis(RESOURCE_POLL_MS)).await;
+                    let session_roots = {
+                        let state = app_state.read();
+                        state
+                            .sessions
+                            .iter()
+                            .filter_map(|session| {
+                                terminal_manager
+                                    .session_process_id(session.id)
+                                    .map(|pid| (session.id, pid))
+                            })
+                            .collect::<Vec<_>>()
+                    };
+                    resource_snapshot.set(sample_resource_snapshot(&session_roots));
                 }
             }
         });
@@ -558,6 +585,7 @@ pub fn App() -> Element {
             TabRail {
                 app_state: app_state,
                 terminal_manager: terminal_manager,
+                resource_snapshot: resource_snapshot,
                 on_startup_nudge: move |_| startup_notify.read().notify_one(),
                 dragging_tab: dragging_tab,
                 new_group_path: new_group_path,
@@ -595,6 +623,7 @@ pub fn App() -> Element {
                 emily_bridge: emily_bridge,
                 vectorization_status: vectorization_status,
                 terminal_manager: terminal_manager,
+                resource_snapshot: resource_snapshot,
                 focused_terminal: focused_terminal,
                 round_anchor: round_anchor,
                 terminal_history_state: terminal_history_state,
