@@ -332,7 +332,8 @@ pub fn App() -> Element {
                         &terminal_manager,
                         &mut pending_history_loads,
                         &mut terminal_history_state,
-                    );
+                    )
+                    .await;
 
                     let mut failed_starts = Vec::new();
                     let mut deferred_starts = 0_usize;
@@ -695,21 +696,25 @@ pub fn App() -> Element {
                                         r#type: "button",
                                         onclick: move |_| {
                                             let current = vectorization_status.read().config.enabled;
-                                            let result = emily_bridge
-                                                .read()
-                                                .update_vectorization_config(VectorizationConfigPatch {
-                                                    enabled: Some(!current),
-                                                    ..VectorizationConfigPatch::default()
-                                                });
-                                            match result {
-                                                Ok(config) => {
-                                                    embedding_feedback.set(format!(
-                                                        "Embedding {}",
-                                                        if config.enabled { "enabled" } else { "disabled" }
-                                                    ));
+                                            let emily_bridge = emily_bridge.read().clone();
+                                            embedding_feedback.set("Updating embedding state...".to_string());
+                                            spawn(async move {
+                                                let result = emily_bridge
+                                                    .update_vectorization_config_async(VectorizationConfigPatch {
+                                                        enabled: Some(!current),
+                                                        ..VectorizationConfigPatch::default()
+                                                    })
+                                                    .await;
+                                                match result {
+                                                    Ok(config) => {
+                                                        embedding_feedback.set(format!(
+                                                            "Embedding {}",
+                                                            if config.enabled { "enabled" } else { "disabled" }
+                                                        ));
+                                                    }
+                                                    Err(error) => embedding_feedback.set(error),
                                                 }
-                                                Err(error) => embedding_feedback.set(error),
-                                            }
+                                            });
                                         },
                                         if enabled { "Disable Embedding" } else { "Enable Embedding" }
                                     }
@@ -717,53 +722,65 @@ pub fn App() -> Element {
                                         r#type: "button",
                                         onclick: move |_| {
                                             let profile_id = embedding_profile_draft.read().trim().to_string();
-                                            let result = emily_bridge
-                                                .read()
-                                                .update_vectorization_config(VectorizationConfigPatch {
-                                                    profile_id: Some(profile_id),
-                                                    ..VectorizationConfigPatch::default()
-                                                });
-                                            match result {
-                                                Ok(config) => {
-                                                    embedding_feedback.set(format!(
-                                                        "Profile saved: {}",
-                                                        config.profile_id
-                                                    ));
+                                            let emily_bridge = emily_bridge.read().clone();
+                                            embedding_feedback.set("Saving embedding profile...".to_string());
+                                            spawn(async move {
+                                                let result = emily_bridge
+                                                    .update_vectorization_config_async(VectorizationConfigPatch {
+                                                        profile_id: Some(profile_id),
+                                                        ..VectorizationConfigPatch::default()
+                                                    })
+                                                    .await;
+                                                match result {
+                                                    Ok(config) => {
+                                                        embedding_feedback.set(format!(
+                                                            "Profile saved: {}",
+                                                            config.profile_id
+                                                        ));
+                                                    }
+                                                    Err(error) => embedding_feedback.set(error),
                                                 }
-                                                Err(error) => embedding_feedback.set(error),
-                                            }
+                                            });
                                         },
                                         "Save Profile"
                                     }
                                     button {
                                         r#type: "button",
                                         onclick: move |_| {
-                                            let result = emily_bridge
-                                                .read()
-                                                .start_backfill(VectorizationRunRequest { stream_id: None });
-                                            match result {
-                                                Ok(job) => embedding_feedback.set(format!(
-                                                    "Backfill started: {}",
-                                                    job.job_id
-                                                )),
-                                                Err(error) => embedding_feedback.set(error),
-                                            }
+                                            let emily_bridge = emily_bridge.read().clone();
+                                            embedding_feedback.set("Starting backfill...".to_string());
+                                            spawn(async move {
+                                                let result = emily_bridge
+                                                    .start_backfill_async(VectorizationRunRequest { stream_id: None })
+                                                    .await;
+                                                match result {
+                                                    Ok(job) => embedding_feedback.set(format!(
+                                                        "Backfill started: {}",
+                                                        job.job_id
+                                                    )),
+                                                    Err(error) => embedding_feedback.set(error),
+                                                }
+                                            });
                                         },
                                         "Backfill Missing"
                                     }
                                     button {
                                         r#type: "button",
                                         onclick: move |_| {
-                                            let result = emily_bridge
-                                                .read()
-                                                .start_revectorize(VectorizationRunRequest { stream_id: None });
-                                            match result {
-                                                Ok(job) => embedding_feedback.set(format!(
-                                                    "Revectorize started: {}",
-                                                    job.job_id
-                                                )),
-                                                Err(error) => embedding_feedback.set(error),
-                                            }
+                                            let emily_bridge = emily_bridge.read().clone();
+                                            embedding_feedback.set("Starting revectorize...".to_string());
+                                            spawn(async move {
+                                                let result = emily_bridge
+                                                    .start_revectorize_async(VectorizationRunRequest { stream_id: None })
+                                                    .await;
+                                                match result {
+                                                    Ok(job) => embedding_feedback.set(format!(
+                                                        "Revectorize started: {}",
+                                                        job.job_id
+                                                    )),
+                                                    Err(error) => embedding_feedback.set(error),
+                                                }
+                                            });
                                         },
                                         "Revectorize All"
                                     }
@@ -771,13 +788,18 @@ pub fn App() -> Element {
                                         button {
                                             r#type: "button",
                                             onclick: move |_| {
-                                                let result = emily_bridge
-                                                    .read()
-                                                    .cancel_vectorization_job(job.job_id.clone());
-                                                match result {
-                                                    Ok(()) => embedding_feedback.set("Cancellation requested".to_string()),
-                                                    Err(error) => embedding_feedback.set(error),
-                                                }
+                                                let emily_bridge = emily_bridge.read().clone();
+                                                let job_id = job.job_id.clone();
+                                                embedding_feedback.set("Cancelling job...".to_string());
+                                                spawn(async move {
+                                                    let result = emily_bridge
+                                                        .cancel_vectorization_job_async(job_id)
+                                                        .await;
+                                                    match result {
+                                                        Ok(()) => embedding_feedback.set("Cancellation requested".to_string()),
+                                                        Err(error) => embedding_feedback.set(error),
+                                                    }
+                                                });
                                             },
                                             "Cancel Job"
                                         }
@@ -825,7 +847,7 @@ fn start_session_target(
         .map_err(|_| ())
 }
 
-fn load_pending_startup_history(
+async fn load_pending_startup_history(
     emily_bridge: &EmilyBridge,
     terminal_manager: &TerminalManager,
     pending_history_loads: &mut HashMap<SessionId, usize>,
@@ -837,7 +859,9 @@ fn load_pending_startup_history(
         .collect::<Vec<_>>();
 
     for (session_id, limit) in pending {
-        let result = emily_bridge.page_history_before(session_id, None, limit);
+        let result = emily_bridge
+            .page_history_before_async(session_id, None, limit)
+            .await;
         let Ok(mut chunk) = result else {
             continue;
         };

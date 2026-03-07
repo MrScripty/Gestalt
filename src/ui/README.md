@@ -42,6 +42,7 @@ Keep UI responsibilities component-focused, route runtime/domain mutations throu
 ## Invariants
 - UI state is transient and presentation-oriented.
 - Persistent/business state changes route through `state`, `orchestrator`, or `persistence` paths.
+- UI event handlers and `use_future` lifecycle paths must not call blocking Emily or persistence APIs directly; use async/background facades and apply results back through signals.
 - Emily vectorization settings UI is a bridge surface only; runtime authority stays in Emily APIs.
 - Active path group visible sessions start before deferred sessions in other groups.
 - Components remain keyboard reachable.
@@ -65,6 +66,12 @@ The following loops are currently retained because upstream signal hooks are not
 ## Dependencies
 **Internal:** `state`, `terminal`, `orchestrator`, `git`, `persistence`  
 **External:** `dioxus`, `tokio`
+
+## API Consumer Contract
+- UI components may issue async requests to shared services and bridge adapters, but they must not block the UI-sensitive task path on worker responses or disk I/O.
+- Startup restore, history backfill, and embedding actions must tolerate stale results caused by session/path changes.
+- Background loops must have one owner, one cleanup path, and explicit overlap prevention.
+- Compatibility note: synchronous bridge wrappers may remain for non-UI callers, but UI code must prefer async variants.
 
 ## Related ADRs
 None.

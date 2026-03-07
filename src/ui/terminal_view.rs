@@ -477,11 +477,13 @@ pub(crate) fn terminal_shell(
                             return;
                         };
 
-                        let result = emily_bridge.page_history_before(
-                            session_id,
-                            Some(before_sequence),
-                            EMILY_HISTORY_BACKFILL_PAGE_LINES,
-                        );
+                        let result = emily_bridge
+                            .page_history_before_async(
+                                session_id,
+                                Some(before_sequence),
+                                EMILY_HISTORY_BACKFILL_PAGE_LINES,
+                            )
+                            .await;
 
                         match result {
                             Ok(chunk) => {
@@ -890,18 +892,20 @@ async fn save_selection_as_snippet(
         state.set_snippet_embedding_processing(snippet_id);
         snippet_id
     };
-    let ingest_result = emily_bridge.ingest_snippet(SnippetIngestRequest {
-        snippet_id,
-        source_session_id: session_id,
-        source_stream_id: format!("terminal:{session_id}"),
-        source_cwd,
-        source_start_offset: start_offset,
-        source_end_offset: end_offset,
-        source_start_row: start_row,
-        source_end_row: end_row,
-        text: normalized_text,
-        ts_unix_ms: now_ms,
-    });
+    let ingest_result = emily_bridge
+        .ingest_snippet_async(SnippetIngestRequest {
+            snippet_id,
+            source_session_id: session_id,
+            source_stream_id: format!("terminal:{session_id}"),
+            source_cwd,
+            source_start_offset: start_offset,
+            source_end_offset: end_offset,
+            source_start_row: start_row,
+            source_end_row: end_row,
+            text: normalized_text,
+            ts_unix_ms: now_ms,
+        })
+        .await;
     let mut state = app_state.write();
     match ingest_result {
         Ok(result) => {

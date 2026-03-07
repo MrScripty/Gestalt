@@ -14,9 +14,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
-use std::sync::mpsc;
 use std::thread;
-use tokio::sync::{mpsc as tokio_mpsc, watch};
+use tokio::sync::{mpsc as tokio_mpsc, oneshot, watch};
 
 #[derive(Debug)]
 enum BridgeCommand {
@@ -36,33 +35,33 @@ enum BridgeCommand {
         session_id: SessionId,
         before_sequence: Option<u64>,
         limit: usize,
-        response_tx: mpsc::Sender<Result<HistoryChunk, String>>,
+        response_tx: oneshot::Sender<Result<HistoryChunk, String>>,
     },
     QueryContext {
         session_id: SessionId,
         query_text: String,
         top_k: usize,
-        response_tx: mpsc::Sender<Result<ContextPacket, String>>,
+        response_tx: oneshot::Sender<Result<ContextPacket, String>>,
     },
     IngestSnippet {
         request: SnippetIngestRequest,
-        response_tx: mpsc::Sender<Result<SnippetIngestResult, String>>,
+        response_tx: oneshot::Sender<Result<SnippetIngestResult, String>>,
     },
     UpdateVectorizationConfig {
         patch: VectorizationConfigPatch,
-        response_tx: mpsc::Sender<Result<VectorizationConfig, String>>,
+        response_tx: oneshot::Sender<Result<VectorizationConfig, String>>,
     },
     StartBackfill {
         request: VectorizationRunRequest,
-        response_tx: mpsc::Sender<Result<VectorizationJobSnapshot, String>>,
+        response_tx: oneshot::Sender<Result<VectorizationJobSnapshot, String>>,
     },
     StartRevectorize {
         request: VectorizationRunRequest,
-        response_tx: mpsc::Sender<Result<VectorizationJobSnapshot, String>>,
+        response_tx: oneshot::Sender<Result<VectorizationJobSnapshot, String>>,
     },
     CancelVectorizationJob {
         job_id: String,
-        response_tx: mpsc::Sender<Result<(), String>>,
+        response_tx: oneshot::Sender<Result<(), String>>,
     },
     Shutdown,
 }
@@ -214,7 +213,7 @@ impl EmilyBridge {
         before_sequence: Option<u64>,
         limit: usize,
     ) -> Result<HistoryChunk, String> {
-        let (response_tx, response_rx) = mpsc::channel();
+        let (response_tx, response_rx) = oneshot::channel();
         self.command_tx
             .send(BridgeCommand::PageHistory {
                 session_id,
@@ -223,7 +222,27 @@ impl EmilyBridge {
                 response_tx,
             })
             .map_err(|error| format!("failed sending history request to Emily worker: {error}"))?;
-        response_rx.recv().map_err(|error| {
+        response_rx.blocking_recv().map_err(|error| {
+            format!("failed receiving history response from Emily worker: {error}")
+        })?
+    }
+
+    pub async fn page_history_before_async(
+        &self,
+        session_id: SessionId,
+        before_sequence: Option<u64>,
+        limit: usize,
+    ) -> Result<HistoryChunk, String> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.command_tx
+            .send(BridgeCommand::PageHistory {
+                session_id,
+                before_sequence,
+                limit,
+                response_tx,
+            })
+            .map_err(|error| format!("failed sending history request to Emily worker: {error}"))?;
+        response_rx.await.map_err(|error| {
             format!("failed receiving history response from Emily worker: {error}")
         })?
     }
@@ -258,7 +277,7 @@ impl EmilyBridge {
         query_text: String,
         top_k: usize,
     ) -> Result<ContextPacket, String> {
-        let (response_tx, response_rx) = mpsc::channel();
+        let (response_tx, response_rx) = oneshot::channel();
         self.command_tx
             .send(BridgeCommand::QueryContext {
                 session_id,
@@ -267,7 +286,27 @@ impl EmilyBridge {
                 response_tx,
             })
             .map_err(|error| format!("failed sending context request to Emily worker: {error}"))?;
-        response_rx.recv().map_err(|error| {
+        response_rx.blocking_recv().map_err(|error| {
+            format!("failed receiving context response from Emily worker: {error}")
+        })?
+    }
+
+    pub async fn query_context_async(
+        &self,
+        session_id: SessionId,
+        query_text: String,
+        top_k: usize,
+    ) -> Result<ContextPacket, String> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.command_tx
+            .send(BridgeCommand::QueryContext {
+                session_id,
+                query_text,
+                top_k,
+                response_tx,
+            })
+            .map_err(|error| format!("failed sending context request to Emily worker: {error}"))?;
+        response_rx.await.map_err(|error| {
             format!("failed receiving context response from Emily worker: {error}")
         })?
     }
@@ -276,14 +315,30 @@ impl EmilyBridge {
         &self,
         request: SnippetIngestRequest,
     ) -> Result<SnippetIngestResult, String> {
-        let (response_tx, response_rx) = mpsc::channel();
+        let (response_tx, response_rx) = oneshot::channel();
         self.command_tx
             .send(BridgeCommand::IngestSnippet {
                 request,
                 response_tx,
             })
             .map_err(|error| format!("failed sending snippet ingest request: {error}"))?;
-        response_rx.recv().map_err(|error| {
+        response_rx.blocking_recv().map_err(|error| {
+            format!("failed receiving snippet ingest response from Emily worker: {error}")
+        })?
+    }
+
+    pub async fn ingest_snippet_async(
+        &self,
+        request: SnippetIngestRequest,
+    ) -> Result<SnippetIngestResult, String> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.command_tx
+            .send(BridgeCommand::IngestSnippet {
+                request,
+                response_tx,
+            })
+            .map_err(|error| format!("failed sending snippet ingest request: {error}"))?;
+        response_rx.await.map_err(|error| {
             format!("failed receiving snippet ingest response from Emily worker: {error}")
         })?
     }
@@ -300,13 +355,28 @@ impl EmilyBridge {
         &self,
         patch: VectorizationConfigPatch,
     ) -> Result<VectorizationConfig, String> {
-        let (response_tx, response_rx) = mpsc::channel();
+        let (response_tx, response_rx) = oneshot::channel();
         self.command_tx
             .send(BridgeCommand::UpdateVectorizationConfig { patch, response_tx })
             .map_err(|error| {
                 format!("failed sending vectorization config update request: {error}")
             })?;
-        response_rx.recv().map_err(|error| {
+        response_rx.blocking_recv().map_err(|error| {
+            format!("failed receiving vectorization config update response: {error}")
+        })?
+    }
+
+    pub async fn update_vectorization_config_async(
+        &self,
+        patch: VectorizationConfigPatch,
+    ) -> Result<VectorizationConfig, String> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.command_tx
+            .send(BridgeCommand::UpdateVectorizationConfig { patch, response_tx })
+            .map_err(|error| {
+                format!("failed sending vectorization config update request: {error}")
+            })?;
+        response_rx.await.map_err(|error| {
             format!("failed receiving vectorization config update response: {error}")
         })?
     }
@@ -315,14 +385,30 @@ impl EmilyBridge {
         &self,
         request: VectorizationRunRequest,
     ) -> Result<VectorizationJobSnapshot, String> {
-        let (response_tx, response_rx) = mpsc::channel();
+        let (response_tx, response_rx) = oneshot::channel();
         self.command_tx
             .send(BridgeCommand::StartBackfill {
                 request,
                 response_tx,
             })
             .map_err(|error| format!("failed sending start_backfill request: {error}"))?;
-        response_rx.recv().map_err(|error| {
+        response_rx.blocking_recv().map_err(|error| {
+            format!("failed receiving start_backfill response from Emily worker: {error}")
+        })?
+    }
+
+    pub async fn start_backfill_async(
+        &self,
+        request: VectorizationRunRequest,
+    ) -> Result<VectorizationJobSnapshot, String> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.command_tx
+            .send(BridgeCommand::StartBackfill {
+                request,
+                response_tx,
+            })
+            .map_err(|error| format!("failed sending start_backfill request: {error}"))?;
+        response_rx.await.map_err(|error| {
             format!("failed receiving start_backfill response from Emily worker: {error}")
         })?
     }
@@ -331,27 +417,56 @@ impl EmilyBridge {
         &self,
         request: VectorizationRunRequest,
     ) -> Result<VectorizationJobSnapshot, String> {
-        let (response_tx, response_rx) = mpsc::channel();
+        let (response_tx, response_rx) = oneshot::channel();
         self.command_tx
             .send(BridgeCommand::StartRevectorize {
                 request,
                 response_tx,
             })
             .map_err(|error| format!("failed sending start_revectorize request: {error}"))?;
-        response_rx.recv().map_err(|error| {
+        response_rx.blocking_recv().map_err(|error| {
+            format!("failed receiving start_revectorize response from Emily worker: {error}")
+        })?
+    }
+
+    pub async fn start_revectorize_async(
+        &self,
+        request: VectorizationRunRequest,
+    ) -> Result<VectorizationJobSnapshot, String> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.command_tx
+            .send(BridgeCommand::StartRevectorize {
+                request,
+                response_tx,
+            })
+            .map_err(|error| format!("failed sending start_revectorize request: {error}"))?;
+        response_rx.await.map_err(|error| {
             format!("failed receiving start_revectorize response from Emily worker: {error}")
         })?
     }
 
     pub fn cancel_vectorization_job(&self, job_id: String) -> Result<(), String> {
-        let (response_tx, response_rx) = mpsc::channel();
+        let (response_tx, response_rx) = oneshot::channel();
         self.command_tx
             .send(BridgeCommand::CancelVectorizationJob {
                 job_id,
                 response_tx,
             })
             .map_err(|error| format!("failed sending cancel_vectorization_job request: {error}"))?;
-        response_rx.recv().map_err(|error| {
+        response_rx.blocking_recv().map_err(|error| {
+            format!("failed receiving cancel_vectorization_job response from Emily worker: {error}")
+        })?
+    }
+
+    pub async fn cancel_vectorization_job_async(&self, job_id: String) -> Result<(), String> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.command_tx
+            .send(BridgeCommand::CancelVectorizationJob {
+                job_id,
+                response_tx,
+            })
+            .map_err(|error| format!("failed sending cancel_vectorization_job request: {error}"))?;
+        response_rx.await.map_err(|error| {
             format!("failed receiving cancel_vectorization_job response from Emily worker: {error}")
         })?
     }
