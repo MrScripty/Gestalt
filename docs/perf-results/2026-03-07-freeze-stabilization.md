@@ -1,7 +1,7 @@
 # Perf Result - Freeze Stabilization
 
 ## Metadata
-- commit range: `7f26966..74c721a`
+- commit range: `7f26966..bd3768e`
 - date: 2026-03-07
 - environment: local developer machine
 - build: `cargo test` + `cargo run --quiet --bin profile_terminal -- --assert`
@@ -14,7 +14,7 @@
 | `render_pass_p95_us` | `5501` | `5445` | `-1.0%` | Neutral |
 | `ui_row_render_pass_p95_us` | `836` | `800` | `-4.3%` | Neutral |
 | `round_bounds_extract_p95_us` | `3127` | `3276` | `+4.8%` | Neutral noise |
-| `git_watcher_poll_cost_p95_us` | `3420` | `4126` | `+20.6%` | Noisy regression; not targeted in this slice |
+| `git_watcher_poll_cost_p95_us` | `3420` | `3731` | `+9.1%` | Neutral noise |
 | `startup_full_restore_p95_us` | `111028` | `127521` | `+14.9%` | Noisy regression; not targeted in this slice |
 | `baseline_total_send_p95_us` | `29` | `27` | `-6.9%` | Neutral |
 | `render_total_send_p95_us` | `29` | `27` | `-6.9%` | Neutral |
@@ -28,6 +28,7 @@
   - Autosave snapshot construction now runs in a blocking task and projection/workspace writes are worker-owned.
   - Process/resource polling is root-owned instead of duplicated in child UI components.
   - Terminal snapshot rebuilds no longer take an extra full scrollback clone before publishing immutable snapshots.
+  - The git refresh coordinator now projects only the active path data it needs instead of cloning full `AppState` snapshots on every tick.
 - Follow-up focus should remain on git watcher cost and startup restore latency, since those metrics were not improved by this stabilization pass.
 
 ## Verification Summary
