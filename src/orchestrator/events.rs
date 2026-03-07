@@ -1,7 +1,6 @@
-use std::sync::mpsc::{Receiver, Sender, channel};
-use std::sync::{Arc, OnceLock};
+use std::sync::OnceLock;
 
-use parking_lot::Mutex;
+use tokio::sync::broadcast;
 
 /// Typed command names emitted for Git orchestration events.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,28 +36,32 @@ pub enum OrchestratorEvent {
 }
 
 /// Lightweight bounded pub/sub hub for orchestrator domain events.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct EventBus {
-    subscribers: Arc<Mutex<Vec<Sender<OrchestratorEvent>>>>,
+    sender: broadcast::Sender<OrchestratorEvent>,
+}
+
+impl Default for EventBus {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl EventBus {
     /// Creates a fresh pub/sub hub.
     pub fn new() -> Self {
-        Self::default()
+        let (sender, _) = broadcast::channel(64);
+        Self { sender }
     }
 
     /// Subscribes a new receiver to the event stream.
-    pub fn subscribe(&self) -> Receiver<OrchestratorEvent> {
-        let (sender, receiver) = channel();
-        self.subscribers.lock().push(sender);
-        receiver
+    pub fn subscribe(&self) -> broadcast::Receiver<OrchestratorEvent> {
+        self.sender.subscribe()
     }
 
     /// Publishes an event to all active subscribers.
     pub fn publish(&self, event: OrchestratorEvent) {
-        let mut subscribers = self.subscribers.lock();
-        subscribers.retain(|sender| sender.send(event.clone()).is_ok());
+        let _ = self.sender.send(event);
     }
 }
 
@@ -76,8 +79,8 @@ mod tests {
     #[test]
     fn publish_reaches_all_subscribers() {
         let bus = EventBus::new();
-        let first = bus.subscribe();
-        let second = bus.subscribe();
+        let mut first = bus.subscribe();
+        let mut second = bus.subscribe();
 
         bus.publish(OrchestratorEvent::GitCommandExecuted(GitCommandExecuted {
             group_path: "/tmp/repo".to_string(),
@@ -85,16 +88,16 @@ mod tests {
             success: true,
         }));
 
-        assert!(first.recv().is_ok());
-        assert!(second.recv().is_ok());
+        assert!(first.try_recv().is_ok());
+        assert!(second.try_recv().is_ok());
     }
 
     #[test]
-    fn publish_prunes_dropped_subscribers() {
+    fn publish_tolerates_dropped_subscribers() {
         let bus = EventBus::new();
         let dropped = bus.subscribe();
         drop(dropped);
-        let live = bus.subscribe();
+        let mut live = bus.subscribe();
 
         bus.publish(OrchestratorEvent::GitCommandExecuted(GitCommandExecuted {
             group_path: "/tmp/repo".to_string(),
@@ -107,7 +110,7 @@ mod tests {
             success: true,
         }));
 
-        assert!(live.recv().is_ok());
-        assert!(live.recv().is_ok());
+        assert!(live.try_recv().is_ok());
+        assert!(live.try_recv().is_ok());
     }
 }

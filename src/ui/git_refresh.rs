@@ -33,7 +33,7 @@ pub(crate) fn use_git_refresh_coordinator(
     git_refresh_nonce: Signal<u64>,
 ) {
     use_future(move || async move {
-        let events = event_bus().subscribe();
+        let mut events = event_bus().subscribe();
         let mut group_state: HashMap<String, GroupRefreshState> = HashMap::new();
         let mut pending: HashMap<String, PendingRefresh> = HashMap::new();
         let mut context_cache: HashMap<String, RepoContext> = HashMap::new();

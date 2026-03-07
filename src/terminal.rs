@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
+use tokio::sync::broadcast;
 use vt100::Parser;
 
 const DEFAULT_ROWS: u16 = 42;
@@ -53,6 +54,18 @@ pub struct SendInputProfile {
     pub total: Duration,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TerminalEventKind {
+    Activity,
+    SnapshotChanged,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TerminalEvent {
+    pub session_id: SessionId,
+    pub kind: TerminalEventKind,
+}
+
 #[derive(Debug, Clone, Error)]
 pub enum TerminalError {
     #[error("session does not exist")]
@@ -77,6 +90,7 @@ pub enum TerminalError {
 pub struct TerminalManager {
     shell: String,
     memory_sink: Option<Arc<dyn TerminalMemorySink>>,
+    events: broadcast::Sender<TerminalEvent>,
     sessions: RwLock<HashMap<SessionId, Arc<TerminalRuntime>>>,
     pending_restore: Mutex<HashMap<SessionId, PersistedTerminalState>>,
 }
@@ -110,6 +124,7 @@ struct ReaderThreadContext {
     last_activity_unix_ms: Arc<AtomicI64>,
     cwd: Arc<RwLock<String>>,
     memory_sink: Option<Arc<dyn TerminalMemorySink>>,
+    event_tx: broadcast::Sender<TerminalEvent>,
     session_id: SessionId,
 }
 
@@ -138,12 +153,19 @@ impl TerminalManager {
 
     /// Creates a manager configured for the detected user shell and optional memory sink.
     pub fn new_with_memory_sink(memory_sink: Option<Arc<dyn TerminalMemorySink>>) -> Self {
+        let (events, _) = broadcast::channel(4_096);
         Self {
             shell: detect_shell(),
             memory_sink,
+            events,
             sessions: RwLock::new(HashMap::new()),
             pending_restore: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Subscribes to terminal runtime activity and snapshot updates.
+    pub fn subscribe_events(&self) -> broadcast::Receiver<TerminalEvent> {
+        self.events.subscribe()
     }
 
     /// Registers restored terminal state for deferred session startup.
@@ -231,6 +253,7 @@ impl TerminalManager {
             last_activity_unix_ms: Arc::clone(&last_activity_unix_ms),
             cwd: Arc::clone(&cwd),
             memory_sink: self.memory_sink.clone(),
+            event_tx: self.events.clone(),
             session_id,
         });
 
@@ -288,6 +311,10 @@ impl TerminalManager {
         runtime
             .last_activity_unix_ms
             .store(current_unix_ms(), Ordering::Relaxed);
+        self.publish_event(TerminalEvent {
+            session_id,
+            kind: TerminalEventKind::Activity,
+        });
 
         if let Some(memory_sink) = runtime.memory_sink.as_ref() {
             let mut pending = runtime.input_pending.lock();
@@ -320,6 +347,11 @@ impl TerminalManager {
 
         if let Some(runtime) = self.session_runtime(session_id) {
             *runtime.cwd.write() = cwd.to_string();
+            runtime.snapshot_revision.fetch_add(1, Ordering::Relaxed);
+            self.publish_event(TerminalEvent {
+                session_id,
+                kind: TerminalEventKind::SnapshotChanged,
+            });
         }
 
         Ok(())
@@ -401,6 +433,10 @@ impl TerminalManager {
                 let snapshot = terminal_snapshot_from_parser(&parser, &scrollback.lines);
                 *runtime.snapshot_cache.write() = Arc::new(snapshot);
                 runtime.snapshot_revision.fetch_add(1, Ordering::Relaxed);
+                self.publish_event(TerminalEvent {
+                    session_id,
+                    kind: TerminalEventKind::SnapshotChanged,
+                });
             }
             return Ok(inserted);
         }
@@ -447,6 +483,10 @@ impl TerminalManager {
         let snapshot = terminal_snapshot_from_parser(&parser, &scrollback.lines);
         *runtime.snapshot_cache.write() = Arc::new(snapshot);
         runtime.snapshot_revision.fetch_add(1, Ordering::Relaxed);
+        self.publish_event(TerminalEvent {
+            session_id,
+            kind: TerminalEventKind::SnapshotChanged,
+        });
 
         Ok(())
     }
@@ -493,6 +533,10 @@ impl TerminalManager {
     fn session_runtime(&self, session_id: SessionId) -> Option<Arc<TerminalRuntime>> {
         self.sessions.read().get(&session_id).cloned()
     }
+
+    fn publish_event(&self, event: TerminalEvent) {
+        let _ = self.events.send(event);
+    }
 }
 
 impl Default for TerminalManager {
@@ -527,6 +571,7 @@ fn spawn_reader_thread(context: ReaderThreadContext) {
         last_activity_unix_ms,
         cwd,
         memory_sink,
+        event_tx,
         session_id,
     } = context;
 
@@ -564,6 +609,14 @@ fn spawn_reader_thread(context: ReaderThreadContext) {
                     };
                     *snapshot_cache.write() = Arc::new(snapshot);
                     snapshot_revision.fetch_add(1, Ordering::Relaxed);
+                    let _ = event_tx.send(TerminalEvent {
+                        session_id,
+                        kind: TerminalEventKind::Activity,
+                    });
+                    let _ = event_tx.send(TerminalEvent {
+                        session_id,
+                        kind: TerminalEventKind::SnapshotChanged,
+                    });
                 }
                 Err(_) => break,
             }
