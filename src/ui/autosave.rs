@@ -4,6 +4,7 @@ use crate::state::SessionId;
 use parking_lot::Mutex;
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::thread::{self, JoinHandle};
+use tokio::sync::{Mutex as AsyncMutex, mpsc as tokio_mpsc};
 
 #[derive(Clone)]
 pub(crate) struct AutosaveRequest {
@@ -26,20 +27,20 @@ enum AutosaveCommand {
 
 pub(crate) struct AutosaveWorker {
     command_tx: Mutex<Option<SyncSender<AutosaveCommand>>>,
-    result_rx: Mutex<Receiver<AutosaveResult>>,
+    result_rx: AsyncMutex<tokio_mpsc::UnboundedReceiver<AutosaveResult>>,
     join_handle: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl AutosaveWorker {
     pub(crate) fn spawn(queue_capacity: usize, initial_fingerprint: Option<u64>) -> Self {
         let (command_tx, command_rx) = mpsc::sync_channel::<AutosaveCommand>(queue_capacity);
-        let (result_tx, result_rx) = mpsc::channel::<AutosaveResult>();
+        let (result_tx, result_rx) = tokio_mpsc::unbounded_channel::<AutosaveResult>();
         let join_handle =
             thread::spawn(move || autosave_worker_loop(command_rx, result_tx, initial_fingerprint));
 
         Self {
             command_tx: Mutex::new(Some(command_tx)),
-            result_rx: Mutex::new(result_rx),
+            result_rx: AsyncMutex::new(result_rx),
             join_handle: Mutex::new(Some(join_handle)),
         }
     }
@@ -59,14 +60,8 @@ impl AutosaveWorker {
         }
     }
 
-    pub(crate) fn drain_results(&self) -> Vec<AutosaveResult> {
-        let mut drained = Vec::new();
-        let result_rx = self.result_rx.lock();
-        while let Ok(result) = result_rx.try_recv() {
-            drained.push(result);
-        }
-
-        drained
+    pub(crate) async fn recv_result(&self) -> Option<AutosaveResult> {
+        self.result_rx.lock().await.recv().await
     }
 
     pub(crate) fn shutdown(&self) {
@@ -84,7 +79,7 @@ impl AutosaveWorker {
 
 fn autosave_worker_loop(
     command_rx: Receiver<AutosaveCommand>,
-    result_tx: mpsc::Sender<AutosaveResult>,
+    result_tx: tokio_mpsc::UnboundedSender<AutosaveResult>,
     mut last_saved_fingerprint: Option<u64>,
 ) {
     while let Ok(command) = command_rx.recv() {

@@ -51,7 +51,7 @@ const STYLE: &str = concat!(
 );
 const TERMINAL_REFRESH_POLL_MS: u64 = 33;
 const TERMINAL_RESIZE_POLL_MS: u64 = 180;
-const AUTOSAVE_POLL_MS: u64 = 1_200;
+const AUTOSAVE_DEBOUNCE_MS: u64 = 1_200;
 pub(crate) const EMILY_HISTORY_BACKFILL_PAGE_LINES: usize = 1_200;
 const TERMINAL_MIN_RESIZE_COLS: u16 = 80;
 const AUTOSAVE_QUEUE_CAPACITY: usize = 1;
@@ -138,6 +138,7 @@ pub fn App() -> Element {
     };
     let new_group_path = use_signal(String::new);
     let persistence_feedback = use_signal(String::new);
+    let autosave_dirty_notify = use_signal(|| Arc::new(tokio::sync::Notify::new()));
     let refresh_tick = use_signal(|| 0_u64);
     let focused_terminal = use_signal(|| None::<SessionId>);
     let round_anchor = use_signal(|| None::<(SessionId, u16)>);
@@ -162,6 +163,14 @@ pub fn App() -> Element {
         let emily_bridge = emily_bridge.read().clone();
         use_signal(move || emily_bridge.vectorization_status())
     };
+
+    {
+        let autosave_dirty_notify = autosave_dirty_notify.read().clone();
+        use_effect(move || {
+            let _ = app_state.read().revision();
+            autosave_dirty_notify.notify_one();
+        });
+    }
 
     {
         let emily_bridge = emily_bridge.read().clone();
@@ -416,107 +425,200 @@ pub fn App() -> Element {
     {
         let terminal_manager = terminal_manager.read().clone();
         let autosave_worker = autosave_worker.read().clone();
+        let autosave_dirty_notify = autosave_dirty_notify.read().clone();
         let mut persistence_feedback = persistence_feedback;
         use_future(move || {
             let terminal_manager = terminal_manager.clone();
             let autosave_worker = autosave_worker.clone();
+            let autosave_dirty_notify = autosave_dirty_notify.clone();
             async move {
+                let mut terminal_events = terminal_manager.subscribe_events();
                 let mut last_saved_signature = None::<AutosaveSignature>;
                 let mut inflight_signature = None::<AutosaveSignature>;
                 let mut deferred_request = None::<AutosaveRequest>;
+                let mut save_deadline = None::<tokio::time::Instant>;
 
                 loop {
-                    tokio::time::sleep(Duration::from_millis(AUTOSAVE_POLL_MS)).await;
+                    if let Some(deadline) = save_deadline {
+                        tokio::select! {
+                            result = autosave_worker.recv_result() => {
+                                if let Some(result) = result {
+                                    if result.error.is_none() {
+                                        last_saved_signature = Some(result.signature.clone());
+                                        persistence_feedback.set(String::new());
+                                    } else if let Some(error) = result.error {
+                                        persistence_feedback.set(error);
+                                    }
 
-                    for result in autosave_worker.drain_results() {
-                        if result.error.is_none() {
-                            last_saved_signature = Some(result.signature.clone());
-                            persistence_feedback.set(String::new());
-                        } else if let Some(error) = result.error {
-                            persistence_feedback.set(error);
-                        }
+                                    if inflight_signature.as_ref() == Some(&result.signature) {
+                                        inflight_signature = None;
+                                    }
 
-                        if inflight_signature.as_ref() == Some(&result.signature) {
-                            inflight_signature = None;
-                        }
-                    }
-
-                    if inflight_signature.is_none()
-                        && let Some(request) = deferred_request.take()
-                    {
-                        match autosave_worker.try_enqueue(request.clone()) {
-                            Ok(()) => {
-                                inflight_signature = Some(request.signature);
+                                    if inflight_signature.is_none()
+                                        && let Some(request) = deferred_request.take()
+                                    {
+                                        match autosave_worker.try_enqueue(request.clone()) {
+                                            Ok(()) => {
+                                                inflight_signature = Some(request.signature);
+                                            }
+                                            Err(error) => {
+                                                deferred_request = Some(request);
+                                                persistence_feedback.set(error);
+                                            }
+                                        }
+                                    }
+                                }
                             }
-                            Err(error) => {
-                                deferred_request = Some(request);
-                                persistence_feedback.set(error);
+                            terminal_event = terminal_events.recv() => {
+                                match terminal_event {
+                                    Ok(event)
+                                        if event.kind == crate::terminal::TerminalEventKind::SnapshotChanged =>
+                                    {
+                                        save_deadline = Some(
+                                            tokio::time::Instant::now()
+                                                + Duration::from_millis(AUTOSAVE_DEBOUNCE_MS),
+                                        );
+                                    }
+                                    Ok(_) => {}
+                                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                                        save_deadline = Some(
+                                            tokio::time::Instant::now()
+                                                + Duration::from_millis(AUTOSAVE_DEBOUNCE_MS),
+                                        );
+                                    }
+                                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                                }
                             }
-                        }
-                    }
-
-                    let state = app_state.read().clone();
-                    let mut terminal_revisions = state
-                        .sessions
-                        .iter()
-                        .map(|session| {
-                            (
-                                session.id,
-                                terminal_manager
-                                    .session_snapshot_revision(session.id)
-                                    .unwrap_or(0),
-                            )
-                        })
-                        .collect::<Vec<_>>();
-                    terminal_revisions.sort_unstable_by_key(|(session_id, _)| *session_id);
-                    let save_signature = (state.revision(), terminal_revisions);
-
-                    if last_saved_signature.as_ref() == Some(&save_signature) {
-                        continue;
-                    }
-                    if inflight_signature.as_ref() == Some(&save_signature) {
-                        continue;
-                    }
-                    if deferred_request.as_ref().map(|request| &request.signature)
-                        == Some(&save_signature)
-                    {
-                        continue;
-                    }
-
-                    let terminal_manager_for_snapshot = terminal_manager.clone();
-                    let workspace = match tokio::task::spawn_blocking(move || {
-                        persistence::build_workspace_snapshot(
-                            &state,
-                            &terminal_manager_for_snapshot,
-                        )
-                    })
-                    .await
-                    {
-                        Ok(workspace) => workspace,
-                        Err(error) => {
-                            persistence_feedback
-                                .set(format!("Autosave snapshot build failed: {error}"));
-                            continue;
-                        }
-                    };
-
-                    let request = AutosaveRequest {
-                        workspace,
-                        signature: save_signature.clone(),
-                    };
-
-                    if inflight_signature.is_none() {
-                        match autosave_worker.try_enqueue(request.clone()) {
-                            Ok(()) => {
-                                inflight_signature = Some(save_signature);
+                            _ = autosave_dirty_notify.notified() => {
+                                save_deadline = Some(
+                                    tokio::time::Instant::now()
+                                        + Duration::from_millis(AUTOSAVE_DEBOUNCE_MS),
+                                );
                             }
-                            Err(error) => {
-                                deferred_request = Some(request);
-                                persistence_feedback.set(error);
+                            _ = tokio::time::sleep_until(deadline) => {
+                                save_deadline = None;
+                                let state = app_state.read().clone();
+                                let mut terminal_revisions = state
+                                    .sessions
+                                    .iter()
+                                    .map(|session| {
+                                        (
+                                            session.id,
+                                            terminal_manager
+                                                .session_snapshot_revision(session.id)
+                                                .unwrap_or(0),
+                                        )
+                                    })
+                                    .collect::<Vec<_>>();
+                                terminal_revisions.sort_unstable_by_key(|(session_id, _)| *session_id);
+                                let save_signature = (state.revision(), terminal_revisions);
+
+                                if last_saved_signature.as_ref() == Some(&save_signature) {
+                                    continue;
+                                }
+                                if inflight_signature.as_ref() == Some(&save_signature) {
+                                    continue;
+                                }
+                                if deferred_request.as_ref().map(|request| &request.signature)
+                                    == Some(&save_signature)
+                                {
+                                    continue;
+                                }
+
+                                let terminal_manager_for_snapshot = terminal_manager.clone();
+                                let workspace = match tokio::task::spawn_blocking(move || {
+                                    persistence::build_workspace_snapshot(
+                                        &state,
+                                        &terminal_manager_for_snapshot,
+                                    )
+                                })
+                                .await
+                                {
+                                    Ok(workspace) => workspace,
+                                    Err(error) => {
+                                        persistence_feedback
+                                            .set(format!("Autosave snapshot build failed: {error}"));
+                                        continue;
+                                    }
+                                };
+
+                                let request = AutosaveRequest {
+                                    workspace,
+                                    signature: save_signature.clone(),
+                                };
+
+                                if inflight_signature.is_none() {
+                                    match autosave_worker.try_enqueue(request.clone()) {
+                                        Ok(()) => {
+                                            inflight_signature = Some(save_signature);
+                                        }
+                                        Err(error) => {
+                                            deferred_request = Some(request);
+                                            persistence_feedback.set(error);
+                                        }
+                                    }
+                                } else {
+                                    deferred_request = Some(request);
+                                }
                             }
                         }
                     } else {
-                        deferred_request = Some(request);
+                        tokio::select! {
+                            result = autosave_worker.recv_result() => {
+                                if let Some(result) = result {
+                                    if result.error.is_none() {
+                                        last_saved_signature = Some(result.signature.clone());
+                                        persistence_feedback.set(String::new());
+                                    } else if let Some(error) = result.error {
+                                        persistence_feedback.set(error);
+                                    }
+
+                                    if inflight_signature.as_ref() == Some(&result.signature) {
+                                        inflight_signature = None;
+                                    }
+
+                                    if inflight_signature.is_none()
+                                        && let Some(request) = deferred_request.take()
+                                    {
+                                        match autosave_worker.try_enqueue(request.clone()) {
+                                            Ok(()) => {
+                                                inflight_signature = Some(request.signature);
+                                            }
+                                            Err(error) => {
+                                                deferred_request = Some(request);
+                                                persistence_feedback.set(error);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            terminal_event = terminal_events.recv() => {
+                                match terminal_event {
+                                    Ok(event)
+                                        if event.kind == crate::terminal::TerminalEventKind::SnapshotChanged =>
+                                    {
+                                        save_deadline = Some(
+                                            tokio::time::Instant::now()
+                                                + Duration::from_millis(AUTOSAVE_DEBOUNCE_MS),
+                                        );
+                                    }
+                                    Ok(_) => {}
+                                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                                        save_deadline = Some(
+                                            tokio::time::Instant::now()
+                                                + Duration::from_millis(AUTOSAVE_DEBOUNCE_MS),
+                                        );
+                                    }
+                                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                                }
+                            }
+                            _ = autosave_dirty_notify.notified() => {
+                                save_deadline = Some(
+                                    tokio::time::Instant::now()
+                                        + Duration::from_millis(AUTOSAVE_DEBOUNCE_MS),
+                                );
+                            }
+                        }
                     }
                 }
             }
