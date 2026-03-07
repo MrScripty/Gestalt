@@ -9,7 +9,7 @@ insert-command models plus the pure transition rules that mutate them.
 | ----------- | ----------- |
 | `mod.rs` | Shared state types, the aggregate `AppState`, and persistence-facing compatibility surface |
 | `workspace.rs` | Path groups, sessions, selection, layout, and workspace repair rules |
-| `knowledge.rs` | Notes, snippets, embedding metadata, and knowledge repair rules |
+| `knowledge.rs` | Notes, snippets, embedding metadata, and knowledge repair rules without UI navigation state |
 | `commands.rs` | Durable insert-command state facade over `CommandLibrary` |
 | `tests.rs` | Unit tests for state transitions, restore compatibility, and domain invariants |
 
@@ -28,7 +28,7 @@ infrastructure leak into business state.
 Split the former monolithic state module into workspace, knowledge, and command
 domains while keeping `AppState` as the aggregate persistence and compatibility
 facade. Cross-domain workflows remain explicit in `AppState`; domain-local rules
-live in the owning module.
+live in the owning module, and purely transient note selection stays in UI.
 
 ## Alternatives Rejected
 - Keep one flat `state.rs`: rejected because the module had grown beyond review
@@ -38,7 +38,7 @@ live in the owning module.
 
 ## Invariants
 - Workspace state remains serializable and repairable from persisted JSON.
-- Knowledge objects never own runtime resources or UI handles.
+- Knowledge objects never own runtime resources, UI handles, or editor selection state.
 - Command CRUD remains durable and restore-safe.
 - `AppState` revision tracks durable mutations only.
 

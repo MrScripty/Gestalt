@@ -8,8 +8,6 @@ pub struct KnowledgeState {
     pub(crate) notes: Vec<NoteDocument>,
     #[serde(default)]
     pub(crate) snippets: Vec<Snippet>,
-    #[serde(default)]
-    selected_note_id: Option<NoteId>,
     #[serde(default = "default_next_note_id")]
     next_note_id: NoteId,
     #[serde(default = "default_next_snippet_id")]
@@ -21,7 +19,6 @@ impl Default for KnowledgeState {
         Self {
             notes: Vec::new(),
             snippets: Vec::new(),
-            selected_note_id: None,
             next_note_id: 1,
             next_snippet_id: 1,
         }
@@ -43,12 +40,6 @@ impl KnowledgeState {
             }
         }
         self.notes.retain(|note| !note.title.trim().is_empty());
-        if self
-            .selected_note_id
-            .is_some_and(|selected| !self.notes.iter().any(|note| note.id == selected))
-        {
-            self.selected_note_id = None;
-        }
 
         for snippet in &mut self.snippets {
             if snippet.log_ref.end_offset < snippet.log_ref.start_offset {
@@ -94,36 +85,6 @@ impl KnowledgeState {
         self.notes.iter().find(|note| note.id == note_id)
     }
 
-    pub fn selected_note_id(&self) -> Option<NoteId> {
-        self.selected_note_id
-    }
-
-    pub fn selected_note_id_for_group(&self, group_id: GroupId) -> Option<NoteId> {
-        if let Some(selected) = self.selected_note_id
-            && self
-                .notes
-                .iter()
-                .any(|note| note.id == selected && note.group_id == group_id)
-        {
-            return Some(selected);
-        }
-        self.notes
-            .iter()
-            .find(|note| note.group_id == group_id)
-            .map(|note| note.id)
-    }
-
-    pub fn select_note(&mut self, note_id: NoteId) -> bool {
-        if self.selected_note_id == Some(note_id) {
-            return false;
-        }
-        if !self.notes.iter().any(|note| note.id == note_id) {
-            return false;
-        }
-        self.selected_note_id = Some(note_id);
-        true
-    }
-
     pub fn snippets(&self) -> &[Snippet] {
         &self.snippets
     }
@@ -161,7 +122,6 @@ impl KnowledgeState {
             markdown: String::new(),
             updated_at_unix_ms,
         });
-        self.selected_note_id = Some(note_id);
         note_id
     }
 
@@ -318,23 +278,6 @@ impl AppState {
     /// Returns a note by identifier.
     pub fn note_by_id(&self, note_id: NoteId) -> Option<&NoteDocument> {
         self.knowledge.note_by_id(note_id)
-    }
-
-    /// Returns the selected note identifier.
-    pub fn selected_note_id(&self) -> Option<NoteId> {
-        self.knowledge.selected_note_id()
-    }
-
-    /// Returns selected note for one group, falling back to first note in group.
-    pub fn selected_note_id_for_group(&self, group_id: GroupId) -> Option<NoteId> {
-        self.knowledge.selected_note_id_for_group(group_id)
-    }
-
-    /// Selects the active note.
-    pub fn select_note(&mut self, note_id: NoteId) {
-        if self.knowledge.select_note(note_id) {
-            self.mark_dirty();
-        }
     }
 
     /// Returns all snippets in display order (newest and promoted first).

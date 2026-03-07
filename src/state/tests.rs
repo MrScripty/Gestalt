@@ -124,6 +124,22 @@ fn create_note_for_group_scopes_notes() {
 }
 
 #[test]
+fn legacy_selected_note_id_field_is_ignored_on_restore() {
+    let mut state = AppState::default();
+    let group_id = state.active_group_id().expect("active group");
+    let note_id = state.create_note_for_group(group_id, "Legacy".to_string(), 100);
+
+    let mut payload = serde_json::to_value(state).expect("state should serialize");
+    payload["selected_note_id"] = Value::from(note_id);
+
+    let restored: AppState = serde_json::from_value(payload).expect("legacy state should load");
+    assert_eq!(
+        restored.note_by_id(note_id).map(|note| note.title.as_str()),
+        Some("Legacy")
+    );
+}
+
+#[test]
 fn restore_assigns_legacy_group_zero_notes_to_active_group() {
     let mut state = AppState::default();
     let active_group = state.active_group_id().expect("active group");

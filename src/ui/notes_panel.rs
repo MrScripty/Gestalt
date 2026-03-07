@@ -1,6 +1,7 @@
-use crate::state::{AppState, Snippet, SnippetId};
+use crate::state::{AppState, GroupId, NoteDocument, NoteId, Snippet, SnippetId};
 use dioxus::prelude::*;
 use pulldown_cmark::{Options, Parser, html};
+use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const SNIPPET_DELETE_HOLD_MS: u64 = 1_000;
@@ -24,6 +25,7 @@ pub(crate) fn NotesPanel(app_state: Signal<AppState>) -> Element {
     let mut focused_snippet_id = use_signal(|| None::<SnippetId>);
     let mut deleting_snippet_hold = use_signal(|| None::<SnippetId>);
     let mut deleting_snippet_hold_nonce = use_signal(|| 0_u64);
+    let mut selected_note_by_group = use_signal(HashMap::<GroupId, NoteId>::new);
 
     let active_group_id = app_state.read().active_group_id();
     let notes = active_group_id
@@ -37,8 +39,9 @@ pub(crate) fn NotesPanel(app_state: Signal<AppState>) -> Element {
         })
         .unwrap_or_default();
     let snippets = app_state.read().snippets().to_vec();
-    let selected_note_id =
-        active_group_id.and_then(|group_id| app_state.read().selected_note_id_for_group(group_id));
+    let selected_note_id = active_group_id.and_then(|group_id| {
+        selected_note_id_for_group(group_id, &notes, &selected_note_by_group.read())
+    });
     let selected_note =
         selected_note_id.and_then(|note_id| app_state.read().note_by_id(note_id).cloned());
     let selected_markdown = selected_note
@@ -71,8 +74,10 @@ pub(crate) fn NotesPanel(app_state: Signal<AppState>) -> Element {
                     value: "{selected_note_id.map(|id| id.to_string()).unwrap_or_default()}",
                     disabled: notes.is_empty(),
                     onchange: move |event| {
-                        if let Ok(note_id) = event.value().parse::<u64>() {
-                            app_state.write().select_note(note_id);
+                        if let (Some(group_id), Ok(note_id)) =
+                            (active_group_id, event.value().parse::<u64>())
+                        {
+                            selected_note_by_group.write().insert(group_id, note_id);
                         }
                     },
                     if notes.is_empty() {
@@ -101,9 +106,10 @@ pub(crate) fn NotesPanel(app_state: Signal<AppState>) -> Element {
                                 .len()
                                 .saturating_add(1);
                             let title = format!("Note {next_index}");
-                            app_state
+                            let note_id = app_state
                                 .write()
                                 .create_note_for_group(group_id, title, unix_now_ms());
+                            selected_note_by_group.write().insert(group_id, note_id);
                             view_mode.set(NotesViewMode::Edit);
                         }
                     },
@@ -421,6 +427,19 @@ fn split_note_segments(markdown: &str) -> Vec<NoteSegment> {
         segments.push(NoteSegment::Markdown(remainder.to_string()));
     }
     segments
+}
+
+fn selected_note_id_for_group(
+    group_id: GroupId,
+    notes: &[NoteDocument],
+    selected_note_by_group: &HashMap<GroupId, NoteId>,
+) -> Option<NoteId> {
+    let stored = selected_note_by_group.get(&group_id).copied();
+    if stored.is_some_and(|note_id| notes.iter().any(|note| note.id == note_id)) {
+        return stored;
+    }
+
+    notes.first().map(|note| note.id)
 }
 
 fn markdown_to_html(markdown: &str) -> String {

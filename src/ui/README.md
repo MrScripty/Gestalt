@@ -41,6 +41,7 @@ path while leaving startup/session coordination ownership outside presentation m
 
 ## Invariants
 - UI state is transient and presentation-oriented.
+- Per-panel note selection is transient UI state; it must not be persisted back into `state`.
 - Persistent/business state changes route through `state`, `orchestrator`, or `persistence` paths.
 - UI event handlers and `use_future` lifecycle paths must not call blocking Emily or persistence APIs directly; use async/background facades and apply results back through signals.
 - Emily vectorization settings UI is a bridge surface only; runtime authority stays in Emily APIs.
