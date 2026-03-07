@@ -9,6 +9,8 @@
 | `mod.rs` | Module exports and orchestration surface |
 | `runtime.rs` | Group snapshot derivation and broadcast terminal actions |
 | `workspace.rs` | Active-workspace projection and session-status reconciliation |
+| `startup.rs` | Startup target ordering and background session/history coordination |
+| `session.rs` | Group/session lifecycle facades used by UI actions |
 | `git.rs` | Orchestrator-facing Git operation wrappers |
 | `events.rs` | In-process event bus and event contracts |
 | `repo_watcher.rs` | Active-repo change watcher lifecycle |
@@ -20,10 +22,12 @@ UI needs grouped terminal actions and refresh signaling without direct dependenc
 - Must remain transport-agnostic.
 - Must support partial failures for multi-session writes.
 - Must avoid UI dependencies.
+- Background ownership must remain explicit when startup/session coordination moves out of UI.
 
 ## Decision
 Expose orchestrator APIs as a thin application layer over `state`, `terminal`, and `git` services,
-including typed workspace projections and runtime-derived status reconciliation for UI consumers.
+including typed workspace projections, startup coordination, and runtime-derived status
+reconciliation for UI consumers.
 
 ## Alternatives Rejected
 - Calling terminal and git modules directly from every UI component: rejected due to duplication.
@@ -34,6 +38,7 @@ including typed workspace projections and runtime-derived status reconciliation 
 - Broadcast operations return per-session result status.
 - Event bus payloads remain typed.
 - Workspace projections may depend on terminal snapshots, but they remain presentation-agnostic.
+- Startup/session helpers may own coordination state, but UI remains responsible for rendering and transient signals.
 
 ## Revisit Triggers
 - External API/IPC layer is introduced.

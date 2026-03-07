@@ -1,20 +1,22 @@
+use crate::emily_bridge::EmilyBridge;
 use crate::state::{AppState, GroupId, SessionId};
-use std::collections::HashSet;
+use crate::terminal::{PersistedTerminalState, TerminalManager};
+use std::collections::{HashMap, HashSet};
 
-pub(crate) const ACTIVE_GROUP_STARTUP_HISTORY_LINES: usize = 400;
-pub(crate) const DEFERRED_SESSION_STARTUP_HISTORY_LINES: usize = 80;
-pub(crate) const DEFERRED_SESSION_START_BATCH_SIZE: usize = 1;
-pub(crate) const STARTUP_BACKGROUND_TICK_MS: u64 = 120;
+pub const ACTIVE_GROUP_STARTUP_HISTORY_LINES: usize = 400;
+pub const DEFERRED_SESSION_STARTUP_HISTORY_LINES: usize = 80;
+pub const DEFERRED_SESSION_START_BATCH_SIZE: usize = 1;
+pub const STARTUP_BACKGROUND_TICK_MS: u64 = 120;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SessionStartupPriority {
+pub enum SessionStartupPriority {
     ActiveGroupVisible,
     ActiveGroupDeferred,
     BackgroundDeferred,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct SessionStartupTarget {
+pub struct SessionStartupTarget {
     pub session_id: SessionId,
     pub group_id: GroupId,
     pub path: String,
@@ -22,14 +24,171 @@ pub(crate) struct SessionStartupTarget {
     pub priority: SessionStartupPriority,
 }
 
-pub(crate) fn visible_active_group_session_ids(state: &AppState) -> Vec<SessionId> {
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct HistoryLoadState {
+    pub before_sequence: Option<u64>,
+    pub is_loading: bool,
+    pub exhausted: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HistoryLoadUpdate {
+    pub session_id: SessionId,
+    pub state: HistoryLoadState,
+}
+
+#[derive(Debug, Default)]
+pub struct StartupTickResult {
+    pub history_updates: Vec<HistoryLoadUpdate>,
+    pub failed_session_ids: Vec<SessionId>,
+}
+
+#[derive(Default)]
+pub struct StartupCoordinator {
+    started_session_ids: HashSet<SessionId>,
+    pending_history_loads: HashMap<SessionId, usize>,
+}
+
+impl StartupCoordinator {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn has_deferred_targets(&self, state: &AppState) -> bool {
+        has_deferred_startup_targets(state, &self.started_session_ids)
+    }
+
+    pub fn prune_for_sessions(&mut self, state: &AppState) {
+        let active_session_ids = state
+            .sessions
+            .iter()
+            .map(|session| session.id)
+            .collect::<HashSet<_>>();
+        self.started_session_ids
+            .retain(|session_id| active_session_ids.contains(session_id));
+        self.pending_history_loads
+            .retain(|session_id, _| active_session_ids.contains(session_id));
+    }
+
+    pub async fn load_pending_history(
+        &mut self,
+        state: &AppState,
+        emily_bridge: &EmilyBridge,
+        terminal_manager: &TerminalManager,
+    ) -> Vec<HistoryLoadUpdate> {
+        self.prune_for_sessions(state);
+        self.load_pending_history_updates(emily_bridge, terminal_manager)
+            .await
+    }
+
+    pub fn start_due_sessions(
+        &mut self,
+        state: &AppState,
+        terminal_manager: &TerminalManager,
+        restored: &mut HashMap<SessionId, PersistedTerminalState>,
+    ) -> StartupTickResult {
+        self.prune_for_sessions(state);
+        let mut result = StartupTickResult::default();
+        let mut deferred_starts = 0_usize;
+
+        for target in startup_targets(state) {
+            if self.started_session_ids.contains(&target.session_id) {
+                continue;
+            }
+            let start_now = matches!(target.priority, SessionStartupPriority::ActiveGroupVisible)
+                || deferred_starts < DEFERRED_SESSION_START_BATCH_SIZE;
+            if !start_now {
+                continue;
+            }
+
+            match self.start_session_target(terminal_manager, restored, &target) {
+                Ok(update) => {
+                    result.history_updates.push(update);
+                    self.started_session_ids.insert(target.session_id);
+                    if !matches!(target.priority, SessionStartupPriority::ActiveGroupVisible) {
+                        deferred_starts += 1;
+                    }
+                }
+                Err(()) => result.failed_session_ids.push(target.session_id),
+            }
+        }
+
+        result
+    }
+
+    fn start_session_target(
+        &mut self,
+        terminal_manager: &TerminalManager,
+        restored: &mut HashMap<SessionId, PersistedTerminalState>,
+        target: &SessionStartupTarget,
+    ) -> Result<HistoryLoadUpdate, ()> {
+        if let Some(restored_terminal) = restored.remove(&target.session_id) {
+            terminal_manager.seed_restored_terminal(restored_terminal);
+        }
+
+        self.pending_history_loads
+            .insert(target.session_id, target.history_line_limit);
+        terminal_manager
+            .ensure_session(target.session_id, &target.path)
+            .map_err(|_| ())?;
+
+        Ok(HistoryLoadUpdate {
+            session_id: target.session_id,
+            state: HistoryLoadState {
+                before_sequence: None,
+                is_loading: true,
+                exhausted: false,
+            },
+        })
+    }
+
+    async fn load_pending_history_updates(
+        &mut self,
+        emily_bridge: &EmilyBridge,
+        terminal_manager: &TerminalManager,
+    ) -> Vec<HistoryLoadUpdate> {
+        let pending = self
+            .pending_history_loads
+            .iter()
+            .map(|(session_id, limit)| (*session_id, *limit))
+            .collect::<Vec<_>>();
+        let mut updates = Vec::new();
+
+        for (session_id, limit) in pending {
+            let result = emily_bridge
+                .page_history_before_async(session_id, None, limit)
+                .await;
+            let Ok(mut chunk) = result else {
+                continue;
+            };
+
+            chunk.lines.reverse();
+            let inserted = terminal_manager
+                .prepend_history_lines(session_id, &chunk.lines)
+                .unwrap_or(0);
+            updates.push(HistoryLoadUpdate {
+                session_id,
+                state: HistoryLoadState {
+                    before_sequence: chunk.next_before_sequence,
+                    is_loading: false,
+                    exhausted: chunk.next_before_sequence.is_none() || inserted == 0,
+                },
+            });
+            self.pending_history_loads.remove(&session_id);
+        }
+
+        updates
+    }
+}
+
+pub fn visible_active_group_session_ids(state: &AppState) -> Vec<SessionId> {
     state
         .active_group_id()
         .map(|group_id| state.workspace_session_ids_for_group(group_id))
         .unwrap_or_default()
 }
 
-pub(crate) fn startup_targets(state: &AppState) -> Vec<SessionStartupTarget> {
+pub fn startup_targets(state: &AppState) -> Vec<SessionStartupTarget> {
     let visible_active_sessions = visible_active_group_session_ids(state)
         .into_iter()
         .collect::<HashSet<_>>();
@@ -82,7 +241,7 @@ pub(crate) fn startup_targets(state: &AppState) -> Vec<SessionStartupTarget> {
     immediate
 }
 
-pub(crate) fn has_deferred_startup_targets(
+pub fn has_deferred_startup_targets(
     state: &AppState,
     started_session_ids: &HashSet<SessionId>,
 ) -> bool {
@@ -96,7 +255,7 @@ pub(crate) fn has_deferred_startup_targets(
 mod tests {
     use super::{
         ACTIVE_GROUP_STARTUP_HISTORY_LINES, DEFERRED_SESSION_STARTUP_HISTORY_LINES,
-        SessionStartupPriority, has_deferred_startup_targets, startup_targets,
+        SessionStartupPriority, StartupCoordinator, has_deferred_startup_targets, startup_targets,
         visible_active_group_session_ids,
     };
     use crate::state::AppState;
@@ -194,5 +353,15 @@ mod tests {
         started.extend(extra_ids);
         started.extend(state.sessions.iter().map(|session| session.id));
         assert!(!has_deferred_startup_targets(&state, &started));
+    }
+
+    #[test]
+    fn coordinator_reports_existing_deferred_targets() {
+        let mut state = AppState::default();
+        let (_group_id, _extra_ids) =
+            state.create_group_with_defaults("/tmp/secondary".to_string());
+        let coordinator = StartupCoordinator::new();
+
+        assert!(coordinator.has_deferred_targets(&state));
     }
 }

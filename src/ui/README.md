@@ -20,7 +20,6 @@
 | `insert_command_mode.rs` | Insert mode state and controls |
 | `local_agent_panel.rs` | Local agent control panel |
 | `sidebar_panel_host.rs` | Sidebar container selection |
-| `startup.rs` | Startup-priority policy for active path group session restore |
 
 ## Problem
 Provide responsive desktop UI workflows while delegating domain behavior to lower layers.
@@ -33,7 +32,9 @@ Provide responsive desktop UI workflows while delegating domain behavior to lowe
 - Vectorization business behavior remains Emily-owned; UI dispatches actions and renders status.
 
 ## Decision
-Keep UI responsibilities component-focused, route runtime/domain mutations through shared services and orchestrator APIs, and treat the active path group's visible sessions as the startup critical path.
+Keep UI responsibilities component-focused, route runtime/domain mutations through shared services
+and orchestrator APIs, and treat the active path group's visible sessions as the startup critical
+path while leaving startup/session coordination ownership outside presentation modules.
 
 ## Alternatives Rejected
 - Single monolithic UI file: rejected due to scale.
@@ -46,6 +47,7 @@ Keep UI responsibilities component-focused, route runtime/domain mutations throu
 - Emily vectorization settings UI is a bridge surface only; runtime authority stays in Emily APIs.
 - Active path group visible sessions start before deferred sessions in other groups.
 - Components remain keyboard reachable.
+- Startup/session lifecycle coordination is consumed from orchestrator facades rather than duplicated across UI surfaces.
 
 ## Revisit Triggers
 - Component files exceed maintainability limits.

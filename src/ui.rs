@@ -11,7 +11,6 @@ mod local_agent_panel;
 mod notes_panel;
 mod run_sidebar_panel_host;
 mod sidebar_panel_host;
-mod startup;
 mod tab_rail;
 mod terminal_input;
 mod terminal_view;
@@ -20,6 +19,7 @@ mod workspace;
 use crate::emily_bridge::EmilyBridge;
 use crate::git::RepoContext;
 use crate::local_restore;
+use crate::orchestrator::{self, STARTUP_BACKGROUND_TICK_MS, StartupCoordinator};
 use crate::pantograph_host::build_deferred_embedding_provider_from_env;
 use crate::persistence;
 use crate::resource_monitor::{RESOURCE_POLL_MS, ResourceSnapshot, sample_resource_snapshot};
@@ -29,10 +29,6 @@ use crate::ui::autosave::{AutosaveRequest, AutosaveSignature, AutosaveWorker};
 use crate::ui::git_refresh::use_git_refresh_coordinator;
 use crate::ui::insert_command_mode::InsertModeState;
 use crate::ui::sidebar_panel_host::SidebarPanelKind;
-use crate::ui::startup::{
-    DEFERRED_SESSION_START_BATCH_SIZE, STARTUP_BACKGROUND_TICK_MS, SessionStartupPriority,
-    SessionStartupTarget, has_deferred_startup_targets, startup_targets,
-};
 use crate::ui::tab_rail::TabRail;
 use crate::ui::terminal_input::measure_terminal_viewport;
 use crate::ui::workspace::WorkspaceMain;
@@ -357,8 +353,7 @@ pub fn App() -> Element {
             let emily_bridge = emily_bridge.clone();
             let startup_notify = startup_notify.clone();
             async move {
-                let mut started_session_ids = HashSet::<SessionId>::new();
-                let mut pending_history_loads = HashMap::<SessionId, usize>::new();
+                let mut startup_coordinator = StartupCoordinator::new();
                 let mut first_pass = true;
 
                 loop {
@@ -366,7 +361,7 @@ pub fn App() -> Element {
                         first_pass = false;
                     } else {
                         let snapshot = app_state_signal.read().clone();
-                        if has_deferred_startup_targets(&snapshot, &started_session_ids) {
+                        if startup_coordinator.has_deferred_targets(&snapshot) {
                             tokio::select! {
                                 _ = startup_notify.notified() => {}
                                 _ = tokio::time::sleep(Duration::from_millis(STARTUP_BACKGROUND_TICK_MS)) => {}
@@ -382,65 +377,30 @@ pub fn App() -> Element {
                         .iter()
                         .map(|session| session.id)
                         .collect::<HashSet<_>>();
-                    started_session_ids
-                        .retain(|session_id| active_session_ids.contains(session_id));
-                    pending_history_loads
-                        .retain(|session_id, _| active_session_ids.contains(session_id));
                     terminal_history_state
                         .write()
                         .retain(|session_id, _| active_session_ids.contains(session_id));
 
-                    load_pending_startup_history(
-                        &emily_bridge,
-                        &terminal_manager,
-                        &mut pending_history_loads,
-                        &mut terminal_history_state,
-                    )
-                    .await;
+                    apply_history_load_updates(
+                        terminal_history_state,
+                        startup_coordinator
+                            .load_pending_history(&snapshot, &emily_bridge, &terminal_manager)
+                            .await,
+                    );
 
-                    let mut failed_starts = Vec::new();
-                    let mut deferred_starts = 0_usize;
-                    {
+                    let result = {
                         let mut restored = restored_terminals.write();
-                        for target in startup_targets(&snapshot) {
-                            if started_session_ids.contains(&target.session_id) {
-                                continue;
-                            }
-                            let start_now = matches!(
-                                target.priority,
-                                SessionStartupPriority::ActiveGroupVisible
-                            ) || deferred_starts
-                                < DEFERRED_SESSION_START_BATCH_SIZE;
-                            if !start_now {
-                                continue;
-                            }
+                        startup_coordinator.start_due_sessions(
+                            &snapshot,
+                            &terminal_manager,
+                            &mut restored,
+                        )
+                    };
+                    apply_history_load_updates(terminal_history_state, result.history_updates);
 
-                            match start_session_target(
-                                &terminal_manager,
-                                &mut restored,
-                                &mut terminal_history_state,
-                                &mut pending_history_loads,
-                                &target,
-                            ) {
-                                Ok(()) => {
-                                    started_session_ids.insert(target.session_id);
-                                    if !matches!(
-                                        target.priority,
-                                        SessionStartupPriority::ActiveGroupVisible
-                                    ) {
-                                        deferred_starts += 1;
-                                    }
-                                }
-                                Err(()) => {
-                                    failed_starts.push(target.session_id);
-                                }
-                            }
-                        }
-                    }
-
-                    if !failed_starts.is_empty() {
+                    if !result.failed_session_ids.is_empty() {
                         let mut state = app_state_signal.write();
-                        for session_id in failed_starts {
+                        for session_id in result.failed_session_ids {
                             state.set_session_status(session_id, SessionStatus::Error);
                         }
                     }
@@ -992,64 +952,24 @@ pub fn App() -> Element {
     }
 }
 
-fn start_session_target(
-    terminal_manager: &TerminalManager,
-    restored: &mut HashMap<SessionId, PersistedTerminalState>,
-    terminal_history_state: &mut Signal<HashMap<SessionId, TerminalHistoryState>>,
-    pending_history_loads: &mut HashMap<SessionId, usize>,
-    target: &SessionStartupTarget,
-) -> Result<(), ()> {
-    if let Some(restored_terminal) = restored.remove(&target.session_id) {
-        terminal_manager.seed_restored_terminal(restored_terminal);
+fn apply_history_load_updates(
+    mut terminal_history_state: Signal<HashMap<SessionId, TerminalHistoryState>>,
+    updates: Vec<orchestrator::HistoryLoadUpdate>,
+) {
+    if updates.is_empty() {
+        return;
     }
 
-    terminal_history_state.write().insert(
-        target.session_id,
-        TerminalHistoryState {
-            before_sequence: None,
-            is_loading: true,
-            exhausted: false,
-        },
-    );
-    pending_history_loads.insert(target.session_id, target.history_line_limit);
-
-    terminal_manager
-        .ensure_session(target.session_id, &target.path)
-        .map_err(|_| ())
-}
-
-async fn load_pending_startup_history(
-    emily_bridge: &EmilyBridge,
-    terminal_manager: &TerminalManager,
-    pending_history_loads: &mut HashMap<SessionId, usize>,
-    terminal_history_state: &mut Signal<HashMap<SessionId, TerminalHistoryState>>,
-) {
-    let pending = pending_history_loads
-        .iter()
-        .map(|(session_id, limit)| (*session_id, *limit))
-        .collect::<Vec<_>>();
-
-    for (session_id, limit) in pending {
-        let result = emily_bridge
-            .page_history_before_async(session_id, None, limit)
-            .await;
-        let Ok(mut chunk) = result else {
-            continue;
-        };
-
-        chunk.lines.reverse();
-        let inserted = terminal_manager
-            .prepend_history_lines(session_id, &chunk.lines)
-            .unwrap_or(0);
-        terminal_history_state.write().insert(
-            session_id,
+    let mut history_state = terminal_history_state.write();
+    for update in updates {
+        history_state.insert(
+            update.session_id,
             TerminalHistoryState {
-                before_sequence: chunk.next_before_sequence,
-                is_loading: false,
-                exhausted: chunk.next_before_sequence.is_none() || inserted == 0,
+                before_sequence: update.state.before_sequence,
+                is_loading: update.state.is_loading,
+                exhausted: update.state.exhausted,
             },
         );
-        pending_history_loads.remove(&session_id);
     }
 }
 

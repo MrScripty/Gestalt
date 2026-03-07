@@ -1,3 +1,4 @@
+use crate::orchestrator;
 use crate::path_validation;
 use crate::resource_monitor::ResourceSnapshot;
 use crate::state::{AppState, SessionId, SessionStatus, VisibleAgentSlot};
@@ -80,21 +81,9 @@ pub(crate) fn TabRail(
                                             r#type: "button",
                                             aria_label: "{add_tab_aria_label}",
                                             onclick: move |_| {
-                                                let (session_id, path) = {
-                                                    let mut state = app_state.write();
-                                                    let id = state.add_session(group_id);
-                                                    state.select_session(id);
-                                                    let path = state.group_path(group_id).unwrap_or(".").to_string();
-                                                    (id, path)
-                                                };
-
-                                                let start_error = terminal_manager_for_add
-                                                    .ensure_session(session_id, &path)
-                                                    .err();
-
-                                                if start_error.is_some() {
-                                                    app_state.write().set_session_status(session_id, SessionStatus::Error);
-                                                }
+                                                let runtime = terminal_manager_for_add.clone();
+                                                let mut state = app_state.write();
+                                                orchestrator::add_session_to_group(&mut state, &runtime, group_id);
                                             },
                                             "+"
                                         }
@@ -103,7 +92,13 @@ pub(crate) fn TabRail(
                                             r#type: "button",
                                             aria_label: "{remove_group_aria_label}",
                                             onclick: move |_| {
-                                                let removed_session_ids = app_state.write().remove_group(group_id);
+                                                let runtime = terminal_manager_for_remove.clone();
+                                                let mut state = app_state.write();
+                                                let removed_session_ids = orchestrator::remove_group(
+                                                    &mut state,
+                                                    &runtime,
+                                                    group_id,
+                                                );
                                                 if removed_session_ids.is_empty() {
                                                     return;
                                                 }
@@ -111,10 +106,6 @@ pub(crate) fn TabRail(
                                                 let removed_renaming_session = renaming_tab
                                                     .read()
                                                     .is_some_and(|session_id| removed_session_ids.contains(&session_id));
-                                                for session_id in &removed_session_ids {
-                                                    let _ = terminal_manager_for_remove.terminate_session(*session_id);
-                                                }
-
                                                 if removed_renaming_session {
                                                     renaming_tab.set(None);
                                                     rename_draft.set(String::new());
@@ -280,12 +271,17 @@ pub(crate) fn TabRail(
                                                             },
                                                             onclick: move |event| {
                                                                 event.stop_propagation();
-                                                                let removed = app_state.write().remove_session(session_id);
+                                                                let runtime = terminal_manager_for_close.clone();
+                                                                let mut state = app_state.write();
+                                                                let removed = orchestrator::remove_session(
+                                                                    &mut state,
+                                                                    &runtime,
+                                                                    session_id,
+                                                                );
                                                                 if !removed {
                                                                     return;
                                                                 }
 
-                                                                let _ = terminal_manager_for_close.terminate_session(session_id);
                                                                 if *dragging_tab.read() == Some(session_id) {
                                                                     dragging_tab.set(None);
                                                                 }
@@ -360,35 +356,12 @@ pub(crate) fn TabRail(
                             }
                         };
 
-                        let default_sessions = {
-                            let mut state = app_state.write();
-                            let (_group_id, ids) = state.create_group_with_defaults(path.clone());
-                            if let Some(first) = ids.first().copied() {
-                                state.select_session(first);
-                            }
-                            ids
-                        };
-
                         new_group_path.set(String::new());
                         new_group_feedback.set(String::new());
 
                         let runtime = terminal_manager.read().clone();
-                        let failed = default_sessions
-                            .iter()
-                            .filter_map(|session_id| {
-                                runtime
-                                    .ensure_session(*session_id, &path)
-                                    .err()
-                                    .map(|_| *session_id)
-                            })
-                            .collect::<Vec<_>>();
-
-                        if !failed.is_empty() {
-                            let mut state = app_state.write();
-                            for session_id in failed {
-                                state.set_session_status(session_id, SessionStatus::Error);
-                            }
-                        }
+                        let mut state = app_state.write();
+                        let _ = orchestrator::ensure_group_for_path(&mut state, &runtime, path);
                     },
                     "Create Path Group"
                 }
