@@ -32,7 +32,6 @@ const STACK_SPLIT_STEP_RATIO: f64 = 0.03;
 const STACK_SPLIT_MIN_RATIO: f64 = 0.28;
 const STACK_SPLIT_MAX_RATIO: f64 = 0.72;
 const STACK_SPLIT_DRAG_SENSITIVITY_PX: f64 = 520.0;
-const STATUS_RECONCILE_POLL_MS: u64 = 150;
 const STATUS_BUSY_ACTIVITY_WINDOW_MS: i64 = 900;
 
 fn run_sidebar_style_for_panel(_panel: SidebarPanelKind, ratio: f64) -> String {
@@ -67,37 +66,65 @@ pub(crate) fn WorkspaceMain(
         use_future(move || {
             let terminal_manager = terminal_manager.clone();
             async move {
+                let mut events = terminal_manager.subscribe_events();
+                let mut idle_deadlines = HashMap::<SessionId, tokio::time::Instant>::new();
+                reconcile_session_statuses(app_state, &terminal_manager, &mut idle_deadlines);
+
                 loop {
-                    tokio::time::sleep(Duration::from_millis(STATUS_RECONCILE_POLL_MS)).await;
-
-                    let now_ms = unix_now_ms();
-                    let pending_updates = {
-                        let state = app_state.read();
-                        state
-                            .sessions
-                            .iter()
-                            .filter_map(|session| {
-                                let next = derive_session_status_from_activity(
-                                    session.status,
-                                    terminal_manager.session_last_activity_unix_ms(session.id),
-                                    now_ms,
-                                );
-                                if next == session.status {
-                                    None
-                                } else {
-                                    Some((session.id, next))
+                    if let Some(next_deadline) = idle_deadlines.values().min().copied() {
+                        tokio::select! {
+                            event = events.recv() => {
+                                match event {
+                                    Ok(event) => {
+                                        if event.kind == crate::terminal::TerminalEventKind::Activity {
+                                            apply_session_activity(
+                                                app_state,
+                                                &terminal_manager,
+                                                event.session_id,
+                                                &mut idle_deadlines,
+                                            );
+                                        }
+                                    }
+                                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                                        reconcile_session_statuses(
+                                            app_state,
+                                            &terminal_manager,
+                                            &mut idle_deadlines,
+                                        );
+                                    }
+                                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                                 }
-                            })
-                            .collect::<Vec<_>>()
-                    };
-
-                    if pending_updates.is_empty() {
-                        continue;
-                    }
-
-                    let mut state = app_state.write();
-                    for (session_id, status) in pending_updates {
-                        state.set_session_status(session_id, status);
+                            }
+                            _ = tokio::time::sleep_until(next_deadline) => {
+                                reconcile_session_statuses(
+                                    app_state,
+                                    &terminal_manager,
+                                    &mut idle_deadlines,
+                                );
+                            }
+                        }
+                    } else {
+                        match events.recv().await {
+                            Ok(event)
+                                if event.kind == crate::terminal::TerminalEventKind::Activity =>
+                            {
+                                apply_session_activity(
+                                    app_state,
+                                    &terminal_manager,
+                                    event.session_id,
+                                    &mut idle_deadlines,
+                                );
+                            }
+                            Ok(_) => {}
+                            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                                reconcile_session_statuses(
+                                    app_state,
+                                    &terminal_manager,
+                                    &mut idle_deadlines,
+                                );
+                            }
+                            Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                        }
                     }
                 }
             }
@@ -823,6 +850,97 @@ fn is_recent_activity(last_activity_unix_ms: Option<i64>, now_unix_ms: i64) -> b
     now_unix_ms - last_activity_unix_ms <= STATUS_BUSY_ACTIVITY_WINDOW_MS
 }
 
+fn apply_session_activity(
+    mut app_state: Signal<AppState>,
+    terminal_manager: &TerminalManager,
+    session_id: SessionId,
+    idle_deadlines: &mut HashMap<SessionId, tokio::time::Instant>,
+) {
+    let now_ms = unix_now_ms();
+    let last_activity = terminal_manager.session_last_activity_unix_ms(session_id);
+    let current_status = {
+        let state = app_state.read();
+        state
+            .sessions
+            .iter()
+            .find(|session| session.id == session_id)
+            .map(|session| session.status)
+    };
+    let Some(current_status) = current_status else {
+        idle_deadlines.remove(&session_id);
+        return;
+    };
+
+    if let Some(deadline) = idle_deadline_from_activity(last_activity, now_ms) {
+        idle_deadlines.insert(session_id, deadline);
+    } else {
+        idle_deadlines.remove(&session_id);
+    }
+
+    let next_status = derive_session_status_from_activity(current_status, last_activity, now_ms);
+    if next_status != current_status {
+        app_state
+            .write()
+            .set_session_status(session_id, next_status);
+    }
+}
+
+fn reconcile_session_statuses(
+    mut app_state: Signal<AppState>,
+    terminal_manager: &TerminalManager,
+    idle_deadlines: &mut HashMap<SessionId, tokio::time::Instant>,
+) {
+    let now_ms = unix_now_ms();
+    let mut pending_updates = Vec::<(SessionId, SessionStatus)>::new();
+    let tracked_session_ids = {
+        let state = app_state.read();
+        let ids = state
+            .sessions
+            .iter()
+            .map(|session| session.id)
+            .collect::<Vec<_>>();
+        for session in &state.sessions {
+            let last_activity = terminal_manager.session_last_activity_unix_ms(session.id);
+            if let Some(deadline) = idle_deadline_from_activity(last_activity, now_ms) {
+                idle_deadlines.insert(session.id, deadline);
+            } else {
+                idle_deadlines.remove(&session.id);
+            }
+
+            let next_status =
+                derive_session_status_from_activity(session.status, last_activity, now_ms);
+            if next_status != session.status {
+                pending_updates.push((session.id, next_status));
+            }
+        }
+        ids
+    };
+
+    idle_deadlines.retain(|session_id, _| tracked_session_ids.contains(session_id));
+
+    if pending_updates.is_empty() {
+        return;
+    }
+
+    let mut state = app_state.write();
+    for (session_id, status) in pending_updates {
+        state.set_session_status(session_id, status);
+    }
+}
+
+fn idle_deadline_from_activity(
+    last_activity_unix_ms: Option<i64>,
+    now_unix_ms: i64,
+) -> Option<tokio::time::Instant> {
+    if !is_recent_activity(last_activity_unix_ms, now_unix_ms) {
+        return None;
+    }
+
+    let remaining_ms =
+        STATUS_BUSY_ACTIVITY_WINDOW_MS.saturating_sub(now_unix_ms - last_activity_unix_ms?);
+    Some(tokio::time::Instant::now() + Duration::from_millis(remaining_ms as u64))
+}
+
 fn unix_now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -871,7 +989,7 @@ fn format_cwd_for_display(cwd: &str, workspace_path: &str) -> String {
 mod tests {
     use super::{
         derive_session_status_from_activity, format_bytes_compact, format_cwd_for_display,
-        percent_used, run_sidebar_style_for_panel,
+        idle_deadline_from_activity, percent_used, run_sidebar_style_for_panel,
     };
     use crate::state::SessionStatus;
     use crate::ui::sidebar_panel_host::SidebarPanelKind;
@@ -958,5 +1076,17 @@ mod tests {
         let status =
             derive_session_status_from_activity(SessionStatus::Error, Some(now - 100), now);
         assert_eq!(status, SessionStatus::Busy);
+    }
+
+    #[test]
+    fn recent_activity_produces_idle_deadline() {
+        let now = 10_000;
+        assert!(idle_deadline_from_activity(Some(now - 100), now).is_some());
+    }
+
+    #[test]
+    fn stale_activity_has_no_idle_deadline() {
+        let now = 10_000;
+        assert!(idle_deadline_from_activity(Some(now - 5_000), now).is_none());
     }
 }
