@@ -1,6 +1,7 @@
 use gestalt::git::{CheckoutTarget, CommitDraft, RepoContext};
 use gestalt::orchestrator;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 struct TestRepo {
@@ -37,8 +38,43 @@ impl Drop for TestRepo {
     }
 }
 
+struct OrchestrationDbGuard {
+    _lock: std::sync::MutexGuard<'static, ()>,
+    path: PathBuf,
+}
+
+impl OrchestrationDbGuard {
+    fn new(name: &str) -> Self {
+        let lock = env_lock().lock().expect("env lock");
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |duration| duration.as_nanos());
+        let path =
+            std::env::temp_dir().join(format!("gestalt-{name}-orchestration-{nonce}.sqlite3"));
+        unsafe {
+            std::env::set_var("GESTALT_ORCHESTRATION_DB_PATH", &path);
+        }
+        Self { _lock: lock, path }
+    }
+}
+
+impl Drop for OrchestrationDbGuard {
+    fn drop(&mut self) {
+        unsafe {
+            std::env::remove_var("GESTALT_ORCHESTRATION_DB_PATH");
+        }
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+fn env_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
+
 #[test]
 fn stage_unstage_and_commit_flow() {
+    let _db_guard = OrchestrationDbGuard::new("git-panel-stage");
     let repo = TestRepo::new("git-panel-stage");
     let repo_path = repo.path().to_string_lossy().to_string();
 
@@ -86,6 +122,7 @@ fn stage_unstage_and_commit_flow() {
 
 #[test]
 fn tag_checkout_and_worktree_flow() {
+    let _db_guard = OrchestrationDbGuard::new("git-panel-tag");
     let repo = TestRepo::new("git-panel-tag");
     let repo_path = repo.path().to_string_lossy().to_string();
 
@@ -155,6 +192,7 @@ fn tag_checkout_and_worktree_flow() {
 
 #[test]
 fn commit_details_and_message_edit_flow() {
+    let _db_guard = OrchestrationDbGuard::new("git-panel-edit");
     let repo = TestRepo::new("git-panel-edit");
     let repo_path = repo.path().to_string_lossy().to_string();
 
@@ -224,6 +262,7 @@ fn commit_details_and_message_edit_flow() {
 
 #[test]
 fn non_head_unpushed_commit_message_edit_rewrites_linear_history() {
+    let _db_guard = OrchestrationDbGuard::new("git-panel-rewrite");
     let repo = TestRepo::new("git-panel-rewrite");
     let repo_path = repo.path().to_string_lossy().to_string();
 
