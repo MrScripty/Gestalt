@@ -29,7 +29,7 @@ pub(crate) fn TabRail(
     rsx! {
         aside { class: "tab-rail",
             div { class: "group-list",
-                for group in snapshot.groups.clone() {
+                for group in snapshot.groups().to_vec() {
                     {
                         let group_id = group.id;
                         let group_color = group.color.clone();
@@ -47,7 +47,7 @@ pub(crate) fn TabRail(
                         let terminal_manager_for_remove = terminal_manager.read().clone();
 
                         let sessions_in_group: Vec<_> = snapshot
-                            .sessions
+                            .sessions()
                             .iter()
                             .filter(|session| session.group_id == group_id)
                             .cloned()
@@ -122,7 +122,7 @@ pub(crate) fn TabRail(
                                     for session in sessions_in_group {
                                         {
                                             let session_id = session.id;
-                                            let selected = snapshot.selected_session == Some(session_id);
+                                            let selected = snapshot.selected_session() == Some(session_id);
                                             let is_runner = session.role.is_runner();
                                             let load_style = match resource_snapshot_value
                                                 .session_loads

@@ -27,7 +27,7 @@ pub fn build_workspace_snapshot_with_history_limit(
     _max_history_lines: usize,
 ) -> PersistedWorkspaceV1 {
     let terminals = app_state
-        .sessions
+        .sessions()
         .iter()
         .filter_map(|session| terminal_manager.snapshot_for_persist(session.id))
         .collect::<Vec<PersistedTerminalState>>();

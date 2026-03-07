@@ -477,9 +477,9 @@ fn open_file_in_group_terminal(
 fn select_group_terminal(app_state: Signal<AppState>, group_id: GroupId) -> Option<SessionId> {
     let snapshot = app_state.read().clone();
 
-    if let Some(selected_id) = snapshot.selected_session
+    if let Some(selected_id) = snapshot.selected_session()
         && snapshot
-            .sessions
+            .sessions()
             .iter()
             .any(|session| session.id == selected_id && session.group_id == group_id)
     {
@@ -487,7 +487,7 @@ fn select_group_terminal(app_state: Signal<AppState>, group_id: GroupId) -> Opti
     }
 
     snapshot
-        .sessions
+        .sessions()
         .iter()
         .find(|session| session.group_id == group_id)
         .map(|session| session.id)

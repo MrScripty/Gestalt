@@ -28,7 +28,7 @@ fn test_load_workspace_with_corrupt_primary_uses_backup() {
             .expect("load should not fail when primary is corrupt")
             .expect("backup should be used");
 
-        assert_eq!(loaded.app_state.groups.len(), 1);
+        assert_eq!(loaded.app_state.groups().len(), 1);
         assert!(
             !workspace_path.exists(),
             "corrupt primary should be quarantined"

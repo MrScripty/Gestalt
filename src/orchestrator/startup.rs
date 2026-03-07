@@ -60,7 +60,7 @@ impl StartupCoordinator {
 
     pub fn prune_for_sessions(&mut self, state: &AppState) {
         let active_session_ids = state
-            .sessions
+            .sessions()
             .iter()
             .map(|session| session.id)
             .collect::<HashSet<_>>();
@@ -198,7 +198,7 @@ pub fn startup_targets(state: &AppState) -> Vec<SessionStartupTarget> {
     let mut active_deferred = Vec::new();
     let mut background = Vec::new();
 
-    for session in &state.sessions {
+    for session in state.sessions() {
         let Some(path) = state.group_path(session.group_id) else {
             continue;
         };
@@ -305,7 +305,7 @@ mod tests {
     fn startup_targets_place_background_groups_after_active_group() {
         let mut state = AppState::default();
         let (group_id, extra_ids) = state.create_group_with_defaults("/tmp/secondary".to_string());
-        state.select_session(state.sessions[0].id);
+        state.select_session(state.sessions()[0].id);
 
         let targets = startup_targets(&state);
         let background_indices = extra_ids
@@ -351,7 +351,7 @@ mod tests {
         assert!(has_deferred_startup_targets(&state, &started));
 
         started.extend(extra_ids);
-        started.extend(state.sessions.iter().map(|session| session.id));
+        started.extend(state.sessions().iter().map(|session| session.id));
         assert!(!has_deferred_startup_targets(&state, &started));
     }
 

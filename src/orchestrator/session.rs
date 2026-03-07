@@ -14,7 +14,7 @@ pub fn ensure_group_for_path(
     group_path: String,
 ) -> GroupOpenResult {
     if let Some(group_id) = app_state
-        .groups
+        .groups()
         .iter()
         .find(|group| group.path == group_path)
         .map(|group| group.id)
@@ -118,13 +118,13 @@ mod tests {
     fn ensure_group_for_path_selects_existing_group_without_duplication() {
         let mut state = AppState::default();
         let terminal_manager = TerminalManager::new();
-        let existing_group_path = state.groups[0].path.clone();
-        let original_group_count = state.groups.len();
+        let existing_group_path = state.groups()[0].path.clone();
+        let original_group_count = state.groups().len();
 
         let result = ensure_group_for_path(&mut state, &terminal_manager, existing_group_path);
 
         assert!(!result.was_created);
-        assert_eq!(state.groups.len(), original_group_count);
+        assert_eq!(state.groups().len(), original_group_count);
         assert_eq!(state.active_group_id(), Some(result.group_id));
         assert_eq!(result.session_ids.len(), 3);
     }
@@ -138,10 +138,10 @@ mod tests {
         let removed = remove_group(&mut state, &terminal_manager, group_id);
 
         assert!(!removed.is_empty());
-        assert!(state.groups.iter().all(|group| group.id != group_id));
+        assert!(state.groups().iter().all(|group| group.id != group_id));
         assert!(
             state
-                .sessions
+                .sessions()
                 .iter()
                 .all(|session| session.group_id != group_id)
         );

@@ -11,13 +11,13 @@ static ENV_LOCK: Mutex<()> = Mutex::new(());
 fn test_save_workspace_roundtrip_restores_app_state() {
     with_workspace_path("roundtrip", |workspace_path| {
         let mut state = AppState::default();
-        let first_session = state.sessions[0].id;
+        let first_session = state.sessions()[0].id;
         state.rename_session(first_session, "Restored Agent".to_string());
 
         let terminal = PersistedTerminalState {
             session_id: first_session,
             cwd: state
-                .group_path(state.sessions[0].group_id)
+                .group_path(state.sessions()[0].group_id)
                 .unwrap_or(".")
                 .to_string(),
             rows: 42,
@@ -36,8 +36,8 @@ fn test_save_workspace_roundtrip_restores_app_state() {
         let loaded = persistence::load_workspace()
             .expect("workspace load should succeed")
             .expect("workspace should exist");
-        assert_eq!(loaded.app_state.sessions.len(), state.sessions.len());
-        assert_eq!(loaded.app_state.groups.len(), state.groups.len());
+        assert_eq!(loaded.app_state.sessions().len(), state.sessions().len());
+        assert_eq!(loaded.app_state.groups().len(), state.groups().len());
         assert_eq!(loaded.terminals.len(), 1);
         assert!(
             loaded.terminals[0].lines.is_empty(),
@@ -57,7 +57,7 @@ fn test_save_workspace_roundtrip_restores_app_state() {
 fn test_save_workspace_roundtrip_preserves_group_specific_layouts() {
     with_workspace_path("group-layout-roundtrip", |_workspace_path| {
         let mut state = AppState::default();
-        let first_group = state.groups[0].id;
+        let first_group = state.groups()[0].id;
         let (second_group, _) = state.create_group_with_defaults("/tmp/layout-b".to_string());
 
         state.set_group_runner_width_px(first_group, 620);

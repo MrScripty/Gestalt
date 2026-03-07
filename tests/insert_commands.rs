@@ -96,16 +96,18 @@ fn restore_repairs_invalid_command_id_counter() {
             String::new(),
             vec![],
         );
-        state.command_library.next_command_id = 0;
-
         let workspace = PersistedWorkspaceV1::new(state, Vec::new());
+        let mut payload =
+            serde_json::to_value(workspace).expect("workspace json value should serialize");
+        payload["app_state"]["next_command_id"] = serde_json::Value::from(0_u32);
+        let workspace: PersistedWorkspaceV1 =
+            serde_json::from_value(payload).expect("workspace should deserialize");
         persistence::save_workspace(&workspace).expect("workspace save should succeed");
 
         let loaded = persistence::load_workspace()
             .expect("workspace load should succeed")
             .expect("workspace should exist");
         let mut restored = loaded.app_state.into_restored();
-        let next_id_before = restored.command_library.next_command_id;
         let created_id = restored.create_insert_command(
             "Deploy 2".to_string(),
             "echo ok".to_string(),
@@ -113,7 +115,7 @@ fn restore_repairs_invalid_command_id_counter() {
             vec![],
         );
         assert!(
-            created_id >= next_id_before,
+            created_id >= 2,
             "created id should be allocated from repaired counter"
         );
     });
@@ -146,10 +148,14 @@ fn legacy_workspace_without_command_library_loads_with_defaults() {
             restored.commands().is_empty(),
             "missing command library should default to empty"
         );
-        assert!(
-            restored.command_library.next_command_id >= 1,
-            "id allocator should be repaired"
+        let mut restored = restored;
+        let created_id = restored.create_insert_command(
+            "New Command".to_string(),
+            "echo hello".to_string(),
+            String::new(),
+            vec![],
         );
+        assert_eq!(created_id, 1, "id allocator should be repaired");
     });
 }
 

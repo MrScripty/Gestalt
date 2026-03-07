@@ -1,5 +1,5 @@
 use crate::orchestrator::{
-    snapshot_group_from_runtime, GroupOrchestratorSnapshot, SessionRuntimeView,
+    GroupOrchestratorSnapshot, SessionRuntimeView, snapshot_group_from_runtime,
 };
 use crate::state::{AppState, GroupId, GroupLayout, Session, SessionId, SessionStatus};
 use crate::terminal::{TerminalManager, TerminalSnapshot};
@@ -63,7 +63,7 @@ pub fn active_workspace_projection(
                 .session_cwd(session.id)
                 .unwrap_or_else(|| group_path.clone());
             let pane = TerminalPaneProjection {
-                is_selected: app_state.selected_session == Some(session.id),
+                is_selected: app_state.selected_session() == Some(session.id),
                 is_focused: focused_session == Some(session.id),
                 session,
                 terminal,
@@ -120,7 +120,7 @@ pub fn apply_session_activity(
     let now_ms = unix_now_ms();
     let last_activity = terminal_manager.session_last_activity_unix_ms(session_id);
     let current_status = app_state
-        .sessions
+        .sessions()
         .iter()
         .find(|session| session.id == session_id)
         .map(|session| session.status);
@@ -153,7 +153,7 @@ pub fn reconcile_session_statuses(
     let now_ms = unix_now_ms();
     let mut pending_updates = Vec::<SessionStatusUpdate>::new();
     let tracked_session_ids = app_state
-        .sessions
+        .sessions()
         .iter()
         .map(|session| {
             let last_activity = terminal_manager.session_last_activity_unix_ms(session.id);
@@ -257,8 +257,8 @@ fn pending_terminal_snapshot() -> TerminalSnapshot {
 #[cfg(test)]
 mod tests {
     use super::{
-        active_workspace_projection, derive_session_status_from_activity,
-        reconcile_session_statuses, SessionStatusCounts,
+        SessionStatusCounts, active_workspace_projection, derive_session_status_from_activity,
+        reconcile_session_statuses,
     };
     use crate::state::{AppState, SessionStatus};
     use crate::terminal::TerminalManager;
@@ -283,11 +283,10 @@ mod tests {
         );
         assert_eq!(projection.agents.len(), 2);
         assert!(projection.runner.is_some());
-        assert!(projection
-            .agents
-            .iter()
-            .all(|pane| !pane.is_runtime_ready
-                && pane.terminal.lines[0] == "# Terminal pending startup"));
+        assert!(
+            projection.agents.iter().all(|pane| !pane.is_runtime_ready
+                && pane.terminal.lines[0] == "# Terminal pending startup")
+        );
     }
 
     #[test]

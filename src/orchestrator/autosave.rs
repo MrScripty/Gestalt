@@ -105,7 +105,7 @@ impl AutosaveController {
         self.save_deadline = None;
 
         let mut terminal_revisions = app_state
-            .sessions
+            .sessions()
             .iter()
             .map(|session| {
                 (

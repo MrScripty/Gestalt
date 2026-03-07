@@ -173,7 +173,7 @@ pub fn App() -> Element {
         use_effect(move || {
             let state = app_state.read();
             let _ = state
-                .groups
+                .groups()
                 .iter()
                 .map(|group| group.path.clone())
                 .collect::<Vec<_>>();
@@ -221,7 +221,7 @@ pub fn App() -> Element {
                     let session_roots = {
                         let state = app_state.read();
                         state
-                            .sessions
+                            .sessions()
                             .iter()
                             .filter_map(|session| {
                                 terminal_manager
@@ -372,7 +372,7 @@ pub fn App() -> Element {
 
                     let snapshot = app_state_signal.read().clone();
                     let active_session_ids = snapshot
-                        .sessions
+                        .sessions()
                         .iter()
                         .map(|session| session.id)
                         .collect::<HashSet<_>>();

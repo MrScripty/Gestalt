@@ -88,7 +88,7 @@ pub fn snapshot_group(
                 cwd: terminal_manager
                     .session_cwd(session.id)
                     .unwrap_or_else(|| group_path.clone()),
-                is_selected: app_state.selected_session == Some(session.id),
+                is_selected: app_state.selected_session() == Some(session.id),
                 is_focused: focused_session == Some(session.id),
                 is_runtime_ready: runtime_snapshot.is_some(),
                 latest_round: latest_round_from_lines(&lines),
@@ -130,7 +130,7 @@ pub fn snapshot_group_from_runtime(
                     .as_ref()
                     .map(|runtime| runtime.cwd.to_string())
                     .unwrap_or_else(|| group_path.clone()),
-                is_selected: app_state.selected_session == Some(session.id),
+                is_selected: app_state.selected_session() == Some(session.id),
                 is_focused: focused_session == Some(session.id),
                 is_runtime_ready: runtime
                     .as_ref()
@@ -151,7 +151,7 @@ pub fn snapshot_group_from_runtime(
 /// Returns all session IDs currently attached to a group.
 pub fn group_session_ids(app_state: &AppState, group_id: GroupId) -> Vec<SessionId> {
     app_state
-        .sessions
+        .sessions()
         .iter()
         .filter(|session| session.group_id == group_id)
         .map(|session| session.id)

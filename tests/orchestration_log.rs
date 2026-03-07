@@ -162,7 +162,7 @@ fn group_broadcast_records_failed_timeline_when_sessions_are_unavailable() {
     }
 
     let state = AppState::default();
-    let group_id = state.groups[0].id;
+    let group_id = state.groups()[0].id;
     let terminal_manager = TerminalManager::new();
 
     let results = orchestrator::broadcast_line_to_group(
@@ -212,7 +212,7 @@ fn local_agent_send_records_distinct_timeline_kind() {
     }
 
     let state = AppState::default();
-    let group_id = state.groups[0].id;
+    let group_id = state.groups()[0].id;
     let terminal_manager = TerminalManager::new();
 
     let results = orchestrator::send_local_agent_command_to_group(

@@ -37,7 +37,7 @@ fn main() -> Result<(), String> {
 
     let app_state = Arc::new(AppState::default());
     let session_ids = app_state
-        .sessions
+        .sessions()
         .iter()
         .map(|session| session.id)
         .collect::<Vec<_>>();
@@ -803,7 +803,7 @@ fn profile_startup_restore(samples: usize) -> Result<StartupProfile, String> {
         .to_string();
     let active_group_session_ids = state.workspace_session_ids_for_group(active_group_id);
     let all_sessions = state
-        .sessions
+        .sessions()
         .iter()
         .map(|session| {
             (
@@ -863,7 +863,7 @@ fn build_startup_profile_state() -> AppState {
         let _ = state.create_group_with_defaults(path);
     }
     let first_session_id = state
-        .sessions
+        .sessions()
         .iter()
         .find(|session| session.group_id == active_group_id)
         .map(|session| session.id)

@@ -12,7 +12,7 @@ Application source modules for Gestalt's state model, command library, terminal 
 | `emily_bridge.rs` | Gestalt adapter for Emily memory ingest/query APIs |
 | `local_restore.rs` | SQLite-backed restore projection for terminal UI/runtime metadata |
 | `orchestration_log/` | Durable SQLite command/event/receipt timelines for orchestrated actions |
-| `state.rs` | Core workspace/group/session model and transitions |
+| `state/` | Core workspace, knowledge, and command state models plus transitions |
 | `terminal.rs` | PTY lifecycle, input/output, and snapshots |
 | `orchestrator/` | Group-level terminal orchestration helpers |
 | `git/` | Git repository query/mutation service layer used by contextual UI controls |
@@ -21,7 +21,8 @@ Application source modules for Gestalt's state model, command library, terminal 
 | `persistence/` | Workspace load/save infrastructure |
 
 ## Design Decisions
-- `state` stays framework-agnostic and serializable, including command library persistence.
+- `state` stays framework-agnostic and serializable, with workspace, knowledge,
+  and command domains split behind an aggregate facade for persistence and callers.
 - `terminal` owns live runtime processes and exposes snapshots.
 - `terminal` should avoid redundant scrollback cloning on hot PTY read and resize paths; snapshot rebuild work should use locked line views where possible before publishing a new immutable snapshot.
 - `emily_bridge` adapts terminal line events into Emily generic text objects.

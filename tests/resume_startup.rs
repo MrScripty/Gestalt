@@ -11,8 +11,8 @@ static ENV_LOCK: Mutex<()> = Mutex::new(());
 fn test_resume_startup_restores_groups_sessions_without_workspace_terminal_history() {
     with_workspace_path("resume", |_workspace_path| {
         let state = AppState::default();
-        let session_id = state.sessions[0].id;
-        let group_id = state.sessions[0].group_id;
+        let session_id = state.sessions()[0].id;
+        let group_id = state.sessions()[0].group_id;
         let cwd = state.group_path(group_id).unwrap_or(".").to_string();
 
         let terminal = PersistedTerminalState {
@@ -34,8 +34,8 @@ fn test_resume_startup_restores_groups_sessions_without_workspace_terminal_histo
             .expect("load should succeed")
             .expect("workspace should exist");
         let restored_state = loaded.app_state.clone().into_restored();
-        assert_eq!(restored_state.groups.len(), state.groups.len());
-        assert_eq!(restored_state.sessions.len(), state.sessions.len());
+        assert_eq!(restored_state.groups().len(), state.groups().len());
+        assert_eq!(restored_state.sessions().len(), state.sessions().len());
 
         let terminal_manager = TerminalManager::new();
         for restored in loaded.terminals {

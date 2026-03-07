@@ -51,7 +51,7 @@ pub(crate) fn use_git_refresh_coordinator(
                 let (known_paths, active_group_path) = {
                     let state = app_state.read();
                     let known_paths = state
-                        .groups
+                        .groups()
                         .iter()
                         .map(|group| group.path.clone())
                         .collect::<Vec<_>>();
