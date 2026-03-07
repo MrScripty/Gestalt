@@ -48,16 +48,19 @@ pub(crate) fn use_git_refresh_coordinator(
             tokio::time::sleep(Duration::from_millis(GIT_REFRESH_COORDINATOR_TICK_MS)).await;
             tick_counter = tick_counter.saturating_add(1);
 
-            let snapshot = app_state.read().clone();
-            let known_paths = snapshot
-                .groups
-                .iter()
-                .map(|group| group.path.clone())
-                .collect::<Vec<_>>();
-            let active_group_path = snapshot
-                .active_group_id()
-                .and_then(|group_id| snapshot.group_path(group_id))
-                .map(ToString::to_string);
+            let (known_paths, active_group_path) = {
+                let state = app_state.read();
+                let known_paths = state
+                    .groups
+                    .iter()
+                    .map(|group| group.path.clone())
+                    .collect::<Vec<_>>();
+                let active_group_path = state
+                    .active_group_id()
+                    .and_then(|group_id| state.group_path(group_id))
+                    .map(ToString::to_string);
+                (known_paths, active_group_path)
+            };
 
             group_state.retain(|path, _| known_paths.contains(path));
             pending.retain(|path, _| known_paths.contains(path));

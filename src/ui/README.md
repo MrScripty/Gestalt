@@ -74,6 +74,7 @@ Resource polling is root-owned in `ui.rs`; child components consume the shared s
 - Startup restore, history backfill, and embedding actions must tolerate stale results caused by session/path changes.
 - Background loops must have one owner, one cleanup path, and explicit overlap prevention.
 - Autosave coordination may compute signatures and schedule work, but snapshot building and projection/workspace disk writes must remain background-owned.
+- Poll loops should project only the state they need; they must not clone full `AppState` snapshots on a fixed cadence when an ID/path projection is sufficient.
 - Compatibility note: synchronous bridge wrappers may remain for non-UI callers, but UI code must prefer async variants.
 
 ## Related ADRs
