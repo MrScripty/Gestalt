@@ -5,9 +5,10 @@ use crate::state::AppState;
 use dioxus::prelude::*;
 use std::collections::{HashMap, hash_map::DefaultHasher};
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::Notify;
 
-const GIT_REFRESH_COORDINATOR_TICK_MS: u64 = 500;
 const GIT_REFRESH_ACTIVE_INTERVAL_MS: u64 = 5_000;
 const GIT_REFRESH_INACTIVE_INTERVAL_MS: u64 = 20_000;
 const GIT_REFRESH_ACTIVE_JITTER_MS: u64 = 500;
@@ -22,7 +23,7 @@ enum PendingRefresh {
 
 #[derive(Clone, Debug)]
 struct GroupRefreshState {
-    next_due_in_ticks: u64,
+    next_due_at: tokio::time::Instant,
 }
 
 /// Coordinates Git context refresh cadence across active and inactive groups.
@@ -31,160 +32,247 @@ pub(crate) fn use_git_refresh_coordinator(
     mut git_context: Signal<Option<RepoContext>>,
     mut git_context_loading: Signal<bool>,
     git_refresh_nonce: Signal<u64>,
+    refresh_notify: Arc<Notify>,
 ) {
-    use_future(move || async move {
-        let mut events = event_bus().subscribe();
-        let mut group_state: HashMap<String, GroupRefreshState> = HashMap::new();
-        let mut pending: HashMap<String, PendingRefresh> = HashMap::new();
-        let mut context_cache: HashMap<String, RepoContext> = HashMap::new();
-        let mut watcher_debounce: HashMap<String, u64> = HashMap::new();
-        let mut active_path = None::<String>;
-        let mut active_context_path = None::<String>;
-        let mut active_watcher = None::<RepoWatcherHandle>;
-        let mut nonce_seen = u64::MAX;
-        let mut tick_counter = 0_u64;
+    use_future(move || {
+        let refresh_notify = refresh_notify.clone();
+        async move {
+            let mut events = event_bus().subscribe();
+            let mut group_state: HashMap<String, GroupRefreshState> = HashMap::new();
+            let mut pending: HashMap<String, PendingRefresh> = HashMap::new();
+            let mut context_cache: HashMap<String, RepoContext> = HashMap::new();
+            let mut watcher_debounce: HashMap<String, tokio::time::Instant> = HashMap::new();
+            let mut active_path = None::<String>;
+            let mut active_context_path = None::<String>;
+            let mut active_watcher = None::<RepoWatcherHandle>;
+            let mut nonce_seen = u64::MAX;
 
-        loop {
-            tokio::time::sleep(Duration::from_millis(GIT_REFRESH_COORDINATOR_TICK_MS)).await;
-            tick_counter = tick_counter.saturating_add(1);
+            loop {
+                let (known_paths, active_group_path) = {
+                    let state = app_state.read();
+                    let known_paths = state
+                        .groups
+                        .iter()
+                        .map(|group| group.path.clone())
+                        .collect::<Vec<_>>();
+                    let active_group_path = state
+                        .active_group_id()
+                        .and_then(|group_id| state.group_path(group_id))
+                        .map(ToString::to_string);
+                    (known_paths, active_group_path)
+                };
+                let now = tokio::time::Instant::now();
 
-            let (known_paths, active_group_path) = {
-                let state = app_state.read();
-                let known_paths = state
-                    .groups
-                    .iter()
-                    .map(|group| group.path.clone())
-                    .collect::<Vec<_>>();
-                let active_group_path = state
-                    .active_group_id()
-                    .and_then(|group_id| state.group_path(group_id))
-                    .map(ToString::to_string);
-                (known_paths, active_group_path)
-            };
+                group_state.retain(|path, _| known_paths.contains(path));
+                pending.retain(|path, _| known_paths.contains(path));
+                context_cache.retain(|path, _| known_paths.contains(path));
+                watcher_debounce.retain(|path, _| known_paths.contains(path));
 
-            group_state.retain(|path, _| known_paths.contains(path));
-            pending.retain(|path, _| known_paths.contains(path));
-            context_cache.retain(|path, _| known_paths.contains(path));
-            watcher_debounce.retain(|path, _| known_paths.contains(path));
-
-            if active_path != active_group_path {
-                if let Some(mut watcher) = active_watcher.take() {
-                    watcher.stop();
-                }
-                active_path = active_group_path.clone();
-                match active_path.as_ref() {
-                    Some(path) => {
-                        active_watcher =
-                            crate::orchestrator::repo_watcher::start_active_repo_watcher(path);
-                        if let Some(context) = context_cache.get(path).cloned() {
-                            git_context_loading.set(false);
-                            git_context.set(Some(context));
-                            active_context_path = Some(path.clone());
-                        } else {
+                if active_path != active_group_path {
+                    if let Some(mut watcher) = active_watcher.take() {
+                        watcher.stop();
+                    }
+                    active_path = active_group_path.clone();
+                    match active_path.as_ref() {
+                        Some(path) => {
+                            active_watcher =
+                                crate::orchestrator::repo_watcher::start_active_repo_watcher(path);
+                            if let Some(context) = context_cache.get(path).cloned() {
+                                git_context_loading.set(false);
+                                git_context.set(Some(context));
+                                active_context_path = Some(path.clone());
+                            } else {
+                                git_context.set(None);
+                                git_context_loading.set(true);
+                                mark_pending(&mut pending, path, PendingRefresh::Immediate);
+                            }
+                        }
+                        None => {
                             git_context.set(None);
-                            git_context_loading.set(true);
-                            mark_pending(&mut pending, path, PendingRefresh::Immediate);
+                            git_context_loading.set(false);
+                            active_context_path = None;
                         }
                     }
-                    None => {
-                        git_context.set(None);
-                        git_context_loading.set(false);
-                        active_context_path = None;
+                }
+
+                if drain_events(&mut events, &mut pending, &mut watcher_debounce).is_err() {
+                    break;
+                }
+
+                let debounced_due = watcher_debounce
+                    .iter()
+                    .filter(|(_, due)| **due <= now)
+                    .map(|(path, _)| path.clone())
+                    .collect::<Vec<_>>();
+                for path in debounced_due {
+                    watcher_debounce.remove(&path);
+                    mark_pending(&mut pending, &path, PendingRefresh::Immediate);
+                }
+
+                let refresh_nonce = *git_refresh_nonce.read();
+                if nonce_seen != refresh_nonce {
+                    nonce_seen = refresh_nonce;
+                    if let Some(path) = active_path.as_ref() {
+                        mark_pending(&mut pending, path, PendingRefresh::Immediate);
                     }
                 }
-            }
 
-            while let Ok(event) = events.try_recv() {
-                match event {
-                    OrchestratorEvent::GitCommandExecuted(GitCommandExecuted {
-                        group_path,
-                        ..
-                    }) => {
-                        mark_pending(&mut pending, &group_path, PendingRefresh::Immediate);
-                    }
-                    OrchestratorEvent::RepoFsChanged(changed) => {
-                        watcher_debounce.insert(
-                            changed.group_path,
-                            tick_counter + ticks_for_ms(GIT_REFRESH_WATCHER_DEBOUNCE_MS),
+                for path in &known_paths {
+                    if !group_state.contains_key(path) {
+                        let is_active = active_path.as_deref() == Some(path.as_str());
+                        group_state.insert(
+                            path.clone(),
+                            GroupRefreshState {
+                                next_due_at: now
+                                    + duration_for_jittered_interval(path, is_active, now),
+                            },
                         );
                     }
                 }
-            }
 
-            let debounced_due = watcher_debounce
-                .iter()
-                .filter(|(_, due)| **due <= tick_counter)
-                .map(|(path, _)| path.clone())
-                .collect::<Vec<_>>();
-            for path in debounced_due {
-                watcher_debounce.remove(&path);
-                mark_pending(&mut pending, &path, PendingRefresh::Immediate);
-            }
-
-            let refresh_nonce = *git_refresh_nonce.read();
-            if nonce_seen != refresh_nonce {
-                nonce_seen = refresh_nonce;
-                if let Some(path) = active_path.as_ref() {
-                    mark_pending(&mut pending, path, PendingRefresh::Immediate);
+                for path in &known_paths {
+                    if let Some(state) = group_state.get(path)
+                        && now >= state.next_due_at
+                    {
+                        mark_pending(&mut pending, path, PendingRefresh::Scheduled);
+                    }
                 }
-            }
 
-            for path in &known_paths {
-                if !group_state.contains_key(path) {
-                    let is_active = active_path.as_deref() == Some(path.as_str());
-                    group_state.insert(
-                        path.clone(),
-                        GroupRefreshState {
-                            next_due_in_ticks: tick_counter
-                                + ticks_for_jittered_interval(path, is_active, tick_counter),
-                        },
-                    );
+                let Some(path_to_refresh) =
+                    select_next_refresh_path(&pending, active_path.as_deref())
+                else {
+                    let next_deadline = wait_deadline(&group_state, &watcher_debounce);
+                    if wait_for_refresh_wakeup(
+                        &mut events,
+                        &refresh_notify,
+                        &mut pending,
+                        &mut watcher_debounce,
+                        next_deadline,
+                    )
+                    .await
+                    .is_err()
+                    {
+                        break;
+                    }
+                    continue;
+                };
+
+                let is_active_refresh = active_path.as_deref() == Some(path_to_refresh.as_str());
+                if is_active_refresh {
+                    git_context_loading.set(true);
                 }
-            }
 
-            for path in &known_paths {
-                if let Some(state) = group_state.get(path)
-                    && tick_counter >= state.next_due_in_ticks
+                let context = load_repo_context_blocking(path_to_refresh.clone()).await;
+
+                context_cache.insert(path_to_refresh.clone(), context.clone());
+
+                if is_active_refresh {
+                    git_context_loading.set(false);
+                    git_context.set(Some(context));
+                    active_context_path = Some(path_to_refresh.clone());
+                } else if active_context_path.as_deref() == Some(path_to_refresh.as_str())
+                    && let Some(cached) = context_cache.get(&path_to_refresh).cloned()
                 {
-                    mark_pending(&mut pending, path, PendingRefresh::Scheduled);
+                    git_context.set(Some(cached));
                 }
-            }
 
-            let Some(path_to_refresh) = select_next_refresh_path(&pending, active_path.as_deref())
-            else {
+                pending.remove(&path_to_refresh);
+                if let Some(state) = group_state.get_mut(&path_to_refresh) {
+                    let next_now = tokio::time::Instant::now();
+                    state.next_due_at = next_now
+                        + duration_for_jittered_interval(
+                            &path_to_refresh,
+                            is_active_group(&active_path, &path_to_refresh),
+                            next_now,
+                        );
+                }
+
                 continue;
-            };
-
-            let is_active_refresh = active_path.as_deref() == Some(path_to_refresh.as_str());
-            if is_active_refresh {
-                git_context_loading.set(true);
-            }
-
-            let context = load_repo_context_blocking(path_to_refresh.clone()).await;
-
-            context_cache.insert(path_to_refresh.clone(), context.clone());
-
-            if is_active_refresh {
-                git_context_loading.set(false);
-                git_context.set(Some(context));
-                active_context_path = Some(path_to_refresh.clone());
-            } else if active_context_path.as_deref() == Some(path_to_refresh.as_str())
-                && let Some(cached) = context_cache.get(&path_to_refresh).cloned()
-            {
-                git_context.set(Some(cached));
-            }
-
-            pending.remove(&path_to_refresh);
-            if let Some(state) = group_state.get_mut(&path_to_refresh) {
-                state.next_due_in_ticks = tick_counter
-                    + ticks_for_jittered_interval(
-                        &path_to_refresh,
-                        is_active_group(&active_path, &path_to_refresh),
-                        tick_counter,
-                    );
             }
         }
     });
+}
+
+async fn wait_for_refresh_wakeup(
+    events: &mut tokio::sync::broadcast::Receiver<OrchestratorEvent>,
+    refresh_notify: &Notify,
+    pending: &mut HashMap<String, PendingRefresh>,
+    watcher_debounce: &mut HashMap<String, tokio::time::Instant>,
+    next_deadline: Option<tokio::time::Instant>,
+) -> Result<(), ()> {
+    match next_deadline {
+        Some(deadline) => {
+            tokio::select! {
+                event = events.recv() => {
+                    match event {
+                        Ok(event) => handle_event(event, pending, watcher_debounce),
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => return Err(()),
+                    }
+                }
+                _ = refresh_notify.notified() => {}
+                _ = tokio::time::sleep_until(deadline) => {}
+            }
+        }
+        None => {
+            tokio::select! {
+                event = events.recv() => {
+                    match event {
+                        Ok(event) => handle_event(event, pending, watcher_debounce),
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => return Err(()),
+                    }
+                }
+                _ = refresh_notify.notified() => {}
+            }
+        }
+    }
+    Ok(())
+}
+
+fn wait_deadline(
+    group_state: &HashMap<String, GroupRefreshState>,
+    watcher_debounce: &HashMap<String, tokio::time::Instant>,
+) -> Option<tokio::time::Instant> {
+    group_state
+        .values()
+        .map(|state| state.next_due_at)
+        .chain(watcher_debounce.values().copied())
+        .min()
+}
+
+fn drain_events(
+    events: &mut tokio::sync::broadcast::Receiver<OrchestratorEvent>,
+    pending: &mut HashMap<String, PendingRefresh>,
+    watcher_debounce: &mut HashMap<String, tokio::time::Instant>,
+) -> Result<(), ()> {
+    loop {
+        match events.try_recv() {
+            Ok(event) => handle_event(event, pending, watcher_debounce),
+            Err(tokio::sync::broadcast::error::TryRecvError::Empty) => return Ok(()),
+            Err(tokio::sync::broadcast::error::TryRecvError::Lagged(_)) => continue,
+            Err(tokio::sync::broadcast::error::TryRecvError::Closed) => return Err(()),
+        }
+    }
+}
+
+fn handle_event(
+    event: OrchestratorEvent,
+    pending: &mut HashMap<String, PendingRefresh>,
+    watcher_debounce: &mut HashMap<String, tokio::time::Instant>,
+) {
+    match event {
+        OrchestratorEvent::GitCommandExecuted(GitCommandExecuted { group_path, .. }) => {
+            mark_pending(pending, &group_path, PendingRefresh::Immediate);
+        }
+        OrchestratorEvent::RepoFsChanged(changed) => {
+            watcher_debounce.insert(
+                changed.group_path,
+                tokio::time::Instant::now()
+                    + Duration::from_millis(GIT_REFRESH_WATCHER_DEBOUNCE_MS),
+            );
+        }
+    }
 }
 
 fn is_active_group(active_path: &Option<String>, path: &str) -> bool {
@@ -237,7 +325,11 @@ fn select_next_refresh_path(
         .find_map(|(path, reason)| (*reason == PendingRefresh::Scheduled).then(|| path.clone()))
 }
 
-fn ticks_for_jittered_interval(group_path: &str, active: bool, tick_counter: u64) -> u64 {
+fn duration_for_jittered_interval(
+    group_path: &str,
+    active: bool,
+    now: tokio::time::Instant,
+) -> Duration {
     let (base_ms, jitter_ms) = if active {
         (GIT_REFRESH_ACTIVE_INTERVAL_MS, GIT_REFRESH_ACTIVE_JITTER_MS)
     } else {
@@ -247,27 +339,22 @@ fn ticks_for_jittered_interval(group_path: &str, active: bool, tick_counter: u64
         )
     };
 
-    let jitter_offset = jitter_offset_ms(group_path, tick_counter, jitter_ms);
+    let jitter_offset = jitter_offset_ms(group_path, now, jitter_ms);
     let interval_ms = (base_ms as i64 + jitter_offset).max(1) as u64;
-    ticks_for_ms(interval_ms)
+    Duration::from_millis(interval_ms)
 }
 
-fn jitter_offset_ms(group_path: &str, tick_counter: u64, jitter_ms: u64) -> i64 {
+fn jitter_offset_ms(group_path: &str, now: tokio::time::Instant, jitter_ms: u64) -> i64 {
     if jitter_ms == 0 {
         return 0;
     }
 
     let mut hasher = DefaultHasher::new();
     group_path.hash(&mut hasher);
-    tick_counter.hash(&mut hasher);
+    now.hash(&mut hasher);
     let value = hasher.finish();
     let span = jitter_ms.saturating_mul(2).saturating_add(1);
     (value % span) as i64 - jitter_ms as i64
-}
-
-fn ticks_for_ms(duration_ms: u64) -> u64 {
-    let tick = GIT_REFRESH_COORDINATOR_TICK_MS.max(1);
-    duration_ms.div_ceil(tick)
 }
 
 async fn load_repo_context_blocking(group_path: String) -> RepoContext {
@@ -287,10 +374,11 @@ async fn load_repo_context_blocking(group_path: String) -> RepoContext {
 #[cfg(test)]
 mod tests {
     use super::{
-        PendingRefresh, jitter_offset_ms, mark_pending, select_next_refresh_path,
-        ticks_for_jittered_interval,
+        PendingRefresh, duration_for_jittered_interval, jitter_offset_ms, mark_pending,
+        select_next_refresh_path,
     };
     use std::collections::HashMap;
+    use std::time::Duration;
 
     #[test]
     fn immediate_pending_overrides_scheduled() {
@@ -313,14 +401,15 @@ mod tests {
     }
 
     #[test]
-    fn jittered_ticks_respect_interval_floor() {
-        let ticks = ticks_for_jittered_interval("/tmp/repo", true, 1);
-        assert!(ticks >= 1);
+    fn jittered_duration_respects_interval_floor() {
+        let duration =
+            duration_for_jittered_interval("/tmp/repo", true, tokio::time::Instant::now());
+        assert!(duration >= Duration::from_millis(1));
     }
 
     #[test]
     fn jitter_offset_respects_bounds() {
-        let offset = jitter_offset_ms("/tmp/repo", 42, 4_000);
+        let offset = jitter_offset_ms("/tmp/repo", tokio::time::Instant::now(), 4_000);
         assert!((-4_000..=4_000).contains(&offset));
     }
 }

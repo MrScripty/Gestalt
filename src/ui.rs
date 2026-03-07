@@ -139,6 +139,7 @@ pub fn App() -> Element {
     let new_group_path = use_signal(String::new);
     let persistence_feedback = use_signal(String::new);
     let autosave_dirty_notify = use_signal(|| Arc::new(tokio::sync::Notify::new()));
+    let git_refresh_notify = use_signal(|| Arc::new(tokio::sync::Notify::new()));
     let refresh_tick = use_signal(|| 0_u64);
     let focused_terminal = use_signal(|| None::<SessionId>);
     let round_anchor = use_signal(|| None::<(SessionId, u16)>);
@@ -169,6 +170,31 @@ pub fn App() -> Element {
         use_effect(move || {
             let _ = app_state.read().revision();
             autosave_dirty_notify.notify_one();
+        });
+    }
+
+    {
+        let git_refresh_notify = git_refresh_notify.read().clone();
+        use_effect(move || {
+            let state = app_state.read();
+            let _ = state
+                .groups
+                .iter()
+                .map(|group| group.path.clone())
+                .collect::<Vec<_>>();
+            let _ = state
+                .active_group_id()
+                .and_then(|group_id| state.group_path(group_id))
+                .map(ToString::to_string);
+            git_refresh_notify.notify_one();
+        });
+    }
+
+    {
+        let git_refresh_notify = git_refresh_notify.read().clone();
+        use_effect(move || {
+            let _ = *git_refresh_nonce.read();
+            git_refresh_notify.notify_one();
         });
     }
 
@@ -316,6 +342,7 @@ pub fn App() -> Element {
         git_context,
         git_context_loading,
         git_refresh_nonce,
+        git_refresh_notify.read().clone(),
     );
 
     {
