@@ -2,6 +2,9 @@ use gestalt::orchestration_log::{
     CommandPayload, EventPayload, NewCommandRecord, NewEventRecord, NewReceiptRecord,
     OrchestrationLogStore, ReceiptPayload, ReceiptStatus, TimelineEntry,
 };
+use gestalt::orchestrator;
+use gestalt::state::AppState;
+use gestalt::terminal::TerminalManager;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -147,5 +150,55 @@ fn duplicate_command_id_is_rejected_and_recent_commands_are_queryable() {
     assert_eq!(recent.len(), 1);
     assert_eq!(recent[0].command_id, "cmd-duplicate");
 
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn group_broadcast_records_failed_timeline_when_sessions_are_unavailable() {
+    let _guard = env_lock().lock().expect("env lock");
+    let path = unique_db_path("orchestration-log-broadcast");
+    unsafe {
+        std::env::set_var("GESTALT_ORCHESTRATION_DB_PATH", &path);
+    }
+
+    let state = AppState::default();
+    let group_id = state.groups[0].id;
+    let terminal_manager = TerminalManager::new();
+
+    let results = orchestrator::broadcast_line_to_group(
+        &state,
+        &terminal_manager,
+        group_id,
+        "echo orchestration-log",
+    );
+    assert_eq!(results.len(), 3);
+    assert!(results.iter().all(|result| result.error.is_some()));
+
+    let store = OrchestrationLogStore::default();
+    let recent = store
+        .load_recent_commands(1)
+        .expect("recent command should load");
+    assert_eq!(recent.len(), 1);
+    let timeline = store
+        .load_timeline(&recent[0].command_id)
+        .expect("timeline should load");
+    assert_eq!(timeline.len(), 5);
+    assert!(matches!(timeline.first(), Some(TimelineEntry::Command(_))));
+    assert!(matches!(timeline.last(), Some(TimelineEntry::Receipt(_))));
+    let failed_events = timeline
+        .iter()
+        .filter(|entry| {
+            matches!(
+                entry,
+                TimelineEntry::Event(event)
+                    if matches!(event.payload, EventPayload::BroadcastWriteFailed { .. })
+            )
+        })
+        .count();
+    assert_eq!(failed_events, 3);
+
+    unsafe {
+        std::env::remove_var("GESTALT_ORCHESTRATION_DB_PATH");
+    }
     let _ = std::fs::remove_file(path);
 }

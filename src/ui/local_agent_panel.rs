@@ -14,9 +14,6 @@ pub(crate) fn LocalAgentPanel(
     local_agent_feedback: Signal<String>,
 ) -> Element {
     let terminal_manager_for_agent = terminal_manager.read().clone();
-    let group_session_ids = orchestrator::group_session_ids(&app_state.read().clone(), group_id);
-    let group_session_ids_for_send = group_session_ids.clone();
-    let group_session_ids_for_interrupt = group_session_ids.clone();
     let terminal_manager_for_send = terminal_manager_for_agent.clone();
     let terminal_manager_for_interrupt = terminal_manager_for_agent.clone();
     let tracked_count = group_orchestrator.terminals.len();
@@ -52,9 +49,11 @@ pub(crate) fn LocalAgentPanel(
                                 return;
                             }
 
-                            let results = orchestrator::send_line_to_sessions(
+                            let state_snapshot = app_state.read().clone();
+                            let results = orchestrator::broadcast_line_to_group(
+                                &state_snapshot,
                                 &terminal_manager_for_send,
-                                &group_session_ids_for_send,
+                                group_id,
                                 &command,
                             );
 
@@ -77,9 +76,11 @@ pub(crate) fn LocalAgentPanel(
                     button {
                         class: "orchestrator-btn interrupt",
                         onclick: move |_| {
-                            let results = orchestrator::interrupt_sessions(
+                            let state_snapshot = app_state.read().clone();
+                            let results = orchestrator::interrupt_group(
+                                &state_snapshot,
                                 &terminal_manager_for_interrupt,
-                                &group_session_ids_for_interrupt,
+                                group_id,
                             );
 
                             let mut state = app_state.write();

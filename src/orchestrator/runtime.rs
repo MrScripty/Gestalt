@@ -1,6 +1,11 @@
+use crate::orchestration_log::{
+    CommandPayload, EventPayload, NewCommandRecord, NewEventRecord, NewReceiptRecord,
+    OrchestrationLogStore, ReceiptPayload, ReceiptStatus,
+};
 use crate::state::{AppState, GroupId, SessionId, SessionRole, SessionStatus};
 use crate::terminal::TerminalManager;
 use std::collections::HashMap;
+use uuid::Uuid;
 
 const MAX_ROUND_LINES: usize = 8;
 const MAX_PROMPT_SCAN_LINES: usize = 2_048;
@@ -172,6 +177,42 @@ pub fn send_line_to_sessions(
         .collect()
 }
 
+/// Sends a line of input to every session in one group and records the lifecycle durably.
+pub fn broadcast_line_to_group(
+    app_state: &AppState,
+    terminal_manager: &TerminalManager,
+    group_id: GroupId,
+    line: &str,
+) -> Vec<SessionWriteResult> {
+    let session_ids = group_session_ids(app_state, group_id);
+    let group_path = app_state.group_path(group_id).unwrap_or(".").to_string();
+    let now_ms = current_unix_ms();
+    let command_id = Uuid::new_v4().to_string();
+    let store = OrchestrationLogStore::default();
+
+    if let Err(error) = store.record_command(NewCommandRecord {
+        command_id: command_id.clone(),
+        timeline_id: command_id.clone(),
+        requested_at_unix_ms: now_ms,
+        recorded_at_unix_ms: now_ms,
+        payload: CommandPayload::BroadcastSendLine {
+            group_id,
+            group_path: group_path.clone(),
+            session_ids: session_ids.clone(),
+            line: line.to_string(),
+        },
+    }) {
+        return log_blocked_results(
+            &session_ids,
+            format!("failed recording orchestration command: {error}"),
+        );
+    }
+
+    let results = send_line_to_sessions(terminal_manager, &session_ids, line);
+    record_broadcast_results(&store, &command_id, &results, now_ms);
+    results
+}
+
 /// Sends Ctrl+C to every provided session.
 pub fn interrupt_sessions(
     terminal_manager: &TerminalManager,
@@ -188,6 +229,116 @@ pub fn interrupt_sessions(
                 .map(|error| error.to_string()),
         })
         .collect()
+}
+
+/// Sends Ctrl+C to every session in one group and records the lifecycle durably.
+pub fn interrupt_group(
+    app_state: &AppState,
+    terminal_manager: &TerminalManager,
+    group_id: GroupId,
+) -> Vec<SessionWriteResult> {
+    let session_ids = group_session_ids(app_state, group_id);
+    let group_path = app_state.group_path(group_id).unwrap_or(".").to_string();
+    let now_ms = current_unix_ms();
+    let command_id = Uuid::new_v4().to_string();
+    let store = OrchestrationLogStore::default();
+
+    if let Err(error) = store.record_command(NewCommandRecord {
+        command_id: command_id.clone(),
+        timeline_id: command_id.clone(),
+        requested_at_unix_ms: now_ms,
+        recorded_at_unix_ms: now_ms,
+        payload: CommandPayload::BroadcastInterrupt {
+            group_id,
+            group_path,
+            session_ids: session_ids.clone(),
+        },
+    }) {
+        return log_blocked_results(
+            &session_ids,
+            format!("failed recording orchestration command: {error}"),
+        );
+    }
+
+    let results = interrupt_sessions(terminal_manager, &session_ids);
+    record_broadcast_results(&store, &command_id, &results, now_ms);
+    results
+}
+
+fn record_broadcast_results(
+    store: &OrchestrationLogStore,
+    command_id: &str,
+    results: &[SessionWriteResult],
+    started_at_unix_ms: i64,
+) {
+    let mut ok_count = 0usize;
+    let mut fail_count = 0usize;
+
+    for result in results {
+        let payload = match result.error.as_ref() {
+            Some(error) => {
+                fail_count = fail_count.saturating_add(1);
+                EventPayload::BroadcastWriteFailed {
+                    session_id: result.session_id,
+                    error: error.clone(),
+                }
+            }
+            None => {
+                ok_count = ok_count.saturating_add(1);
+                EventPayload::BroadcastWriteSucceeded {
+                    session_id: result.session_id,
+                }
+            }
+        };
+        let event_time = current_unix_ms();
+        let _ = store.append_event(
+            command_id,
+            NewEventRecord {
+                occurred_at_unix_ms: event_time.max(started_at_unix_ms),
+                recorded_at_unix_ms: event_time,
+                payload,
+            },
+        );
+    }
+
+    let status = if fail_count == 0 {
+        ReceiptStatus::Succeeded
+    } else if ok_count == 0 {
+        ReceiptStatus::Failed
+    } else {
+        ReceiptStatus::PartiallySucceeded
+    };
+    let completed_at_unix_ms = current_unix_ms();
+    let _ = store.finalize_receipt(
+        command_id,
+        NewReceiptRecord {
+            completed_at_unix_ms,
+            recorded_at_unix_ms: completed_at_unix_ms,
+            status,
+            payload: ReceiptPayload::Broadcast {
+                ok_count,
+                fail_count,
+            },
+        },
+    );
+}
+
+fn log_blocked_results(session_ids: &[SessionId], message: String) -> Vec<SessionWriteResult> {
+    session_ids
+        .iter()
+        .copied()
+        .map(|session_id| SessionWriteResult {
+            session_id,
+            error: Some(message.clone()),
+        })
+        .collect()
+}
+
+fn current_unix_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 fn latest_round_from_lines(lines: &[String]) -> TerminalRound {
