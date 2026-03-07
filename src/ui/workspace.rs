@@ -1,28 +1,18 @@
 use crate::emily_bridge::EmilyBridge;
 use crate::orchestrator::{self, GroupOrchestratorSnapshot};
 use crate::resource_monitor::ResourceSnapshot;
-use crate::state::{AppState, GroupLayout, SessionId, SessionStatus};
-use crate::terminal::{TerminalManager, TerminalSnapshot};
-use crate::ui::TerminalHistoryState;
+use crate::state::{AppState, GroupLayout, SessionId};
+use crate::terminal::TerminalManager;
 use crate::ui::insert_command_mode::InsertModeState;
 use crate::ui::run_sidebar_panel_host::{RunSidebarPanelHost, RunSidebarPanelKind};
 use crate::ui::sidebar_panel_host::{SidebarPanelHost, SidebarPanelKind};
-use crate::ui::terminal_view::{
-    SnippetHotkeyState, TerminalInteractionSignals, pending_terminal_snapshot, terminal_shell,
-};
+use crate::ui::terminal_view::{terminal_shell, SnippetHotkeyState, TerminalInteractionSignals};
+use crate::ui::TerminalHistoryState;
 use dioxus::prelude::*;
 use emily::model::VectorizationStatus;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-
-#[derive(Clone)]
-struct TerminalPaneData {
-    terminal: Arc<TerminalSnapshot>,
-    cwd: String,
-    is_runtime_ready: bool,
-}
 
 const RUNNER_WIDTH_MIN_PX: i32 = 260;
 const RUNNER_WIDTH_MAX_PX: i32 = 760;
@@ -32,7 +22,6 @@ const STACK_SPLIT_STEP_RATIO: f64 = 0.03;
 const STACK_SPLIT_MIN_RATIO: f64 = 0.28;
 const STACK_SPLIT_MAX_RATIO: f64 = 0.72;
 const STACK_SPLIT_DRAG_SENSITIVITY_PX: f64 = 520.0;
-const STATUS_BUSY_ACTIVITY_WINDOW_MS: i64 = 900;
 
 fn run_sidebar_style_for_panel(_panel: SidebarPanelKind, ratio: f64) -> String {
     format!("--runner-top-ratio: {:.2}%;", ratio * 100.0)
@@ -68,7 +57,14 @@ pub(crate) fn WorkspaceMain(
             async move {
                 let mut events = terminal_manager.subscribe_events();
                 let mut idle_deadlines = HashMap::<SessionId, tokio::time::Instant>::new();
-                reconcile_session_statuses(app_state, &terminal_manager, &mut idle_deadlines);
+                apply_status_updates(
+                    app_state,
+                    orchestrator::reconcile_session_statuses(
+                        &app_state.read(),
+                        &terminal_manager,
+                        &mut idle_deadlines,
+                    ),
+                );
 
                 loop {
                     if let Some(next_deadline) = idle_deadlines.values().min().copied() {
@@ -77,29 +73,38 @@ pub(crate) fn WorkspaceMain(
                                 match event {
                                     Ok(event) => {
                                         if event.kind == crate::terminal::TerminalEventKind::Activity {
-                                            apply_session_activity(
+                                            apply_status_updates(
                                                 app_state,
-                                                &terminal_manager,
-                                                event.session_id,
-                                                &mut idle_deadlines,
+                                                orchestrator::apply_session_activity(
+                                                    &app_state.read(),
+                                                    &terminal_manager,
+                                                    event.session_id,
+                                                    &mut idle_deadlines,
+                                                ).into_iter().collect(),
                                             );
                                         }
                                     }
                                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                                        reconcile_session_statuses(
+                                        apply_status_updates(
                                             app_state,
-                                            &terminal_manager,
-                                            &mut idle_deadlines,
+                                            orchestrator::reconcile_session_statuses(
+                                                &app_state.read(),
+                                                &terminal_manager,
+                                                &mut idle_deadlines,
+                                            ),
                                         );
                                     }
                                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                                 }
                             }
                             _ = tokio::time::sleep_until(next_deadline) => {
-                                reconcile_session_statuses(
+                                apply_status_updates(
                                     app_state,
-                                    &terminal_manager,
-                                    &mut idle_deadlines,
+                                    orchestrator::reconcile_session_statuses(
+                                        &app_state.read(),
+                                        &terminal_manager,
+                                        &mut idle_deadlines,
+                                    ),
                                 );
                             }
                         }
@@ -108,19 +113,27 @@ pub(crate) fn WorkspaceMain(
                             Ok(event)
                                 if event.kind == crate::terminal::TerminalEventKind::Activity =>
                             {
-                                apply_session_activity(
+                                apply_status_updates(
                                     app_state,
-                                    &terminal_manager,
-                                    event.session_id,
-                                    &mut idle_deadlines,
+                                    orchestrator::apply_session_activity(
+                                        &app_state.read(),
+                                        &terminal_manager,
+                                        event.session_id,
+                                        &mut idle_deadlines,
+                                    )
+                                    .into_iter()
+                                    .collect(),
                                 );
                             }
                             Ok(_) => {}
                             Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                                reconcile_session_statuses(
+                                apply_status_updates(
                                     app_state,
-                                    &terminal_manager,
-                                    &mut idle_deadlines,
+                                    orchestrator::reconcile_session_statuses(
+                                        &app_state.read(),
+                                        &terminal_manager,
+                                        &mut idle_deadlines,
+                                    ),
                                 );
                             }
                             Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
@@ -134,71 +147,42 @@ pub(crate) fn WorkspaceMain(
     let resource_snapshot_value = resource_snapshot.read().clone();
     let vectorization_status_value = vectorization_status.read().clone();
     let snapshot = app_state.read().clone();
-    let busy_count = snapshot.session_count_by_status(SessionStatus::Busy);
-    let error_count = snapshot.session_count_by_status(SessionStatus::Error);
-    let idle_count = snapshot.session_count_by_status(SessionStatus::Idle);
     let focused_terminal_id = *focused_terminal.read();
-
-    let active_group_id = snapshot.active_group_id();
-    let (active_agents, active_runner) = active_group_id
-        .map(|group_id| snapshot.workspace_sessions_for_group(group_id))
+    let terminal_manager_for_projection = terminal_manager.read().clone();
+    let workspace_projection = orchestrator::active_workspace_projection(
+        &snapshot,
+        &terminal_manager_for_projection,
+        focused_terminal_id,
+    );
+    let busy_count = workspace_projection
+        .as_ref()
+        .map(|projection| projection.status_counts.busy)
+        .unwrap_or(0);
+    let error_count = workspace_projection
+        .as_ref()
+        .map(|projection| projection.status_counts.error)
+        .unwrap_or(0);
+    let idle_count = workspace_projection
+        .as_ref()
+        .map(|projection| projection.status_counts.idle)
+        .unwrap_or(0);
+    let active_group_id = workspace_projection
+        .as_ref()
+        .map(|projection| projection.group_id);
+    let active_path = workspace_projection
+        .as_ref()
+        .map(|projection| projection.group_path.clone())
+        .unwrap_or_else(|| ".".to_string());
+    let active_agents = workspace_projection
+        .as_ref()
+        .map(|projection| projection.agents.clone())
         .unwrap_or_default();
-    let active_group_sessions = active_group_id
-        .map(|group_id| snapshot.sessions_in_group(group_id))
-        .unwrap_or_default();
-    let active_path = active_group_id
-        .and_then(|group_id| snapshot.group_path(group_id))
-        .unwrap_or(".")
-        .to_string();
-
-    let terminal_snapshot_by_id: HashMap<SessionId, TerminalPaneData> = {
-        let mut panes = HashMap::new();
-        let runtime = terminal_manager.read().clone();
-        for session in &active_group_sessions {
-            let runtime_snapshot = runtime.snapshot_shared(session.id);
-            let is_runtime_ready = runtime_snapshot.is_some();
-            let terminal =
-                runtime_snapshot.unwrap_or_else(|| Arc::new(pending_terminal_snapshot()));
-            let cwd = runtime.session_cwd(session.id).unwrap_or_else(|| {
-                snapshot
-                    .group_path(session.group_id)
-                    .unwrap_or(".")
-                    .to_string()
-            });
-            panes.insert(
-                session.id,
-                TerminalPaneData {
-                    terminal,
-                    cwd,
-                    is_runtime_ready,
-                },
-            );
-        }
-        panes
-    };
-
-    let orchestrator_runtime_by_id = terminal_snapshot_by_id
-        .iter()
-        .map(|(session_id, pane)| {
-            (
-                *session_id,
-                orchestrator::SessionRuntimeView {
-                    lines: &pane.terminal.lines,
-                    cwd: pane.cwd.as_str(),
-                    is_runtime_ready: pane.is_runtime_ready,
-                },
-            )
-        })
-        .collect::<HashMap<SessionId, orchestrator::SessionRuntimeView>>();
-    let orchestrator_snapshot: Option<GroupOrchestratorSnapshot> =
-        active_group_id.map(|group_id| {
-            orchestrator::snapshot_group_from_runtime(
-                &snapshot,
-                group_id,
-                focused_terminal_id,
-                &orchestrator_runtime_by_id,
-            )
-        });
+    let active_runner = workspace_projection
+        .as_ref()
+        .and_then(|projection| projection.runner.clone());
+    let orchestrator_snapshot: Option<GroupOrchestratorSnapshot> = workspace_projection
+        .as_ref()
+        .map(|projection| projection.orchestrator.clone());
 
     let mut sidebar_open = sidebar_open;
     let persistence_feedback_value = persistence_feedback.read().clone();
@@ -212,8 +196,9 @@ pub(crate) fn WorkspaceMain(
     let renaming_header_id = *renaming_header.read();
     let rename_header_draft_value = rename_header_draft.read().clone();
 
-    let active_layout = active_group_id
-        .map(|group_id| snapshot.group_layout(group_id))
+    let active_layout = workspace_projection
+        .as_ref()
+        .map(|projection| projection.layout)
         .unwrap_or_else(GroupLayout::default);
     let runner_width = active_layout
         .runner_width_px
@@ -383,36 +368,29 @@ pub(crate) fn WorkspaceMain(
                             div { class: "{agent_stack_class}", style: "{agent_stack_style}",
                                 for (index, session) in active_agents.into_iter().enumerate() {
                                     {
-                                        let session_id = session.id;
-                                        let selected = snapshot.selected_session == Some(session_id);
-                                        let terminal_is_focused = focused_terminal_id == Some(session_id);
+                                        let session_id = session.session.id;
+                                        let selected = session.is_selected;
+                                        let terminal_is_focused = session.is_focused;
                                         let pane_class = if selected {
                                             "terminal-card agent selected"
                                         } else {
                                             "terminal-card agent"
                                         };
-                                        let card_style = format!("border-top-color: var({});", session.status.css_var());
-                                        let pane = terminal_snapshot_by_id
-                                            .get(&session_id)
-                                            .cloned()
-                                            .unwrap_or_else(|| TerminalPaneData {
-                                                terminal: Arc::new(pending_terminal_snapshot()),
-                                                cwd: snapshot
-                                                    .group_path(session.group_id)
-                                                    .unwrap_or(".")
-                                                    .to_string(),
-                                                is_runtime_ready: false,
-                                            });
-                                        let terminal = pane.terminal;
+                                        let card_style = format!(
+                                            "border-top-color: var({});",
+                                            session.session.status.css_var()
+                                        );
+                                        let terminal = session.terminal.clone();
                                         let cwd = format_cwd_for_display(
-                                            &pane.cwd,
-                                            snapshot.group_path(session.group_id).unwrap_or("."),
+                                            &session.cwd,
+                                            active_path.as_str(),
                                         );
                                         let terminal_manager_for_input = terminal_manager.read().clone();
                                         let emily_bridge_for_history = emily_bridge.read().clone();
                                         let is_renaming_header = renaming_header_id == Some(session_id);
-                                        let title_for_header_start = session.title.clone();
-                                        let rename_header_aria = format!("Rename terminal {}", session.title);
+                                        let title_for_header_start = session.session.title.clone();
+                                        let rename_header_aria =
+                                            format!("Rename terminal {}", session.session.title);
 
                                         rsx! {
                                             article {
@@ -467,7 +445,7 @@ pub(crate) fn WorkspaceMain(
                                                                     renaming_header.set(Some(session_id));
                                                                     rename_header_draft.set(title_for_header_start.clone());
                                                                 },
-                                                                "{session.title}"
+                                                                "{session.session.title}"
                                                             }
                                                         }
                                                         p { class: "terminal-meta", "cwd: {cwd}" }
@@ -582,36 +560,29 @@ pub(crate) fn WorkspaceMain(
                             aside { class: "run-sidebar split-enabled", style: "{run_sidebar_style}",
                                 if let Some(session) = active_runner {
                                     {
-                                        let session_id = session.id;
-                                        let selected = snapshot.selected_session == Some(session_id);
-                                        let terminal_is_focused = focused_terminal_id == Some(session_id);
+                                        let session_id = session.session.id;
+                                        let selected = session.is_selected;
+                                        let terminal_is_focused = session.is_focused;
                                         let pane_class = if selected {
                                             "terminal-card runner selected"
                                         } else {
                                             "terminal-card runner"
                                         };
-                                        let card_style = format!("border-top-color: var({});", session.status.css_var());
-                                        let pane = terminal_snapshot_by_id
-                                            .get(&session_id)
-                                            .cloned()
-                                            .unwrap_or_else(|| TerminalPaneData {
-                                                terminal: Arc::new(pending_terminal_snapshot()),
-                                                cwd: snapshot
-                                                    .group_path(session.group_id)
-                                                    .unwrap_or(".")
-                                                    .to_string(),
-                                                is_runtime_ready: false,
-                                            });
-                                        let terminal = pane.terminal;
+                                        let card_style = format!(
+                                            "border-top-color: var({});",
+                                            session.session.status.css_var()
+                                        );
+                                        let terminal = session.terminal.clone();
                                         let cwd = format_cwd_for_display(
-                                            &pane.cwd,
-                                            snapshot.group_path(session.group_id).unwrap_or("."),
+                                            &session.cwd,
+                                            active_path.as_str(),
                                         );
                                         let terminal_manager_for_input = terminal_manager.read().clone();
                                         let emily_bridge_for_history = emily_bridge.read().clone();
                                         let is_renaming_header = renaming_header_id == Some(session_id);
-                                        let title_for_header_start = session.title.clone();
-                                        let rename_header_aria = format!("Rename terminal {}", session.title);
+                                        let title_for_header_start = session.session.title.clone();
+                                        let rename_header_aria =
+                                            format!("Rename terminal {}", session.session.title);
 
                                         rsx! {
                                             article {
@@ -666,7 +637,7 @@ pub(crate) fn WorkspaceMain(
                                                                     renaming_header.set(Some(session_id));
                                                                     rename_header_draft.set(title_for_header_start.clone());
                                                                 },
-                                                                "{session.title}"
+                                                                "{session.session.title}"
                                                             }
                                                         }
                                                         p { class: "terminal-meta", "cwd: {cwd}" }
@@ -811,141 +782,18 @@ fn vectorization_badge_label(status: &VectorizationStatus) -> String {
     "EMB OFF".to_string()
 }
 
-fn derive_session_status_from_activity(
-    current_status: SessionStatus,
-    last_activity_unix_ms: Option<i64>,
-    now_unix_ms: i64,
-) -> SessionStatus {
-    let is_recent = is_recent_activity(last_activity_unix_ms, now_unix_ms);
-    match current_status {
-        SessionStatus::Error => {
-            if is_recent {
-                SessionStatus::Busy
-            } else if last_activity_unix_ms.unwrap_or(0) > 0 {
-                SessionStatus::Idle
-            } else {
-                SessionStatus::Error
-            }
-        }
-        SessionStatus::Busy | SessionStatus::Idle => {
-            if is_recent {
-                SessionStatus::Busy
-            } else {
-                SessionStatus::Idle
-            }
-        }
-    }
-}
-
-fn is_recent_activity(last_activity_unix_ms: Option<i64>, now_unix_ms: i64) -> bool {
-    let Some(last_activity_unix_ms) = last_activity_unix_ms else {
-        return false;
-    };
-    if last_activity_unix_ms <= 0 {
-        return false;
-    }
-    if now_unix_ms < last_activity_unix_ms {
-        return true;
-    }
-    now_unix_ms - last_activity_unix_ms <= STATUS_BUSY_ACTIVITY_WINDOW_MS
-}
-
-fn apply_session_activity(
+fn apply_status_updates(
     mut app_state: Signal<AppState>,
-    terminal_manager: &TerminalManager,
-    session_id: SessionId,
-    idle_deadlines: &mut HashMap<SessionId, tokio::time::Instant>,
+    updates: Vec<orchestrator::SessionStatusUpdate>,
 ) {
-    let now_ms = unix_now_ms();
-    let last_activity = terminal_manager.session_last_activity_unix_ms(session_id);
-    let current_status = {
-        let state = app_state.read();
-        state
-            .sessions
-            .iter()
-            .find(|session| session.id == session_id)
-            .map(|session| session.status)
-    };
-    let Some(current_status) = current_status else {
-        idle_deadlines.remove(&session_id);
-        return;
-    };
-
-    if let Some(deadline) = idle_deadline_from_activity(last_activity, now_ms) {
-        idle_deadlines.insert(session_id, deadline);
-    } else {
-        idle_deadlines.remove(&session_id);
-    }
-
-    let next_status = derive_session_status_from_activity(current_status, last_activity, now_ms);
-    if next_status != current_status {
-        app_state
-            .write()
-            .set_session_status(session_id, next_status);
-    }
-}
-
-fn reconcile_session_statuses(
-    mut app_state: Signal<AppState>,
-    terminal_manager: &TerminalManager,
-    idle_deadlines: &mut HashMap<SessionId, tokio::time::Instant>,
-) {
-    let now_ms = unix_now_ms();
-    let mut pending_updates = Vec::<(SessionId, SessionStatus)>::new();
-    let tracked_session_ids = {
-        let state = app_state.read();
-        let ids = state
-            .sessions
-            .iter()
-            .map(|session| session.id)
-            .collect::<Vec<_>>();
-        for session in &state.sessions {
-            let last_activity = terminal_manager.session_last_activity_unix_ms(session.id);
-            if let Some(deadline) = idle_deadline_from_activity(last_activity, now_ms) {
-                idle_deadlines.insert(session.id, deadline);
-            } else {
-                idle_deadlines.remove(&session.id);
-            }
-
-            let next_status =
-                derive_session_status_from_activity(session.status, last_activity, now_ms);
-            if next_status != session.status {
-                pending_updates.push((session.id, next_status));
-            }
-        }
-        ids
-    };
-
-    idle_deadlines.retain(|session_id, _| tracked_session_ids.contains(session_id));
-
-    if pending_updates.is_empty() {
+    if updates.is_empty() {
         return;
     }
 
     let mut state = app_state.write();
-    for (session_id, status) in pending_updates {
-        state.set_session_status(session_id, status);
+    for update in updates {
+        state.set_session_status(update.session_id, update.status);
     }
-}
-
-fn idle_deadline_from_activity(
-    last_activity_unix_ms: Option<i64>,
-    now_unix_ms: i64,
-) -> Option<tokio::time::Instant> {
-    if !is_recent_activity(last_activity_unix_ms, now_unix_ms) {
-        return None;
-    }
-
-    let remaining_ms =
-        STATUS_BUSY_ACTIVITY_WINDOW_MS.saturating_sub(now_unix_ms - last_activity_unix_ms?);
-    Some(tokio::time::Instant::now() + Duration::from_millis(remaining_ms as u64))
-}
-
-fn unix_now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_millis() as i64)
-        .unwrap_or(0)
 }
 
 fn percent_used(used: u64, total: u64) -> f32 {
@@ -988,10 +836,8 @@ fn format_cwd_for_display(cwd: &str, workspace_path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        derive_session_status_from_activity, format_bytes_compact, format_cwd_for_display,
-        idle_deadline_from_activity, percent_used, run_sidebar_style_for_panel,
+        format_bytes_compact, format_cwd_for_display, percent_used, run_sidebar_style_for_panel,
     };
-    use crate::state::SessionStatus;
     use crate::ui::sidebar_panel_host::SidebarPanelKind;
 
     #[test]
@@ -1046,47 +892,5 @@ mod tests {
     #[test]
     fn percent_used_returns_zero_for_missing_total() {
         assert_eq!(percent_used(1024, 0), 0.0);
-    }
-
-    #[test]
-    fn active_runtime_marks_session_busy() {
-        let now = 5_000;
-        let status = derive_session_status_from_activity(SessionStatus::Idle, Some(now - 200), now);
-        assert_eq!(status, SessionStatus::Busy);
-    }
-
-    #[test]
-    fn stale_activity_marks_session_idle() {
-        let now = 10_000;
-        let status =
-            derive_session_status_from_activity(SessionStatus::Busy, Some(now - 5_000), now);
-        assert_eq!(status, SessionStatus::Idle);
-    }
-
-    #[test]
-    fn error_without_runtime_activity_stays_error() {
-        let now = 10_000;
-        let status = derive_session_status_from_activity(SessionStatus::Error, None, now);
-        assert_eq!(status, SessionStatus::Error);
-    }
-
-    #[test]
-    fn error_clears_after_runtime_activity() {
-        let now = 10_000;
-        let status =
-            derive_session_status_from_activity(SessionStatus::Error, Some(now - 100), now);
-        assert_eq!(status, SessionStatus::Busy);
-    }
-
-    #[test]
-    fn recent_activity_produces_idle_deadline() {
-        let now = 10_000;
-        assert!(idle_deadline_from_activity(Some(now - 100), now).is_some());
-    }
-
-    #[test]
-    fn stale_activity_has_no_idle_deadline() {
-        let now = 10_000;
-        assert!(idle_deadline_from_activity(Some(now - 5_000), now).is_none());
     }
 }

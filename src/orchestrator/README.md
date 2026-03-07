@@ -8,6 +8,7 @@
 | ----------- | ----------- |
 | `mod.rs` | Module exports and orchestration surface |
 | `runtime.rs` | Group snapshot derivation and broadcast terminal actions |
+| `workspace.rs` | Active-workspace projection and session-status reconciliation |
 | `git.rs` | Orchestrator-facing Git operation wrappers |
 | `events.rs` | In-process event bus and event contracts |
 | `repo_watcher.rs` | Active-repo change watcher lifecycle |
@@ -21,7 +22,8 @@ UI needs grouped terminal actions and refresh signaling without direct dependenc
 - Must avoid UI dependencies.
 
 ## Decision
-Expose orchestrator APIs as a thin application layer over `state`, `terminal`, and `git` services.
+Expose orchestrator APIs as a thin application layer over `state`, `terminal`, and `git` services,
+including typed workspace projections and runtime-derived status reconciliation for UI consumers.
 
 ## Alternatives Rejected
 - Calling terminal and git modules directly from every UI component: rejected due to duplication.
@@ -31,6 +33,7 @@ Expose orchestrator APIs as a thin application layer over `state`, `terminal`, a
 - Orchestrator does not depend on UI modules.
 - Broadcast operations return per-session result status.
 - Event bus payloads remain typed.
+- Workspace projections may depend on terminal snapshots, but they remain presentation-agnostic.
 
 ## Revisit Triggers
 - External API/IPC layer is introduced.

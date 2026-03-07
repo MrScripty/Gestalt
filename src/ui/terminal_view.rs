@@ -4,16 +4,16 @@ use crate::state::{AppState, NewSnippet, SessionId, SessionStatus};
 use crate::terminal::{TerminalManager, TerminalSnapshot};
 use crate::ui::command_palette::{InsertCommandPalette, PaletteRow};
 use crate::ui::insert_command_mode::{
-    InsertModeOutcome, InsertModeSelection, InsertModeState, KeyModifiers, TerminalKeyRoute,
     command_matches, mode_after_blur, mode_after_focus, route_terminal_key, selected_command_id,
+    InsertModeOutcome, InsertModeSelection, InsertModeState, KeyModifiers, TerminalKeyRoute,
 };
 use crate::ui::terminal_input::{
-    COPY_SELECTION_JS, READ_CLIPBOARD_JS, cursor_move_bytes, install_terminal_paste_bridge,
-    install_terminal_scroll_behavior, is_terminal_scrolled_near_top, key_event_to_bytes,
-    map_click_to_terminal_cell, read_terminal_selection, select_terminal_round,
-    take_terminal_paste_buffer,
+    cursor_move_bytes, install_terminal_paste_bridge, install_terminal_scroll_behavior,
+    is_terminal_scrolled_near_top, key_event_to_bytes, map_click_to_terminal_cell,
+    read_terminal_selection, select_terminal_round, take_terminal_paste_buffer, COPY_SELECTION_JS,
+    READ_CLIPBOARD_JS,
 };
-use crate::ui::{EMILY_HISTORY_BACKFILL_PAGE_LINES, TerminalHistoryState};
+use crate::ui::{TerminalHistoryState, EMILY_HISTORY_BACKFILL_PAGE_LINES};
 use dioxus::document;
 use dioxus::prelude::*;
 use std::collections::HashMap;
@@ -558,22 +558,6 @@ pub(crate) fn terminal_shell(
                 }
             }
         }
-    }
-}
-
-pub(crate) fn pending_terminal_snapshot() -> TerminalSnapshot {
-    let rows = 42_u16;
-    let cols = 140_u16;
-    let mut lines = vec![String::new(); usize::from(rows)];
-    lines[0] = "# Terminal pending startup".to_string();
-    TerminalSnapshot {
-        lines,
-        rows,
-        cols,
-        cursor_row: 0,
-        cursor_col: 0,
-        hide_cursor: false,
-        bracketed_paste: false,
     }
 }
 
