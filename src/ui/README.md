@@ -71,6 +71,7 @@ The following loops are currently retained because upstream signal hooks are not
 - UI components may issue async requests to shared services and bridge adapters, but they must not block the UI-sensitive task path on worker responses or disk I/O.
 - Startup restore, history backfill, and embedding actions must tolerate stale results caused by session/path changes.
 - Background loops must have one owner, one cleanup path, and explicit overlap prevention.
+- Autosave coordination may compute signatures and schedule work, but snapshot building and projection/workspace disk writes must remain background-owned.
 - Compatibility note: synchronous bridge wrappers may remain for non-UI callers, but UI code must prefer async variants.
 
 ## Related ADRs

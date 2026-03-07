@@ -456,9 +456,22 @@ pub fn App() -> Element {
                         continue;
                     }
 
-                    let workspace =
-                        persistence::build_workspace_snapshot(&state, &terminal_manager);
-                    let _ = local_restore::save_projection(&workspace.terminals);
+                    let terminal_manager_for_snapshot = terminal_manager.clone();
+                    let workspace = match tokio::task::spawn_blocking(move || {
+                        persistence::build_workspace_snapshot(
+                            &state,
+                            &terminal_manager_for_snapshot,
+                        )
+                    })
+                    .await
+                    {
+                        Ok(workspace) => workspace,
+                        Err(error) => {
+                            persistence_feedback
+                                .set(format!("Autosave snapshot build failed: {error}"));
+                            continue;
+                        }
+                    };
 
                     let request = AutosaveRequest {
                         workspace,

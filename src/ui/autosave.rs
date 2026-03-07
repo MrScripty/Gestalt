@@ -1,3 +1,4 @@
+use crate::local_restore;
 use crate::persistence;
 use crate::state::SessionId;
 use parking_lot::Mutex;
@@ -96,19 +97,37 @@ fn autosave_worker_loop(
                             error: None,
                         }
                     }
-                    Ok(fingerprint) => match persistence::save_workspace(&request.workspace) {
-                        Ok(()) => {
-                            last_saved_fingerprint = Some(fingerprint);
-                            AutosaveResult {
-                                signature: request.signature,
-                                error: None,
+                    Ok(fingerprint) => {
+                        let projection_error =
+                            local_restore::save_projection(&request.workspace.terminals).err();
+                        let workspace_error = persistence::save_workspace(&request.workspace).err();
+
+                        match (projection_error, workspace_error) {
+                            (None, None) => {
+                                last_saved_fingerprint = Some(fingerprint);
+                                AutosaveResult {
+                                    signature: request.signature,
+                                    error: None,
+                                }
                             }
+                            (Some(projection_error), None) => AutosaveResult {
+                                signature: request.signature,
+                                error: Some(format!(
+                                    "Autosave failed: projection save error: {projection_error}"
+                                )),
+                            },
+                            (None, Some(workspace_error)) => AutosaveResult {
+                                signature: request.signature,
+                                error: Some(format!("Autosave failed: {workspace_error}")),
+                            },
+                            (Some(projection_error), Some(workspace_error)) => AutosaveResult {
+                                signature: request.signature,
+                                error: Some(format!(
+                                    "Autosave failed: projection save error: {projection_error}; workspace save error: {workspace_error}"
+                                )),
+                            },
                         }
-                        Err(error) => AutosaveResult {
-                            signature: request.signature,
-                            error: Some(format!("Autosave failed: {error}")),
-                        },
-                    },
+                    }
                     Err(error) => AutosaveResult {
                         signature: request.signature,
                         error: Some(format!("Autosave failed: fingerprint error: {error}")),
