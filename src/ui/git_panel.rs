@@ -248,7 +248,11 @@ pub(crate) fn GitPanel(
                                         div { class: "git-commit-list",
                                             div {
                                                 class: "git-summary-row",
-                                                p { class: "git-summary-label", "Unstaged files: {snapshot.unstaged_count}" }
+                                                span { class: "git-graph-spacer", aria_hidden: "true" }
+                                                div { class: "git-summary-content",
+                                                    p { class: "git-summary-label", "Unstaged files: {snapshot.unstaged_count}" }
+                                                    p { class: "git-summary-meta", "Select a commit node to inspect it. Double-click an unpushed row to edit its message." }
+                                                }
                                             }
                                             for commit in snapshot.commits.clone() {
                                                 {
@@ -310,14 +314,18 @@ pub(crate) fn GitPanel(
                                                                     }
                                                                 }
                                                             },
+                                                            span { class: "git-graph-spacer", aria_hidden: "true" }
                                                             div {
-                                                                class: "git-commit-line",
-                                                                span { class: "git-subject", "{commit.subject}" }
-                                                                if commit.is_unpushed {
-                                                                    span { class: "git-commit-badge", "Unpushed" }
+                                                                class: "git-commit-main",
+                                                                div {
+                                                                    class: "git-commit-line",
+                                                                    span { class: "git-subject", "{commit.subject}" }
+                                                                    if commit.is_unpushed {
+                                                                        span { class: "git-commit-badge", "Unpushed" }
+                                                                    }
                                                                 }
+                                                                p { class: "git-meta git-commit-meta", "{commit.short_sha} • {commit.author} • {commit.authored_at}{decoration_text}" }
                                                             }
-                                                            p { class: "git-meta", "{commit.short_sha} • {commit.author} • {commit.authored_at}{decoration_text}" }
                                                         }
                                                     }
                                                 }

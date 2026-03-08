@@ -13,6 +13,9 @@ pub struct PreparedLocalAgentCommand {
     pub display_command: String,
     pub dispatched_command: String,
     pub context_status: LocalAgentContextStatus,
+    pub source_session_id: Option<SessionId>,
+    pub context_object_ids: Vec<String>,
+    pub context_item_count: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,6 +67,9 @@ pub async fn prepare_local_agent_command(
             display_command: command.clone(),
             dispatched_command: command,
             context_status: LocalAgentContextStatus::NoCandidateSession,
+            source_session_id: None,
+            context_object_ids: Vec::new(),
+            context_item_count: 0,
         };
     };
 
@@ -79,16 +85,29 @@ pub async fn prepare_local_agent_command(
                 session_id,
                 item_count: packet.items.len(),
             },
+            source_session_id: Some(session_id),
+            context_object_ids: packet
+                .items
+                .iter()
+                .map(|item| item.object.id.clone())
+                .collect(),
+            context_item_count: packet.items.len(),
         },
         Ok(_) => PreparedLocalAgentCommand {
             display_command: command.clone(),
             dispatched_command: command,
             context_status: LocalAgentContextStatus::NoContext { session_id },
+            source_session_id: Some(session_id),
+            context_object_ids: Vec::new(),
+            context_item_count: 0,
         },
         Err(error) => PreparedLocalAgentCommand {
             display_command: command.clone(),
             dispatched_command: command,
             context_status: LocalAgentContextStatus::Unavailable { session_id, error },
+            source_session_id: Some(session_id),
+            context_object_ids: Vec::new(),
+            context_item_count: 0,
         },
     }
 }
@@ -209,6 +228,9 @@ mod tests {
             display_command: "cargo test".to_string(),
             dispatched_command: "cargo test\n\nEmily context".to_string(),
             context_status: LocalAgentContextStatus::NoCandidateSession,
+            source_session_id: None,
+            context_object_ids: Vec::new(),
+            context_item_count: 0,
         };
         assert_eq!(prepared.display_command, "cargo test");
         assert!(prepared.dispatched_command.starts_with("cargo test"));

@@ -10,6 +10,8 @@ pub mod emily_seed;
 pub mod git;
 /// Host-side local-agent prompt assembly backed by Emily context reads.
 pub mod local_agent_context;
+/// Host-side Emily episode recording and gate interpretation for local-agent runs.
+pub mod local_agent_episode;
 /// SQLite-backed local terminal restore projection.
 pub mod local_restore;
 /// SQLite-backed durable command/event/receipt timelines for orchestrated actions.

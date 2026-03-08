@@ -875,7 +875,12 @@ fn next_gui_scale(current: f64, step: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::{gui_scale_direction, next_gui_scale};
+    use crate::git::{self, RepoContext};
     use dioxus::prelude::Key;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use std::process::Command;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn recognizes_ctrl_plus_for_zoom_in() {
@@ -897,5 +902,126 @@ mod tests {
     fn clamps_scale_to_bounds() {
         assert_eq!(next_gui_scale(1.8, 0.1), 1.8);
         assert_eq!(next_gui_scale(0.7, -0.1), 0.7);
+    }
+
+    #[test]
+    fn git_panel_graph_layout_tracks_merge_history_from_repo_snapshot() {
+        let repo = TestRepo::new("ui-commit-graph");
+        let primary_branch = current_branch(repo.path());
+
+        write_file(&repo.path().join("main.txt"), "main branch\n");
+        run_git(repo.path(), &["add", "main.txt"]);
+        run_git(repo.path(), &["commit", "-m", "feat: main branch commit"]);
+
+        run_git(repo.path(), &["switch", "-c", "feature/graph"]);
+        write_file(&repo.path().join("feature.txt"), "feature branch\n");
+        run_git(repo.path(), &["add", "feature.txt"]);
+        run_git(
+            repo.path(),
+            &["commit", "-m", "feat: feature branch commit"],
+        );
+
+        run_git(repo.path(), &["switch", primary_branch.as_str()]);
+        write_file(&repo.path().join("main.txt"), "main branch updated\n");
+        run_git(repo.path(), &["add", "main.txt"]);
+        run_git(repo.path(), &["commit", "-m", "feat: branch divergence"]);
+        run_git(
+            repo.path(),
+            &[
+                "merge",
+                "--no-ff",
+                "feature/graph",
+                "-m",
+                "merge: feature graph",
+            ],
+        );
+
+        let repo_path = repo.path().to_string_lossy().to_string();
+        let snapshot = match git::load_repo_context(&repo_path, git::DEFAULT_COMMIT_LIMIT)
+            .expect("repo context should load")
+        {
+            RepoContext::Available(snapshot) => snapshot,
+            RepoContext::NotRepo { .. } => panic!("expected repo snapshot"),
+        };
+
+        let layout =
+            super::git_panel::git_commit_graph::build_commit_graph_layout(&snapshot.commits);
+        assert!(
+            snapshot
+                .commits
+                .iter()
+                .any(|commit| commit.subject == "merge: feature graph")
+        );
+        assert!(layout.lane_count >= 2);
+        assert!(layout.segments.iter().any(|segment| segment.is_merge));
+    }
+
+    struct TestRepo {
+        root: PathBuf,
+    }
+
+    impl TestRepo {
+        fn new(name: &str) -> Self {
+            let nonce = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_or(0, |duration| duration.as_nanos());
+            let root = std::env::temp_dir().join(format!("gestalt-{name}-{nonce}"));
+            fs::create_dir_all(&root).expect("test repo root should be created");
+
+            run_git(&root, &["init"]);
+            run_git(&root, &["config", "user.email", "gestalt-test@example.com"]);
+            run_git(&root, &["config", "user.name", "Gestalt Test"]);
+
+            write_file(&root.join("README.md"), "# test\n");
+            run_git(&root, &["add", "README.md"]);
+            run_git(&root, &["commit", "-m", "chore: initial"]);
+
+            Self { root }
+        }
+
+        fn path(&self) -> &Path {
+            &self.root
+        }
+    }
+
+    impl Drop for TestRepo {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.root);
+        }
+    }
+
+    fn current_branch(root: &Path) -> String {
+        let output = Command::new("git")
+            .args(["branch", "--show-current"])
+            .current_dir(root)
+            .output()
+            .expect("git branch command should run");
+        assert!(
+            output.status.success(),
+            "git branch --show-current should succeed"
+        );
+        String::from_utf8(output.stdout)
+            .expect("git output should be utf-8")
+            .trim()
+            .to_string()
+    }
+
+    fn write_file(path: &Path, contents: &str) {
+        fs::write(path, contents).expect("test repo file should be written");
+    }
+
+    fn run_git(root: &Path, args: &[&str]) {
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(root)
+            .output()
+            .expect("git command should run");
+        assert!(
+            output.status.success(),
+            "git {:?} failed\nstdout: {}\nstderr: {}",
+            args,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 }

@@ -3,9 +3,11 @@ use crate::terminal::TerminalMemorySink;
 use emily::api::EmilyApi;
 use emily::inference::EmbeddingProvider;
 use emily::model::{
-    ContextPacket, ContextQuery, DatabaseLocator, EmbeddingProviderStatus, HistoryPageRequest,
-    IngestTextRequest, TextObjectKind, VectorizationConfig, VectorizationConfigPatch,
-    VectorizationJobSnapshot, VectorizationRunRequest, VectorizationStatus,
+    ContextPacket, ContextQuery, CreateEpisodeRequest, DatabaseLocator, EarlEvaluationRecord,
+    EmbeddingProviderStatus, EpisodeRecord, EpisodeTraceLink, HistoryPageRequest,
+    IngestTextRequest, TextObjectKind, TraceLinkRequest, VectorizationConfig,
+    VectorizationConfigPatch, VectorizationJobSnapshot, VectorizationRunRequest,
+    VectorizationStatus,
 };
 use emily::runtime::EmilyRuntime;
 use emily::store::surreal::SurrealEmilyStore;
@@ -46,6 +48,22 @@ enum BridgeCommand {
     IngestSnippet {
         request: SnippetIngestRequest,
         response_tx: oneshot::Sender<Result<SnippetIngestResult, String>>,
+    },
+    CreateEpisode {
+        request: CreateEpisodeRequest,
+        response_tx: oneshot::Sender<Result<EpisodeRecord, String>>,
+    },
+    LinkTextToEpisode {
+        request: TraceLinkRequest,
+        response_tx: oneshot::Sender<Result<EpisodeTraceLink, String>>,
+    },
+    Episode {
+        episode_id: String,
+        response_tx: oneshot::Sender<Result<Option<EpisodeRecord>, String>>,
+    },
+    LatestEarlEvaluation {
+        episode_id: String,
+        response_tx: oneshot::Sender<Result<Option<EarlEvaluationRecord>, String>>,
     },
     UpdateVectorizationConfig {
         patch: VectorizationConfigPatch,
@@ -340,6 +358,67 @@ impl EmilyBridge {
             .map_err(|error| format!("failed sending snippet ingest request: {error}"))?;
         response_rx.await.map_err(|error| {
             format!("failed receiving snippet ingest response from Emily worker: {error}")
+        })?
+    }
+
+    pub async fn create_episode_async(
+        &self,
+        request: CreateEpisodeRequest,
+    ) -> Result<EpisodeRecord, String> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.command_tx
+            .send(BridgeCommand::CreateEpisode {
+                request,
+                response_tx,
+            })
+            .map_err(|error| format!("failed sending episode create request: {error}"))?;
+        response_rx.await.map_err(|error| {
+            format!("failed receiving episode create response from Emily worker: {error}")
+        })?
+    }
+
+    pub async fn link_text_to_episode_async(
+        &self,
+        request: TraceLinkRequest,
+    ) -> Result<EpisodeTraceLink, String> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.command_tx
+            .send(BridgeCommand::LinkTextToEpisode {
+                request,
+                response_tx,
+            })
+            .map_err(|error| format!("failed sending episode trace-link request: {error}"))?;
+        response_rx.await.map_err(|error| {
+            format!("failed receiving episode trace-link response from Emily worker: {error}")
+        })?
+    }
+
+    pub async fn episode_async(&self, episode_id: String) -> Result<Option<EpisodeRecord>, String> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.command_tx
+            .send(BridgeCommand::Episode {
+                episode_id,
+                response_tx,
+            })
+            .map_err(|error| format!("failed sending episode read request: {error}"))?;
+        response_rx.await.map_err(|error| {
+            format!("failed receiving episode read response from Emily worker: {error}")
+        })?
+    }
+
+    pub async fn latest_earl_evaluation_for_episode_async(
+        &self,
+        episode_id: String,
+    ) -> Result<Option<EarlEvaluationRecord>, String> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.command_tx
+            .send(BridgeCommand::LatestEarlEvaluation {
+                episode_id,
+                response_tx,
+            })
+            .map_err(|error| format!("failed sending EARL read request: {error}"))?;
+        response_rx.await.map_err(|error| {
+            format!("failed receiving EARL read response from Emily worker: {error}")
         })?
     }
 
@@ -683,6 +762,46 @@ fn run_worker(
                     let result =
                         ingest_snippet_object(&emily_runtime, &mut sequence_by_stream, request)
                             .await;
+                    let _ = response_tx.send(result);
+                }
+                BridgeCommand::CreateEpisode {
+                    request,
+                    response_tx,
+                } => {
+                    let result = emily_runtime
+                        .create_episode(request)
+                        .await
+                        .map_err(|error| format!("Emily create episode failed: {error}"));
+                    let _ = response_tx.send(result);
+                }
+                BridgeCommand::LinkTextToEpisode {
+                    request,
+                    response_tx,
+                } => {
+                    let result = emily_runtime
+                        .link_text_to_episode(request)
+                        .await
+                        .map_err(|error| format!("Emily trace-link failed: {error}"));
+                    let _ = response_tx.send(result);
+                }
+                BridgeCommand::Episode {
+                    episode_id,
+                    response_tx,
+                } => {
+                    let result = emily_runtime
+                        .episode(&episode_id)
+                        .await
+                        .map_err(|error| format!("Emily episode read failed: {error}"));
+                    let _ = response_tx.send(result);
+                }
+                BridgeCommand::LatestEarlEvaluation {
+                    episode_id,
+                    response_tx,
+                } => {
+                    let result = emily_runtime
+                        .latest_earl_evaluation_for_episode(&episode_id)
+                        .await
+                        .map_err(|error| format!("Emily latest EARL read failed: {error}"));
                     let _ = response_tx.send(result);
                 }
                 BridgeCommand::UpdateVectorizationConfig { patch, response_tx } => {

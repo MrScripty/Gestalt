@@ -59,6 +59,7 @@ contract fix.
 - Autosave feedback is rendered in UI, but debounce/inflight worker coordination is consumed from orchestrator.
 - Local-agent send actions start attributed runs through orchestrator facades; UI does not persist run checkpoints directly.
 - Local-agent Emily retrieval is assembled through host-side async helpers; the panel keeps the human-entered command separate from the dispatched prompt payload used for terminal writes.
+- Local-agent Emily episode creation and host-side gate interpretation stay in host helpers; the UI only renders the resulting feedback and dispatch counts.
 - Run review loads checkpoint-derived data on demand and refreshes from existing Git context signals instead of starting a separate polling loop.
 - Sidebar hosts forward the shared `git_refresh_nonce` into repo-aware child panels; refresh invalidation remains owned by the action-producing child surface rather than the container.
 

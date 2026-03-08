@@ -1,5 +1,8 @@
 use crate::emily_bridge::EmilyBridge;
 use crate::local_agent_context::prepare_local_agent_command;
+use crate::local_agent_episode::{
+    episode_request_from_prepared_command, record_local_agent_episode,
+};
 use crate::orchestration_log::{
     CommandKind, CommandPayload, OrchestrationLogStore, ReceiptStatus, RecentActivityRecord,
 };
@@ -84,6 +87,7 @@ pub(crate) fn LocalAgentPanel(
                                 "Assembling local-agent command with Emily context...".to_string();
 
                             let emily_bridge = emily_bridge_for_send.clone();
+                            let emily_bridge_for_episode = emily_bridge_for_send.clone();
                             let group_orchestrator = group_orchestrator_for_send.clone();
                             let terminal_manager = terminal_manager_for_send.clone();
                             let workspace_snapshot = app_state.read().workspace_state().clone();
@@ -134,12 +138,30 @@ pub(crate) fn LocalAgentPanel(
                                 let ok_count =
                                     results.iter().filter(|result| result.error.is_none()).count();
                                 let fail_count = results.len().saturating_sub(ok_count);
+                                let episode_feedback = match record_local_agent_episode(
+                                    emily_bridge_for_episode,
+                                    episode_request_from_prepared_command(
+                                        group_id,
+                                        group_path_for_send.clone(),
+                                        dispatch.run_id.clone(),
+                                        &prepared,
+                                        ok_count,
+                                        fail_count,
+                                    ),
+                                )
+                                .await
+                                {
+                                    Ok(status) => status.feedback_suffix(),
+                                    Err(error) => {
+                                        format!(" Emily episode recording failed: {error}.")
+                                    }
+                                };
                                 if ok_count > 0 {
                                     ui_state.write().local_agent_command.clear();
                                     bump_refresh_nonce(git_refresh_nonce);
                                 }
                                 ui_state.write().local_agent_feedback = format!(
-                                    "Broadcast complete: {ok_count} success, {fail_count} failed.{context_feedback}"
+                                    "Broadcast complete: {ok_count} success, {fail_count} failed.{context_feedback}{episode_feedback}"
                                 );
                                 refresh_recent_activity(
                                     recent_activity,

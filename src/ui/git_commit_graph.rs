@@ -2,8 +2,9 @@ use crate::git::CommitInfo;
 
 pub(crate) const GRAPH_ROW_HEIGHT_PX: f32 = 56.0;
 pub(crate) const GRAPH_LANE_WIDTH_PX: f32 = 16.0;
-pub(crate) const GRAPH_GUTTER_PADDING_PX: f32 = 8.0;
-pub(crate) const GRAPH_NODE_RADIUS_PX: f32 = 4.5;
+pub(crate) const GRAPH_GUTTER_PADDING_PX: f32 = 12.0;
+pub(crate) const GRAPH_NODE_RADIUS_PX: f32 = 5.0;
+const GRAPH_MIN_GUTTER_WIDTH_PX: f32 = 120.0;
 
 #[derive(Clone, Debug)]
 pub(crate) struct GraphSegment {
@@ -79,7 +80,7 @@ pub(crate) fn build_commit_graph_layout(commits: &[CommitInfo]) -> CommitGraphLa
         nodes.push(GraphNode {
             sha: commit.sha.clone(),
             lane: commit_lane,
-            x: lane_center_x(commit_lane),
+            x: 0.0,
             y: row_center_y(commit_idx + 1),
             is_unpushed: commit.is_unpushed,
         });
@@ -100,9 +101,9 @@ pub(crate) fn build_commit_graph_layout(commits: &[CommitInfo]) -> CommitGraphLa
                     segments.push(GraphSegment {
                         from_lane: lane,
                         to_lane: lane,
-                        x1: lane_center_x(lane),
+                        x1: 0.0,
                         y1: row_center_y(commit_idx + 1),
-                        x2: lane_center_x(lane),
+                        x2: 0.0,
                         y2: row_center_y(commit_idx + 2),
                         is_merge: false,
                     });
@@ -114,9 +115,9 @@ pub(crate) fn build_commit_graph_layout(commits: &[CommitInfo]) -> CommitGraphLa
                     segments.push(GraphSegment {
                         from_lane: commit_lane,
                         to_lane: parent_lane,
-                        x1: lane_center_x(commit_lane),
+                        x1: 0.0,
                         y1: row_center_y(commit_idx + 1),
-                        x2: lane_center_x(parent_lane),
+                        x2: 0.0,
                         y2: row_center_y(commit_idx + 2),
                         is_merge: true,
                     });
@@ -126,11 +127,20 @@ pub(crate) fn build_commit_graph_layout(commits: &[CommitInfo]) -> CommitGraphLa
     }
 
     let lane_count = (max_lane + 1).max(1);
+    let lane_spacing = graph_lane_spacing_px(lane_count);
+    for node in &mut nodes {
+        node.x = lane_center_x(node.lane, lane_spacing);
+    }
+    for segment in &mut segments {
+        segment.x1 = lane_center_x(segment.from_lane, lane_spacing);
+        segment.x2 = lane_center_x(segment.to_lane, lane_spacing);
+    }
+
     CommitGraphLayout {
         lane_count,
         gutter_width_px: graph_gutter_width_px(lane_count),
         overlay_height_px: GRAPH_ROW_HEIGHT_PX * (commits.len() + 1) as f32,
-        summary_x: lane_center_x(0),
+        summary_x: lane_center_x(0, lane_spacing),
         summary_y: row_center_y(0),
         nodes,
         segments,
@@ -163,16 +173,23 @@ fn clear_duplicate_lanes(active_lanes: &mut [Option<String>], keep_lane: usize, 
     }
 }
 
-fn lane_center_x(lane: usize) -> f32 {
-    GRAPH_GUTTER_PADDING_PX + GRAPH_LANE_WIDTH_PX * lane as f32 + (GRAPH_LANE_WIDTH_PX / 2.0)
+fn lane_center_x(lane: usize, lane_spacing: f32) -> f32 {
+    GRAPH_GUTTER_PADDING_PX + lane_spacing * lane as f32 + (lane_spacing / 2.0)
 }
 
 fn row_center_y(row_index: usize) -> f32 {
     GRAPH_ROW_HEIGHT_PX * (row_index as f32 + 0.5)
 }
 
+fn graph_lane_spacing_px(lane_count: usize) -> f32 {
+    let lane_count = lane_count.max(1) as f32;
+    let expanded_spacing = (GRAPH_MIN_GUTTER_WIDTH_PX - GRAPH_GUTTER_PADDING_PX * 2.0) / lane_count;
+    GRAPH_LANE_WIDTH_PX.max(expanded_spacing)
+}
+
 pub(crate) fn graph_gutter_width_px(lane_count: usize) -> f32 {
-    GRAPH_GUTTER_PADDING_PX * 2.0 + GRAPH_LANE_WIDTH_PX * lane_count.max(1) as f32
+    let lane_count = lane_count.max(1);
+    GRAPH_GUTTER_PADDING_PX * 2.0 + graph_lane_spacing_px(lane_count) * lane_count as f32
 }
 
 #[cfg(test)]
@@ -212,6 +229,20 @@ mod tests {
                 .iter()
                 .any(|segment| segment.from_lane != segment.to_lane)
         );
+    }
+
+    #[test]
+    fn graph_first_layout_expands_single_lane_history_width() {
+        let commits = vec![
+            commit("a", &["b"], false),
+            commit("b", &["c"], false),
+            commit("c", &[], false),
+        ];
+
+        let layout = build_commit_graph_layout(&commits);
+        assert!(layout.gutter_width_px >= GRAPH_MIN_GUTTER_WIDTH_PX);
+        assert!(layout.summary_x > GRAPH_GUTTER_PADDING_PX + GRAPH_NODE_RADIUS_PX);
+        assert!(layout.nodes.iter().all(|node| node.x == layout.summary_x));
     }
 
     fn commit(sha: &str, parents: &[&str], is_unpushed: bool) -> CommitInfo {
