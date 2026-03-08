@@ -278,6 +278,7 @@ fn recent_activity_for_group_path_includes_receipt_status() {
                 group_path: "/tmp/activity".to_string(),
                 session_ids: vec![9, 10],
                 line: "cargo check".to_string(),
+                run_id: None,
             },
         })
         .expect("command should record");

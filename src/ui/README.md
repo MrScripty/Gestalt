@@ -18,7 +18,7 @@
 | `git_helpers.rs` | Shared helper actions for Git UI |
 | `command_palette.rs` | Palette interactions |
 | `insert_command_mode.rs` | Insert mode state and controls |
-| `local_agent_panel.rs` | Local agent control panel |
+| `local_agent_panel.rs` | Local agent control panel and run-start dispatch surface |
 | `sidebar_panel_host.rs` | Sidebar container selection |
 
 ## Problem
@@ -52,6 +52,7 @@ root-shared transient interaction state in `UiState`; feature-local drafts remai
 - Components remain keyboard reachable.
 - Startup/session lifecycle coordination is consumed from orchestrator facades rather than duplicated across UI surfaces.
 - Autosave feedback is rendered in UI, but debounce/inflight worker coordination is consumed from orchestrator.
+- Local-agent send actions start attributed runs through orchestrator facades; UI does not persist run checkpoints directly.
 
 ## Revisit Triggers
 - Component files exceed maintainability limits.

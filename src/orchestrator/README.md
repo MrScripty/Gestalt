@@ -7,7 +7,7 @@
 | File/Folder | Description |
 | ----------- | ----------- |
 | `mod.rs` | Module exports and orchestration surface |
-| `runtime.rs` | Group snapshot derivation and broadcast terminal actions |
+| `runtime.rs` | Group snapshot derivation, broadcast terminal actions, and local-agent run start sequencing |
 | `workspace.rs` | Active-workspace projection and session-status reconciliation |
 | `startup.rs` | Startup target ordering and background session/history coordination |
 | `session.rs` | Group/session lifecycle facades used by UI actions |
@@ -25,11 +25,13 @@ UI needs grouped terminal actions and refresh signaling without direct dependenc
 - Must avoid UI dependencies.
 - Background ownership must remain explicit when startup/session coordination moves out of UI.
 - Background autosave scheduling must preserve dedupe and shutdown semantics.
+- Local-agent run start must sequence checkpoint capture before command dispatch when run attribution is required.
 
 ## Decision
 Expose orchestrator APIs as a thin application layer over `state`, `terminal`, and `git` services,
-including typed workspace projections, startup coordination, and runtime-derived status
-reconciliation for UI consumers, while keeping autosave worker state outside presentation code.
+including typed workspace projections, startup coordination, runtime-derived status
+reconciliation for UI consumers, and checkpoint-before-dispatch run sequencing for local-agent
+starts, while keeping autosave worker state outside presentation code.
 
 ## Alternatives Rejected
 - Calling terminal and git modules directly from every UI component: rejected due to duplication.
@@ -42,6 +44,7 @@ reconciliation for UI consumers, while keeping autosave worker state outside pre
 - Workspace projections may depend on terminal snapshots, but they remain presentation-agnostic.
 - Startup/session helpers may own coordination state, but UI remains responsible for rendering and transient signals.
 - Autosave coordination may debounce and defer requests, but persistence payload construction remains typed and deterministic.
+- Local-agent run start owns checkpoint capture sequencing; UI callers do not create checkpoints directly.
 
 ## Revisit Triggers
 - External API/IPC layer is introduced.

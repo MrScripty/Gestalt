@@ -75,12 +75,19 @@ pub(crate) fn LocalAgentPanel(
                             }
 
                             let workspace_snapshot = app_state.read().workspace_state().clone();
-                            let results = orchestrator::send_local_agent_command_to_group(
+                            let dispatch = match orchestrator::start_local_agent_run(
                                 &workspace_snapshot,
                                 &terminal_manager_for_send,
                                 group_id,
                                 &command,
-                            );
+                            ) {
+                                Ok(dispatch) => dispatch,
+                                Err(error) => {
+                                    ui_state.write().local_agent_feedback = error.to_string();
+                                    return;
+                                }
+                            };
+                            let results = dispatch.results;
 
                             let mut state = app_state.write();
                             apply_orchestrator_results(&mut state, &results);

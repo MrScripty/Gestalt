@@ -2,6 +2,7 @@ use crate::orchestration_log::{
     CommandPayload, EventPayload, NewCommandRecord, NewEventRecord, NewReceiptRecord,
     OrchestrationLogStore, ReceiptPayload, ReceiptStatus,
 };
+use crate::run_checkpoints::{self, RunCheckpointError};
 use crate::state::{GroupId, SessionId, SessionRole, SessionStatus, WorkspaceState};
 use crate::terminal::TerminalManager;
 use std::collections::HashMap;
@@ -52,6 +53,13 @@ pub struct GroupOrchestratorSnapshot {
 pub struct SessionWriteResult {
     pub session_id: SessionId,
     pub error: Option<String>,
+}
+
+/// Result of starting a local-agent run, including optional checkpoint linkage.
+#[derive(Debug, Clone)]
+pub struct LocalAgentRunDispatch {
+    pub run_id: Option<String>,
+    pub results: Vec<SessionWriteResult>,
 }
 
 /// Lightweight runtime data used to build orchestrator snapshots.
@@ -290,6 +298,37 @@ pub fn send_local_agent_command_to_group(
     group_id: GroupId,
     line: &str,
 ) -> Vec<SessionWriteResult> {
+    send_local_agent_command_to_group_with_run_id(workspace, terminal_manager, group_id, line, None)
+}
+
+/// Captures a run checkpoint when available and dispatches the local-agent command.
+pub fn start_local_agent_run(
+    workspace: &WorkspaceState,
+    terminal_manager: &TerminalManager,
+    group_id: GroupId,
+    line: &str,
+) -> Result<LocalAgentRunDispatch, RunCheckpointError> {
+    let group_path = workspace.group_path(group_id).unwrap_or(".").to_string();
+    let checkpoint = run_checkpoints::capture_run_checkpoint(group_id, &group_path, line)?;
+    let run_id = checkpoint.as_ref().map(|record| record.run_id.clone());
+    let results = send_local_agent_command_to_group_with_run_id(
+        workspace,
+        terminal_manager,
+        group_id,
+        line,
+        run_id.clone(),
+    );
+
+    Ok(LocalAgentRunDispatch { run_id, results })
+}
+
+fn send_local_agent_command_to_group_with_run_id(
+    workspace: &WorkspaceState,
+    terminal_manager: &TerminalManager,
+    group_id: GroupId,
+    line: &str,
+    run_id: Option<String>,
+) -> Vec<SessionWriteResult> {
     let session_ids = group_session_ids(workspace, group_id);
     let group_path = workspace.group_path(group_id).unwrap_or(".").to_string();
     let now_ms = current_unix_ms();
@@ -306,6 +345,7 @@ pub fn send_local_agent_command_to_group(
             group_path,
             session_ids: session_ids.clone(),
             line: line.to_string(),
+            run_id,
         },
     }) {
         return log_blocked_results(

@@ -12,10 +12,11 @@ pub use autosave::{
     AutosaveWorker,
 };
 pub use runtime::{
-    GroupOrchestratorSnapshot, GroupTerminalState, SessionRuntimeView, SessionWriteResult,
-    TerminalRound, broadcast_line_to_group, group_session_ids, interrupt_group,
+    GroupOrchestratorSnapshot, GroupTerminalState, LocalAgentRunDispatch, SessionRuntimeView,
+    SessionWriteResult, TerminalRound, broadcast_line_to_group, group_session_ids, interrupt_group,
     interrupt_local_agent_group, interrupt_sessions, send_line_to_sessions,
     send_local_agent_command_to_group, snapshot_group, snapshot_group_from_runtime,
+    start_local_agent_run,
 };
 pub use session::{
     GroupOpenResult, add_session_to_group, ensure_group_for_path, remove_group, remove_session,
