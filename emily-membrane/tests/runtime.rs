@@ -937,3 +937,61 @@ async fn evaluate_routing_policy_cautions_existing_cautioned_episode() {
             .any(|finding| finding.code == "episode-cautioned")
     );
 }
+
+#[tokio::test]
+async fn execute_remote_with_policy_and_record_returns_policy_only_for_rejected_route() {
+    let registry = Arc::new(InMemoryProviderRegistry::with_targets([(
+        RegisteredProviderTarget {
+            target: ProviderTarget {
+                provider_id: "provider-a".into(),
+                model_id: Some("model-a".into()),
+                profile_id: Some("reasoning".into()),
+                capability_tags: vec!["analysis".into()],
+                metadata: serde_json::json!({}),
+            },
+        },
+        Arc::new(StubProvider {
+            provider_id: "provider-a",
+        }) as Arc<dyn MembraneProvider>,
+    )]));
+    let runtime = MembraneRuntime::with_provider_registry(
+        Arc::new(StubEmilyApi::with_latest_earl(emily::EarlDecision::Reflex)),
+        registry,
+    );
+
+    let result = runtime
+        .execute_remote_with_policy_and_record(
+            MembraneTaskRequest {
+                task_id: "task-1".into(),
+                episode_id: "episode-1".into(),
+                task_text: "remote task".into(),
+                context_fragments: Vec::new(),
+                allow_remote: true,
+            },
+            RoutingPolicyRequest {
+                task_id: "task-1".into(),
+                episode_id: "episode-1".into(),
+                allow_remote: true,
+                sensitivity: RoutingSensitivity::Normal,
+                preference: RemoteRoutingPreference {
+                    provider_id: None,
+                    profile_id: Some("reasoning".into()),
+                    required_capability_tags: vec!["analysis".into()],
+                },
+            },
+            RemoteExecutionPersistence {
+                route_decision_id: "route-1".into(),
+                route_decided_at_unix_ms: 10,
+                provider_request_id: "provider-request-1".into(),
+                remote_episode_id: "remote-1".into(),
+                remote_dispatched_at_unix_ms: 11,
+                validation_id: "validation-1".into(),
+                validated_at_unix_ms: 12,
+            },
+        )
+        .await
+        .expect("execute policy-selected route");
+
+    assert_eq!(result.policy.outcome, RoutingPolicyOutcome::Rejected);
+    assert!(result.remote_execution.is_none());
+}

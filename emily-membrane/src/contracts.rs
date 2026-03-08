@@ -264,6 +264,14 @@ pub struct RemoteExecutionRecord {
     pub validation_id: String,
 }
 
+/// Result of evaluating routing policy and optionally executing the selected
+/// remote path.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PolicySelectedRemoteExecution {
+    pub policy: RoutingPolicyResult,
+    pub remote_execution: Option<RemoteExecutionRecord>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

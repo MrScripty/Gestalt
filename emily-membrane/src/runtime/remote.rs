@@ -3,7 +3,8 @@ use super::{
 };
 use crate::contracts::{
     CompileResult, DispatchResult, DispatchStatus, MembraneRouteKind, MembraneTaskRequest,
-    RemoteExecutionPersistence, RemoteExecutionRecord, RemoteRoutingPreference, RoutingPlan,
+    PolicySelectedRemoteExecution, RemoteExecutionPersistence, RemoteExecutionRecord,
+    RemoteRoutingPreference, RoutingPlan, RoutingPolicyOutcome, RoutingPolicyRequest,
     RoutingTarget, ValidationEnvelope, ValidationFinding,
 };
 use crate::providers::{
@@ -94,6 +95,38 @@ where
         let target = self.select_remote_target(&preference).await?;
         self.execute_remote_and_record(request, target, persistence)
             .await
+    }
+
+    /// Evaluate routing policy and, when a single remote target is selected,
+    /// execute the existing provider-backed write path.
+    pub async fn execute_remote_with_policy_and_record(
+        &self,
+        request: MembraneTaskRequest,
+        policy_request: RoutingPolicyRequest,
+        persistence: RemoteExecutionPersistence,
+    ) -> Result<PolicySelectedRemoteExecution, MembraneRuntimeError> {
+        validate_policy_task_alignment(&request, &policy_request)?;
+
+        let policy = self.evaluate_routing_policy(policy_request).await?;
+        let remote_execution = match policy.outcome {
+            RoutingPolicyOutcome::SingleRemote => {
+                let target = policy.selected_target.clone().ok_or_else(|| {
+                    MembraneRuntimeError::InvalidState(
+                        "policy-selected remote execution requires a selected target".to_string(),
+                    )
+                })?;
+                Some(
+                    self.execute_remote_and_record(request, target, persistence)
+                        .await?,
+                )
+            }
+            RoutingPolicyOutcome::LocalOnly | RoutingPolicyOutcome::Rejected => None,
+        };
+
+        Ok(PolicySelectedRemoteExecution {
+            policy,
+            remote_execution,
+        })
     }
 
     /// Execute the first provider-backed remote path and persist the resulting
@@ -262,6 +295,28 @@ fn validate_remote_routing_preference(
                 "required_capability_tags must not contain empty values".to_string(),
             ));
         }
+    }
+    Ok(())
+}
+
+fn validate_policy_task_alignment(
+    request: &MembraneTaskRequest,
+    policy_request: &RoutingPolicyRequest,
+) -> Result<(), MembraneRuntimeError> {
+    if request.task_id != policy_request.task_id {
+        return Err(MembraneRuntimeError::InvalidRequest(
+            "policy-selected execution requires matching task_id values".to_string(),
+        ));
+    }
+    if request.episode_id != policy_request.episode_id {
+        return Err(MembraneRuntimeError::InvalidRequest(
+            "policy-selected execution requires matching episode_id values".to_string(),
+        ));
+    }
+    if request.allow_remote != policy_request.allow_remote {
+        return Err(MembraneRuntimeError::InvalidRequest(
+            "policy-selected execution requires matching allow_remote values".to_string(),
+        ));
     }
     Ok(())
 }

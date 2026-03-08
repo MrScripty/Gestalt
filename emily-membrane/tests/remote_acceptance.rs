@@ -216,7 +216,7 @@ async fn remote_execution_records_route_remote_episode_validation_and_audits_ide
 }
 
 #[tokio::test]
-async fn routing_policy_uses_earl_caution_before_remote_execution_and_persists_sovereign_records() {
+async fn policy_selected_remote_execution_uses_earl_caution_and_persists_sovereign_records() {
     let store = Arc::new(SurrealEmilyStore::new());
     let emily = Arc::new(EmilyRuntime::new(store.clone()));
     let registry = Arc::new(InMemoryProviderRegistry::single_target(
@@ -246,31 +246,32 @@ async fn routing_policy_uses_earl_caution_before_remote_execution_and_persists_s
 
     assert_eq!(earl.decision, EarlDecision::Caution);
 
-    let policy = runtime
-        .evaluate_routing_policy(RoutingPolicyRequest {
-            task_id: "task-remote-1".to_string(),
-            episode_id: "ep-membrane-remote".to_string(),
-            allow_remote: true,
-            sensitivity: RoutingSensitivity::Normal,
-            preference: routing_preference(),
-        })
+    let result = runtime
+        .execute_remote_with_policy_and_record(
+            task_request(),
+            RoutingPolicyRequest {
+                task_id: "task-remote-1".to_string(),
+                episode_id: "ep-membrane-remote".to_string(),
+                allow_remote: true,
+                sensitivity: RoutingSensitivity::Normal,
+                preference: routing_preference(),
+            },
+            persistence(),
+        )
         .await
-        .expect("evaluate routing policy");
+        .expect("execute policy-selected remote");
 
-    assert_eq!(policy.outcome, RoutingPolicyOutcome::SingleRemote);
-    assert!(policy.caution);
+    assert_eq!(result.policy.outcome, RoutingPolicyOutcome::SingleRemote);
+    assert!(result.policy.caution);
     assert!(
-        policy
+        result
+            .policy
             .findings
             .iter()
             .any(|finding| finding.code == "earl-caution-gate")
     );
 
-    let target = policy.selected_target.expect("selected target");
-    let execution = runtime
-        .execute_remote_and_record(task_request(), target, persistence())
-        .await
-        .expect("execute remote");
+    let execution = result.remote_execution.expect("remote execution");
 
     let routes = emily
         .routing_decisions_for_episode("ep-membrane-remote")
@@ -295,7 +296,7 @@ async fn routing_policy_uses_earl_caution_before_remote_execution_and_persists_s
 }
 
 #[tokio::test]
-async fn routing_policy_rejects_remote_dispatch_when_earl_reflex_blocks_episode() {
+async fn policy_selected_remote_execution_returns_policy_only_when_earl_reflex_blocks_episode() {
     let store = Arc::new(SurrealEmilyStore::new());
     let emily = Arc::new(EmilyRuntime::new(store.clone()));
     let registry = Arc::new(InMemoryProviderRegistry::single_target(
@@ -325,20 +326,25 @@ async fn routing_policy_rejects_remote_dispatch_when_earl_reflex_blocks_episode(
 
     assert_eq!(earl.decision, EarlDecision::Reflex);
 
-    let policy = runtime
-        .evaluate_routing_policy(RoutingPolicyRequest {
-            task_id: "task-remote-1".to_string(),
-            episode_id: "ep-membrane-remote".to_string(),
-            allow_remote: true,
-            sensitivity: RoutingSensitivity::Normal,
-            preference: routing_preference(),
-        })
+    let result = runtime
+        .execute_remote_with_policy_and_record(
+            task_request(),
+            RoutingPolicyRequest {
+                task_id: "task-remote-1".to_string(),
+                episode_id: "ep-membrane-remote".to_string(),
+                allow_remote: true,
+                sensitivity: RoutingSensitivity::Normal,
+                preference: routing_preference(),
+            },
+            persistence(),
+        )
         .await
-        .expect("evaluate routing policy");
+        .expect("execute policy-selected route");
 
-    assert_eq!(policy.outcome, RoutingPolicyOutcome::Rejected);
-    assert!(policy.selected_target.is_none());
-    assert_eq!(policy.findings[0].code, "earl-reflex-gate");
+    assert_eq!(result.policy.outcome, RoutingPolicyOutcome::Rejected);
+    assert!(result.policy.selected_target.is_none());
+    assert_eq!(result.policy.findings[0].code, "earl-reflex-gate");
+    assert!(result.remote_execution.is_none());
 
     let routes = emily
         .routing_decisions_for_episode("ep-membrane-remote")
