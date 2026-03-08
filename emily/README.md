@@ -45,6 +45,16 @@ synchronously on outcome ingestion, assigns explicit memory states, updates
 text-level scoring fields, and persists integrity snapshots without yet adding
 background workers or the full adaptive policy stack from the papers.
 
+## Host Responsibilities
+
+Host applications remain responsible for:
+
+- choosing stream IDs, source kinds, and host-specific metadata
+- deciding when to open databases and when to rotate them
+- mapping host events into Emily episodes, trace links, and outcomes
+- deciding when EARL or ECGL results should influence host behavior
+- keeping UI, transport, and provider-routing concerns outside this crate
+
 ## Internal Modules
 
 - `api`: transport-agnostic public contracts

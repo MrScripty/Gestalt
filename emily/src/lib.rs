@@ -1,7 +1,14 @@
 //! Emily reusable memory crate.
 //!
-//! This crate defines transport-agnostic memory contracts for ingesting arbitrary
-//! text objects and querying history/context from an addressable database.
+//! This crate defines transport-agnostic contracts for:
+//! - ingesting arbitrary text objects
+//! - retrieving ranked context and history
+//! - recording episode, outcome, audit, EARL, and ECGL artifacts
+//! - running the in-process memory/runtime core against an addressable database
+//!
+//! Host applications own source-specific mapping concerns such as stream naming,
+//! event-to-episode linkage policy, UI behavior, transport boundaries, and any
+//! broader sovereign-dispatch orchestration layered above this crate.
 
 pub mod api;
 pub mod error;

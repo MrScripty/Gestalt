@@ -13,6 +13,7 @@ This directory contains the runtime-specific implementation slices for the Emily
 | `earl.rs` | Deterministic EARL evaluator, projection updates, and durable audit writes. |
 | `earl_tests.rs` | EARL unit and acceptance tests through the public runtime facade. |
 | `episodes.rs` | Episode, outcome, and audit write-path validation and idempotency logic. |
+| `lifecycle.rs` | Runtime construction, database lifecycle, ingest shaping, and vectorization state helpers. |
 | `retrieval.rs` | Semantic retrieval, ranking, provenance, and semantic-edge linking logic. |
 | `test_support.rs` | Shared async test doubles and fixtures for runtime tests. |
 | `episode_tests.rs` | Runtime acceptance tests for persisted episode flows. |

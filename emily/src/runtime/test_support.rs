@@ -1,7 +1,7 @@
 use super::*;
 use crate::model::{
     AuditRecord, EarlEvaluationRecord, EpisodeRecord, EpisodeTraceLink, IntegritySnapshot,
-    OutcomeRecord, TextEdge, TextObjectKind, VectorizationConfig,
+    OutcomeRecord, TextEdge, TextObjectKind, TextVector, VectorizationConfig,
 };
 use crate::store::EmilyStore;
 use serde_json::json;

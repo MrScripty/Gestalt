@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`emily/src` implements the in-process Emily memory subsystem API, runtime orchestration, data model, and storage abstractions used by Gestalt.
+`emily/src` implements the in-process Emily memory subsystem API, runtime orchestration, data model, and storage abstractions for host applications such as Gestalt.
 
 This source tree currently covers the memory-side runtime, not the full Emily sovereign-cognition architecture described in the local March 2026 paper.
 
@@ -23,14 +23,15 @@ This source tree currently covers the memory-side runtime, not the full Emily so
 
 ## Problem
 
-Provide a modular Emily core that can ingest terminal text, persist text/vector state, record episode-oriented runtime artifacts, run the first EARL gate, apply synchronous ECGL state transitions, and answer context/history queries without coupling Gestalt to one database API or one embedding provider.
+Provide a modular Emily core that can ingest arbitrary host text, persist text/vector state, record episode-oriented runtime artifacts, run the first EARL gate, apply synchronous ECGL state transitions, and answer context/history queries without coupling one host to one database API or one embedding provider.
 
 ## Constraints
 
 - Must support typed async APIs.
 - Storage backend should be swappable behind trait boundaries.
 - Pantograph integration must use workflow-session contracts, not direct inference APIs.
-- The current boundary should stay narrow enough that broader Emily layers can be added later without destabilizing Gestalt.
+- The current boundary should stay narrow enough that broader Emily layers can be added later without destabilizing current host integrations.
+- Hosts own stream naming, event-to-episode mapping, and any UI or transport semantics layered above the core.
 
 ## Decision
 
