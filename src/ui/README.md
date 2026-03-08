@@ -37,6 +37,10 @@ Keep UI responsibilities component-focused, route runtime/domain mutations throu
 and orchestrator APIs, and treat the active path group's visible sessions as the startup critical
 path while leaving startup/session coordination ownership outside presentation modules. Keep only
 root-shared transient interaction state in `UiState`; feature-local drafts remain component-local.
+Decomposition review on 2026-03-08 kept `local_agent_panel.rs` and `run_review_panel.rs` in their
+current files despite crossing the soft UI-component size threshold because each still owns one
+user-facing workflow and no additional responsibility boundary was introduced by the sidebar refresh
+contract fix.
 
 ## Alternatives Rejected
 - Single monolithic UI file: rejected due to scale.
@@ -55,9 +59,11 @@ root-shared transient interaction state in `UiState`; feature-local drafts remai
 - Autosave feedback is rendered in UI, but debounce/inflight worker coordination is consumed from orchestrator.
 - Local-agent send actions start attributed runs through orchestrator facades; UI does not persist run checkpoints directly.
 - Run review loads checkpoint-derived data on demand and refreshes from existing Git context signals instead of starting a separate polling loop.
+- Sidebar hosts forward the shared `git_refresh_nonce` into repo-aware child panels; refresh invalidation remains owned by the action-producing child surface rather than the container.
 
 ## Revisit Triggers
 - Component files exceed maintainability limits.
+- `local_agent_panel.rs` or `run_review_panel.rs` gains another async workflow, background task owner, or persistence concern while already above the soft size threshold.
 - Polling loops can be replaced by event-driven updates.
 
 ## Polling Exceptions
