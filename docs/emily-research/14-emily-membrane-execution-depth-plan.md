@@ -250,11 +250,11 @@ current accepted/rejected wrapper.
 background orchestration.
 
 **Tasks:**
-- [ ] Add typed retry policy contracts
-- [ ] Add request-scoped retry loop limits
-- [ ] Add explicit auditability for retries and mutation attempts
-- [ ] Keep retry semantics deterministic and bounded
-- [ ] Defer autonomous adaptive retry systems
+- [x] Add typed retry policy contracts
+- [x] Add request-scoped retry loop limits
+- [x] Add explicit auditability for retries and mutation attempts
+- [x] Keep retry semantics deterministic and bounded
+- [x] Defer autonomous adaptive retry systems
 
 **Verification:**
 - `cargo fmt`
@@ -262,6 +262,8 @@ background orchestration.
 - `cargo test -q`
 - acceptance tests for retry success, retry exhaustion, and cancellation-safe
   behavior
+
+**Status:** Completed on 2026-03-08 via `feat(emily-membrane): add request-scoped remote retries`.
 
 ### Milestone 9: Richer Provider Policy
 
