@@ -6,6 +6,7 @@ mod file_browser_scan;
 mod git_helpers;
 mod git_panel;
 mod git_refresh;
+mod host_open;
 mod insert_command_mode;
 mod local_agent_panel;
 mod notes_panel;

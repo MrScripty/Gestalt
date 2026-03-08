@@ -14,6 +14,7 @@
 | `tab_rail.rs` | Group/session tab strip behavior |
 | `commands_panel.rs` | Insert-command library UI |
 | `file_browser_panel.rs` | File browser and selection stats UI |
+| `host_open.rs` | Cross-platform host default-app launcher for UI file interactions |
 | `git_panel.rs` | Graph-first Git panel UI with commit selection, details, and repo actions |
 | `git_commit_graph.rs` | Snapshot-driven commit-lane layout builder for the Git panel SVG tree |
 | `git_refresh.rs` | Git refresh coordination hook |
@@ -57,6 +58,7 @@ data ownership or action routing.
 - Per-panel note selection is transient UI state; it must not be persisted back into `state`.
 - Persistent/business state changes route through `state`, `orchestrator`, or `persistence` paths.
 - UI event handlers and `use_future` lifecycle paths must not call blocking Emily or persistence APIs directly; use async/background facades and apply results back through signals.
+- Host default-open actions stay short-lived UI-side helpers; they must not introduce new long-lived task ownership or shell-fragment execution paths.
 - Emily vectorization settings UI is a bridge surface only; runtime authority stays in Emily APIs.
 - Active path group visible sessions start before deferred sessions in other groups.
 - Components remain keyboard reachable.
