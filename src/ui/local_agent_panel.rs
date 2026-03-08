@@ -371,6 +371,12 @@ fn activity_title(item: &RecentActivityRecord) -> String {
             format!("Git: rewrite {target_sha}")
         }
         CommandPayload::GitCreateTag { tag_name, .. } => format!("Git: tag {tag_name}"),
+        CommandPayload::GitDeleteTag { tag_name, .. } => format!("Git: delete tag {tag_name}"),
+        CommandPayload::GitUpdateTag {
+            old_tag_name,
+            new_tag_name,
+            ..
+        } => format!("Git: retag {old_tag_name} -> {new_tag_name}"),
         CommandPayload::GitCheckoutTarget {
             target_kind,
             target,

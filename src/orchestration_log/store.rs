@@ -694,6 +694,8 @@ fn kind_name(kind: CommandKind) -> &'static str {
         CommandKind::GitCreateCommit => "git_create_commit",
         CommandKind::GitUpdateCommitMessage => "git_update_commit_message",
         CommandKind::GitCreateTag => "git_create_tag",
+        CommandKind::GitDeleteTag => "git_delete_tag",
+        CommandKind::GitUpdateTag => "git_update_tag",
         CommandKind::GitCheckoutTarget => "git_checkout_target",
         CommandKind::GitCreateWorktree => "git_create_worktree",
     }
@@ -710,6 +712,8 @@ fn parse_command_kind(value: &str) -> Result<CommandKind, serde_json::Error> {
         "git_create_commit" => Ok(CommandKind::GitCreateCommit),
         "git_update_commit_message" => Ok(CommandKind::GitUpdateCommitMessage),
         "git_create_tag" => Ok(CommandKind::GitCreateTag),
+        "git_delete_tag" => Ok(CommandKind::GitDeleteTag),
+        "git_update_tag" => Ok(CommandKind::GitUpdateTag),
         "git_checkout_target" => Ok(CommandKind::GitCheckoutTarget),
         "git_create_worktree" => Ok(CommandKind::GitCreateWorktree),
         other => Err(serde_json::Error::io(std::io::Error::new(

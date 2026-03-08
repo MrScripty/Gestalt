@@ -214,6 +214,42 @@ pub fn create_tag(group_path: &str, name: &str, message: &str, sha: &str) -> Res
     Ok(())
 }
 
+pub fn delete_tag(group_path: &str, name: &str) -> Result<(), GitError> {
+    let name = validate_non_empty(name, "Tag name")?;
+    run_git(group_path, &["tag", "-d", &name])?;
+    Ok(())
+}
+
+pub fn update_tag(
+    group_path: &str,
+    old_name: &str,
+    new_name: &str,
+    message: &str,
+    sha: &str,
+) -> Result<(), GitError> {
+    let old_name = validate_non_empty(old_name, "Existing tag name")?;
+    let new_name = validate_non_empty(new_name, "Tag name")?;
+    let message = validate_non_empty(message, "Tag message")?;
+    let sha = validate_non_empty(sha, "Commit SHA")?;
+
+    if old_name == new_name {
+        run_git(
+            group_path,
+            &["tag", "-a", "-f", &new_name, "-m", &message, &sha],
+        )?;
+        return Ok(());
+    }
+
+    if tag_exists(group_path, &new_name)? {
+        return Err(GitError::InvalidInput(format!(
+            "Tag '{new_name}' already exists."
+        )));
+    }
+
+    create_tag(group_path, &new_name, &message, &sha)?;
+    delete_tag(group_path, &old_name)
+}
+
 pub fn checkout_target(group_path: &str, target: &CheckoutTarget) -> Result<(), GitError> {
     match target {
         CheckoutTarget::Branch(branch) => {
@@ -235,6 +271,15 @@ pub fn create_worktree(group_path: &str, new_path: &str, target: &str) -> Result
 
     run_git(group_path, &["worktree", "add", &new_path, &target])?;
     Ok(())
+}
+
+fn tag_exists(group_path: &str, name: &str) -> Result<bool, GitError> {
+    let tag_ref = format!("refs/tags/{name}");
+    match run_git(group_path, &["show-ref", "--verify", "--quiet", &tag_ref]) {
+        Ok(_) => Ok(true),
+        Err(GitError::CommandFailed { code: Some(1), .. }) => Ok(false),
+        Err(error) => Err(error),
+    }
 }
 
 pub fn repo_root(group_path: &str) -> Result<String, GitError> {

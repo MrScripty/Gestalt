@@ -152,6 +152,48 @@ fn stage_files_records_partial_receipt_when_paths_fail() {
     let _ = std::fs::remove_file(path);
 }
 
+#[test]
+fn update_tag_records_git_timeline() {
+    let _guard = env_lock().lock().expect("env lock");
+    let path = unique_db_path("orchestrator-git-tag-log");
+    unsafe {
+        std::env::set_var("GESTALT_ORCHESTRATION_DB_PATH", &path);
+    }
+
+    let repo = TestRepo::new("orchestrator-git-tag-log");
+    let repo_path = repo.path().to_string_lossy().to_string();
+    let head_sha = run_git(repo.path(), &["rev-parse", "HEAD"]);
+
+    orchestrator::git::create_tag(&repo_path, "v0.1.0", "release", &head_sha)
+        .expect("tag creation should succeed");
+    orchestrator::git::update_tag(&repo_path, "v0.1.0", "v0.1.1", "release 2", &head_sha)
+        .expect("tag update should succeed");
+
+    let store = OrchestrationLogStore::default();
+    let recent = store
+        .load_recent_commands(1)
+        .expect("recent command should load");
+    assert_eq!(recent.len(), 1);
+    assert_eq!(recent[0].kind, CommandKind::GitUpdateTag);
+
+    let timeline = store
+        .load_timeline(&recent[0].command_id)
+        .expect("timeline should load");
+    assert_eq!(timeline.len(), 3);
+    assert!(matches!(timeline[0], TimelineEntry::Command(_)));
+    assert!(matches!(
+        timeline[1],
+        TimelineEntry::Event(ref event)
+            if matches!(event.payload, EventPayload::GitOperationSucceeded { ref summary } if summary.contains("updated tag v0.1.0 -> v0.1.1"))
+    ));
+    assert!(matches!(timeline[2], TimelineEntry::Receipt(_)));
+
+    unsafe {
+        std::env::remove_var("GESTALT_ORCHESTRATION_DB_PATH");
+    }
+    let _ = std::fs::remove_file(path);
+}
+
 fn run_git(root: &Path, args: &[&str]) -> String {
     let output = std::process::Command::new("git")
         .args(args)

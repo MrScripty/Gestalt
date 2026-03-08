@@ -211,13 +211,27 @@ fn tag_checkout_and_worktree_flow() {
     orchestrator::git::create_tag(&repo_path, "v0.1.0", "release", &head_sha)
         .expect("tag creation should succeed");
 
+    orchestrator::git::update_tag(&repo_path, "v0.1.0", "v0.1.1", "release updated", &head_sha)
+        .expect("tag update should succeed");
+
     let after_tag =
         orchestrator::git::load_repo_context(&repo_path).expect("repo context should load");
     let tagged_snapshot = match after_tag {
         RepoContext::Available(snapshot) => snapshot,
         RepoContext::NotRepo { .. } => panic!("expected repo context"),
     };
-    assert!(tagged_snapshot.tags.iter().any(|tag| tag.name == "v0.1.0"));
+    assert!(tagged_snapshot.tags.iter().any(|tag| tag.name == "v0.1.1"));
+    assert!(!tagged_snapshot.tags.iter().any(|tag| tag.name == "v0.1.0"));
+
+    orchestrator::git::delete_tag(&repo_path, "v0.1.1").expect("tag deletion should succeed");
+
+    let after_delete =
+        orchestrator::git::load_repo_context(&repo_path).expect("repo context should load");
+    let deleted_snapshot = match after_delete {
+        RepoContext::Available(snapshot) => snapshot,
+        RepoContext::NotRepo { .. } => panic!("expected repo context"),
+    };
+    assert!(!deleted_snapshot.tags.iter().any(|tag| tag.name == "v0.1.1"));
 
     orchestrator::git::checkout_target(&repo_path, CheckoutTarget::Commit(head_sha.clone()))
         .expect("checkout commit should succeed");

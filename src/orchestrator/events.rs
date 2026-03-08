@@ -10,6 +10,8 @@ pub enum GitCommandKind {
     CreateCommit,
     UpdateCommitMessage,
     CreateTag,
+    DeleteTag,
+    UpdateTag,
     CheckoutTarget,
     CreateWorktree,
 }

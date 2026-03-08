@@ -12,13 +12,14 @@ use git_commit_graph::{GRAPH_NODE_RADIUS_PX, GRAPH_ROW_HEIGHT_PX, build_commit_g
 
 #[component]
 pub(crate) fn GitPanel(
-    _app_state: Signal<AppState>,
-    _terminal_manager: Signal<Arc<TerminalManager>>,
+    app_state: Signal<AppState>,
+    terminal_manager: Signal<Arc<TerminalManager>>,
     active_group_path: String,
     repo_context: Signal<Option<RepoContext>>,
     repo_loading: Signal<bool>,
     git_refresh_nonce: Signal<u64>,
 ) -> Element {
+    let _ = (&app_state, &terminal_manager);
     let _ = repo_loading;
     let context = repo_context.read().clone();
     let mut op_feedback = use_signal(String::new);

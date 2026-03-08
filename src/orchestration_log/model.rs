@@ -13,6 +13,8 @@ pub enum CommandKind {
     GitCreateCommit,
     GitUpdateCommitMessage,
     GitCreateTag,
+    GitDeleteTag,
+    GitUpdateTag,
     GitCheckoutTarget,
     GitCreateWorktree,
 }
@@ -70,6 +72,16 @@ pub enum CommandPayload {
         tag_name: String,
         target_sha: String,
     },
+    GitDeleteTag {
+        group_path: String,
+        tag_name: String,
+    },
+    GitUpdateTag {
+        group_path: String,
+        old_tag_name: String,
+        new_tag_name: String,
+        target_sha: String,
+    },
     GitCheckoutTarget {
         group_path: String,
         target: String,
@@ -94,6 +106,8 @@ impl CommandPayload {
             Self::GitCreateCommit { .. } => CommandKind::GitCreateCommit,
             Self::GitUpdateCommitMessage { .. } => CommandKind::GitUpdateCommitMessage,
             Self::GitCreateTag { .. } => CommandKind::GitCreateTag,
+            Self::GitDeleteTag { .. } => CommandKind::GitDeleteTag,
+            Self::GitUpdateTag { .. } => CommandKind::GitUpdateTag,
             Self::GitCheckoutTarget { .. } => CommandKind::GitCheckoutTarget,
             Self::GitCreateWorktree { .. } => CommandKind::GitCreateWorktree,
         }
@@ -120,6 +134,8 @@ impl CommandPayload {
             | Self::GitCreateCommit { group_path, .. }
             | Self::GitUpdateCommitMessage { group_path, .. }
             | Self::GitCreateTag { group_path, .. }
+            | Self::GitDeleteTag { group_path, .. }
+            | Self::GitUpdateTag { group_path, .. }
             | Self::GitCheckoutTarget { group_path, .. }
             | Self::GitCreateWorktree { group_path, .. } => group_path.as_str(),
         }

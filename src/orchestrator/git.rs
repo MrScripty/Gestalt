@@ -192,6 +192,72 @@ pub fn create_tag(group_path: &str, name: &str, message: &str, sha: &str) -> Res
     result
 }
 
+pub fn delete_tag(group_path: &str, name: &str) -> Result<(), GitError> {
+    let command_id = Uuid::new_v4().to_string();
+    let now_ms = current_unix_ms();
+    let store = OrchestrationLogStore::default();
+    store
+        .record_command(NewCommandRecord {
+            command_id: command_id.clone(),
+            timeline_id: command_id.clone(),
+            requested_at_unix_ms: now_ms,
+            recorded_at_unix_ms: now_ms,
+            payload: CommandPayload::GitDeleteTag {
+                group_path: group_path.to_string(),
+                tag_name: name.to_string(),
+            },
+        })
+        .map_err(log_error_to_git_error)?;
+    let result = git::delete_tag(group_path, name);
+    record_single_git_result(
+        &store,
+        &command_id,
+        result
+            .as_ref()
+            .map(|_| format!("deleted tag {name}"))
+            .map_err(|error| error.to_string()),
+    );
+    emit_git_command_event(group_path, GitCommandKind::DeleteTag, result.is_ok());
+    result
+}
+
+pub fn update_tag(
+    group_path: &str,
+    old_name: &str,
+    new_name: &str,
+    message: &str,
+    sha: &str,
+) -> Result<(), GitError> {
+    let command_id = Uuid::new_v4().to_string();
+    let now_ms = current_unix_ms();
+    let store = OrchestrationLogStore::default();
+    store
+        .record_command(NewCommandRecord {
+            command_id: command_id.clone(),
+            timeline_id: command_id.clone(),
+            requested_at_unix_ms: now_ms,
+            recorded_at_unix_ms: now_ms,
+            payload: CommandPayload::GitUpdateTag {
+                group_path: group_path.to_string(),
+                old_tag_name: old_name.to_string(),
+                new_tag_name: new_name.to_string(),
+                target_sha: sha.to_string(),
+            },
+        })
+        .map_err(log_error_to_git_error)?;
+    let result = git::update_tag(group_path, old_name, new_name, message, sha);
+    record_single_git_result(
+        &store,
+        &command_id,
+        result
+            .as_ref()
+            .map(|_| format!("updated tag {old_name} -> {new_name} for {sha}"))
+            .map_err(|error| error.to_string()),
+    );
+    emit_git_command_event(group_path, GitCommandKind::UpdateTag, result.is_ok());
+    result
+}
+
 pub fn checkout_target(group_path: &str, target: CheckoutTarget) -> Result<(), GitError> {
     let target_description = match &target {
         CheckoutTarget::Branch(branch) => ("branch".to_string(), branch.clone()),
