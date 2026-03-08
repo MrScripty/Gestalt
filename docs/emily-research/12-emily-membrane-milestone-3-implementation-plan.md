@@ -200,7 +200,7 @@ This plan assumes:
 - `cargo test -q`
 - acceptance test from membrane request to Emily remote sovereign records
 
-**Status:** Not started
+**Status:** Completed on 2026-03-08 in commit `acbf43f`
 
 ### Milestone 3C: Pantograph Adapter Planning Gate
 
@@ -227,6 +227,12 @@ Update during implementation:
   boundary plus deterministic test provider before Pantograph transport.
 - 2026-03-08: Milestone 3A provider boundary implemented in commit `6b069f7`.
 - 2026-03-08: Provider-boundary verification passed with:
+  - `cargo fmt --manifest-path emily-membrane/Cargo.toml`
+  - `cargo clippy --manifest-path emily-membrane/Cargo.toml --all-targets --offline -- -D warnings`
+  - `cargo test --manifest-path emily-membrane/Cargo.toml -q --offline`
+- 2026-03-08: Milestone 3B deterministic remote path implemented in commit
+  `acbf43f`.
+- 2026-03-08: Remote-path verification passed with:
   - `cargo fmt --manifest-path emily-membrane/Cargo.toml`
   - `cargo clippy --manifest-path emily-membrane/Cargo.toml --all-targets --offline -- -D warnings`
   - `cargo test --manifest-path emily-membrane/Cargo.toml -q --offline`
