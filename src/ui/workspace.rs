@@ -3,10 +3,10 @@ use crate::orchestrator::{self, GroupOrchestratorSnapshot};
 use crate::resource_monitor::ResourceSnapshot;
 use crate::state::{AppState, SessionId};
 use crate::terminal::TerminalManager;
-use crate::ui::UiState;
 use crate::ui::run_sidebar_panel_host::{RunSidebarPanelHost, RunSidebarPanelKind};
 use crate::ui::sidebar_panel_host::{SidebarPanelHost, SidebarPanelKind};
-use crate::ui::terminal_view::{SnippetHotkeyState, TerminalInteractionSignals, terminal_shell};
+use crate::ui::terminal_view::{terminal_shell, SnippetHotkeyState, TerminalInteractionSignals};
+use crate::ui::UiState;
 use dioxus::prelude::*;
 use emily::model::VectorizationStatus;
 use std::collections::HashMap;
@@ -48,14 +48,13 @@ pub(crate) fn WorkspaceMain(
             async move {
                 let mut events = terminal_manager.subscribe_events();
                 let mut idle_deadlines = HashMap::<SessionId, tokio::time::Instant>::new();
-                apply_status_updates(
-                    app_state,
-                    orchestrator::reconcile_session_statuses(
-                        app_state.read().workspace_state(),
-                        &terminal_manager,
-                        &mut idle_deadlines,
-                    ),
+                let workspace_snapshot = app_state.read().workspace_state().clone();
+                let updates = orchestrator::reconcile_session_statuses(
+                    &workspace_snapshot,
+                    &terminal_manager,
+                    &mut idle_deadlines,
                 );
+                apply_status_updates(app_state, updates);
 
                 loop {
                     if let Some(next_deadline) = idle_deadlines.values().min().copied() {
@@ -64,39 +63,38 @@ pub(crate) fn WorkspaceMain(
                                 match event {
                                     Ok(event) => {
                                         if event.kind == crate::terminal::TerminalEventKind::Activity {
-                                            apply_status_updates(
-                                                app_state,
-                                                orchestrator::apply_session_activity(
-                                                    app_state.read().workspace_state(),
-                                                    &terminal_manager,
-                                                    event.session_id,
-                                                    &mut idle_deadlines,
-                                                ).into_iter().collect(),
-                                            );
+                                            let workspace_snapshot = app_state.read().workspace_state().clone();
+                                            let updates = orchestrator::apply_session_activity(
+                                                &workspace_snapshot,
+                                                &terminal_manager,
+                                                event.session_id,
+                                                &mut idle_deadlines,
+                                            )
+                                            .into_iter()
+                                            .collect();
+                                            apply_status_updates(app_state, updates);
                                         }
                                     }
                                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                                        apply_status_updates(
-                                            app_state,
-                                            orchestrator::reconcile_session_statuses(
-                                                app_state.read().workspace_state(),
-                                                &terminal_manager,
-                                                &mut idle_deadlines,
-                                            ),
+                                        let workspace_snapshot = app_state.read().workspace_state().clone();
+                                        let updates = orchestrator::reconcile_session_statuses(
+                                            &workspace_snapshot,
+                                            &terminal_manager,
+                                            &mut idle_deadlines,
                                         );
+                                        apply_status_updates(app_state, updates);
                                     }
                                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                                 }
                             }
                             _ = tokio::time::sleep_until(next_deadline) => {
-                                apply_status_updates(
-                                    app_state,
-                                    orchestrator::reconcile_session_statuses(
-                                        app_state.read().workspace_state(),
-                                        &terminal_manager,
-                                        &mut idle_deadlines,
-                                    ),
+                                let workspace_snapshot = app_state.read().workspace_state().clone();
+                                let updates = orchestrator::reconcile_session_statuses(
+                                    &workspace_snapshot,
+                                    &terminal_manager,
+                                    &mut idle_deadlines,
                                 );
+                                apply_status_updates(app_state, updates);
                             }
                         }
                     } else {
@@ -104,28 +102,26 @@ pub(crate) fn WorkspaceMain(
                             Ok(event)
                                 if event.kind == crate::terminal::TerminalEventKind::Activity =>
                             {
-                                apply_status_updates(
-                                    app_state,
-                                    orchestrator::apply_session_activity(
-                                        app_state.read().workspace_state(),
-                                        &terminal_manager,
-                                        event.session_id,
-                                        &mut idle_deadlines,
-                                    )
-                                    .into_iter()
-                                    .collect(),
-                                );
+                                let workspace_snapshot = app_state.read().workspace_state().clone();
+                                let updates = orchestrator::apply_session_activity(
+                                    &workspace_snapshot,
+                                    &terminal_manager,
+                                    event.session_id,
+                                    &mut idle_deadlines,
+                                )
+                                .into_iter()
+                                .collect();
+                                apply_status_updates(app_state, updates);
                             }
                             Ok(_) => {}
                             Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                                apply_status_updates(
-                                    app_state,
-                                    orchestrator::reconcile_session_statuses(
-                                        app_state.read().workspace_state(),
-                                        &terminal_manager,
-                                        &mut idle_deadlines,
-                                    ),
+                                let workspace_snapshot = app_state.read().workspace_state().clone();
+                                let updates = orchestrator::reconcile_session_statuses(
+                                    &workspace_snapshot,
+                                    &terminal_manager,
+                                    &mut idle_deadlines,
                                 );
+                                apply_status_updates(app_state, updates);
                             }
                             Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                         }
