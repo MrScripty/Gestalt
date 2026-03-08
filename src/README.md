@@ -27,6 +27,7 @@ Application source modules for Gestalt's state model, command library, terminal 
 - `terminal` owns live runtime processes and exposes snapshots.
 - `terminal` should avoid redundant scrollback cloning on hot PTY read and resize paths; snapshot rebuild work should use locked line views where possible before publishing a new immutable snapshot.
 - `emily_bridge` adapts terminal line events into Emily generic text objects.
+- `emily_bridge` surfaces bridge worker failures as request errors and keeps recent-history reads failure-tolerant by degrading to an empty chunk instead of panicking.
 - `orchestration_log` persists exact command lifecycles using timeline sequence plus timestamps.
 - `run_checkpoints` persists coarse repo baselines so run review can compare current Git state against the moment a run started.
 - `emily_bridge` can inject an optional Emily embedding provider at worker startup and exposes vectorization control commands.

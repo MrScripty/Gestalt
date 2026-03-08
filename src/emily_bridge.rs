@@ -919,11 +919,30 @@ fn default_storage_path() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_provider_bootstrap_fallback, base_sequence_for_stream, fallback_provider_status,
-        snippet_stream_id,
+        BridgeCommand, EmilyBridge, apply_provider_bootstrap_fallback, base_sequence_for_stream,
+        fallback_provider_status, snippet_stream_id,
     };
-    use emily::model::{VectorizationConfig, VectorizationStatus};
+    use emily::model::{DatabaseLocator, VectorizationConfig, VectorizationStatus};
     use std::collections::HashMap;
+    use std::path::PathBuf;
+    use std::thread;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    fn unique_locator(name: &str) -> DatabaseLocator {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |duration| duration.as_nanos());
+        DatabaseLocator {
+            storage_path: std::env::temp_dir().join(format!("gestalt-{name}-{nonce}")),
+            namespace: "gestalt_test".to_string(),
+            database: "default".to_string(),
+        }
+    }
+
+    fn remove_storage_path(path: &PathBuf) {
+        let _ = std::fs::remove_dir_all(path);
+        let _ = std::fs::remove_file(path);
+    }
 
     #[test]
     fn base_sequence_prefers_cached_value() {
@@ -977,6 +996,69 @@ mod tests {
             updated.provider_status.unwrap().last_error.as_deref(),
             Some("original")
         );
+    }
+
+    #[test]
+    fn new_bridge_surfaces_provider_bootstrap_error_in_status() {
+        let locator = unique_locator("emily-bridge-provider-error");
+        let storage_path = locator.storage_path.clone();
+        let bridge = EmilyBridge::with_embedding_provider_bootstrap_error(
+            locator,
+            None,
+            Some("workflow bootstrap failed".to_string()),
+        );
+
+        let status = bridge.vectorization_status();
+        assert!(!status.provider_available);
+        assert_eq!(
+            status
+                .provider_status
+                .as_ref()
+                .and_then(|provider| provider.last_error.as_deref()),
+            Some("workflow bootstrap failed")
+        );
+
+        drop(bridge);
+        thread::sleep(Duration::from_millis(50));
+        remove_storage_path(&storage_path);
+    }
+
+    #[test]
+    fn bridge_requests_fail_cleanly_after_worker_shutdown() {
+        let locator = unique_locator("emily-bridge-shutdown");
+        let storage_path = locator.storage_path.clone();
+        let bridge = EmilyBridge::new(locator);
+
+        let _ = bridge.command_tx.send(BridgeCommand::Shutdown);
+        thread::sleep(Duration::from_millis(50));
+
+        let history_error = bridge
+            .page_history_before(1, None, 5)
+            .expect_err("history query should fail after shutdown");
+        assert!(
+            history_error.contains("failed sending history request")
+                || history_error.contains("failed receiving history response")
+        );
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("test runtime should build");
+        let context_error = runtime
+            .block_on(bridge.query_context_async(1, "hello".to_string(), 3))
+            .expect_err("context query should fail after shutdown");
+        assert!(
+            context_error.contains("failed sending context request")
+                || context_error.contains("failed receiving context response")
+        );
+
+        let recent = bridge.recent_history(1, 5);
+        assert!(recent.lines.is_empty());
+        assert!(recent.next_before_sequence.is_none());
+
+        drop(bridge);
+        thread::sleep(Duration::from_millis(50));
+        remove_storage_path(&storage_path);
     }
 
     #[test]
