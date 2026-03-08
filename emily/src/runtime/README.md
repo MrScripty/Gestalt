@@ -15,6 +15,8 @@ This directory contains the runtime-specific implementation slices for the Emily
 | `episodes.rs` | Episode, outcome, and audit write-path validation and idempotency logic. |
 | `lifecycle.rs` | Runtime construction, database lifecycle, ingest shaping, and vectorization state helpers. |
 | `retrieval.rs` | Semantic retrieval, ranking, provenance, and semantic-edge linking logic. |
+| `sovereign.rs` | Sovereign-record write paths for routing, remote episodes, validation, and structured audits. |
+| `sovereign_tests.rs` | Runtime acceptance tests for sovereign-record persistence and validation. |
 | `test_support.rs` | Shared async test doubles and fixtures for runtime tests. |
 | `episode_tests.rs` | Runtime acceptance tests for persisted episode flows. |
 | `vectorization.rs` | Background job orchestration for backfill and revectorize runs. |
@@ -89,9 +91,11 @@ let runtime = EmilyRuntime::new(Arc::new(SurrealEmilyStore::new()));
 - `earl_tests.rs` validates `OK / CAUTION / REFLEX` behavior and blocked-episode enforcement through the public runtime facade.
 - `tests.rs` and `test_support.rs` produce no persisted artifacts.
 - `episode_tests.rs` validates episode, outcome, and audit persistence through the public runtime facade.
+- `sovereign_tests.rs` validates route, remote-episode, validation-outcome, and sovereign-audit flows through the public runtime facade.
 - `retrieval.rs` produces semantic edges and context packets through existing Emily contracts.
 - `vectorization.rs` updates runtime job snapshots and vector records through existing crate contracts.
 - `episodes.rs` produces episode records, trace links, outcome records, and audit records through existing crate contracts.
 - `earl.rs` produces EARL evaluations, guarded episode states, and durable EARL audit records through existing crate contracts.
 - `ecgl.rs` produces explicit memory states on text objects and durable integrity snapshots through existing crate contracts.
+- `sovereign.rs` produces routing decisions, remote episodes, validation outcomes, and structured sovereign audit records through existing crate contracts.
 - Compatibility expectations for those records remain defined by `emily/src/model.rs` and store implementations.

@@ -1,7 +1,8 @@
 use super::*;
 use crate::model::{
     AuditRecord, EarlEvaluationRecord, EpisodeRecord, EpisodeTraceLink, IntegritySnapshot,
-    OutcomeRecord, TextEdge, TextObjectKind, TextVector, VectorizationConfig,
+    OutcomeRecord, RemoteEpisodeRecord, RoutingDecision, TextEdge, TextObjectKind, TextVector,
+    ValidationOutcome, VectorizationConfig,
 };
 use crate::store::EmilyStore;
 use serde_json::json;
@@ -18,6 +19,9 @@ pub(super) struct MockStore {
     pub(super) outcomes: Mutex<Vec<OutcomeRecord>>,
     pub(super) earl_evaluations: Mutex<Vec<EarlEvaluationRecord>>,
     pub(super) audits: Mutex<Vec<AuditRecord>>,
+    pub(super) routing_decisions: Mutex<Vec<RoutingDecision>>,
+    pub(super) remote_episodes: Mutex<Vec<RemoteEpisodeRecord>>,
+    pub(super) validation_outcomes: Mutex<Vec<ValidationOutcome>>,
     pub(super) integrity_snapshots: Mutex<Vec<IntegritySnapshot>>,
     pub(super) config: Mutex<Option<VectorizationConfig>>,
     pub(super) insert_started: Option<Arc<Notify>>,
@@ -294,6 +298,115 @@ impl EmilyStore for MockStore {
         audits.retain(|item| item.episode_id == episode_id);
         audits.sort_by(|left, right| left.ts_unix_ms.cmp(&right.ts_unix_ms));
         Ok(audits)
+    }
+
+    async fn upsert_routing_decision(&self, decision: &RoutingDecision) -> Result<(), EmilyError> {
+        let mut decisions = self.routing_decisions.lock().await;
+        if let Some(index) = decisions
+            .iter()
+            .position(|item| item.decision_id == decision.decision_id)
+        {
+            decisions[index] = decision.clone();
+        } else {
+            decisions.push(decision.clone());
+        }
+        Ok(())
+    }
+
+    async fn get_routing_decision(
+        &self,
+        decision_id: &str,
+    ) -> Result<Option<RoutingDecision>, EmilyError> {
+        let decisions = self.routing_decisions.lock().await;
+        Ok(decisions
+            .iter()
+            .find(|item| item.decision_id == decision_id)
+            .cloned())
+    }
+
+    async fn list_routing_decisions(
+        &self,
+        episode_id: &str,
+    ) -> Result<Vec<RoutingDecision>, EmilyError> {
+        let mut decisions = self.routing_decisions.lock().await.clone();
+        decisions.retain(|item| item.episode_id == episode_id);
+        decisions.sort_by(|left, right| left.decided_at_unix_ms.cmp(&right.decided_at_unix_ms));
+        Ok(decisions)
+    }
+
+    async fn upsert_remote_episode(
+        &self,
+        remote_episode: &RemoteEpisodeRecord,
+    ) -> Result<(), EmilyError> {
+        let mut remote_episodes = self.remote_episodes.lock().await;
+        if let Some(index) = remote_episodes
+            .iter()
+            .position(|item| item.id == remote_episode.id)
+        {
+            remote_episodes[index] = remote_episode.clone();
+        } else {
+            remote_episodes.push(remote_episode.clone());
+        }
+        Ok(())
+    }
+
+    async fn get_remote_episode(
+        &self,
+        remote_episode_id: &str,
+    ) -> Result<Option<RemoteEpisodeRecord>, EmilyError> {
+        let remote_episodes = self.remote_episodes.lock().await;
+        Ok(remote_episodes
+            .iter()
+            .find(|item| item.id == remote_episode_id)
+            .cloned())
+    }
+
+    async fn list_remote_episodes(
+        &self,
+        episode_id: &str,
+    ) -> Result<Vec<RemoteEpisodeRecord>, EmilyError> {
+        let mut remote_episodes = self.remote_episodes.lock().await.clone();
+        remote_episodes.retain(|item| item.episode_id == episode_id);
+        remote_episodes
+            .sort_by(|left, right| left.dispatched_at_unix_ms.cmp(&right.dispatched_at_unix_ms));
+        Ok(remote_episodes)
+    }
+
+    async fn upsert_validation_outcome(
+        &self,
+        outcome: &ValidationOutcome,
+    ) -> Result<(), EmilyError> {
+        let mut outcomes = self.validation_outcomes.lock().await;
+        if let Some(index) = outcomes
+            .iter()
+            .position(|item| item.validation_id == outcome.validation_id)
+        {
+            outcomes[index] = outcome.clone();
+        } else {
+            outcomes.push(outcome.clone());
+        }
+        Ok(())
+    }
+
+    async fn get_validation_outcome(
+        &self,
+        validation_id: &str,
+    ) -> Result<Option<ValidationOutcome>, EmilyError> {
+        let outcomes = self.validation_outcomes.lock().await;
+        Ok(outcomes
+            .iter()
+            .find(|item| item.validation_id == validation_id)
+            .cloned())
+    }
+
+    async fn list_validation_outcomes(
+        &self,
+        episode_id: &str,
+    ) -> Result<Vec<ValidationOutcome>, EmilyError> {
+        let mut outcomes = self.validation_outcomes.lock().await.clone();
+        outcomes.retain(|item| item.episode_id == episode_id);
+        outcomes.sort_by(|left, right| left.validated_at_unix_ms.cmp(&right.validated_at_unix_ms));
+        Ok(outcomes)
     }
 
     async fn upsert_integrity_snapshot(

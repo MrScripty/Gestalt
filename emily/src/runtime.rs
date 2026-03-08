@@ -2,12 +2,13 @@ use crate::api::EmilyApi;
 use crate::error::EmilyError;
 use crate::inference::EmbeddingProvider;
 use crate::model::{
-    AppendAuditRecordRequest, AuditRecord, ContextPacket, ContextQuery, CreateEpisodeRequest,
-    DatabaseLocator, EarlEvaluationRecord, EarlEvaluationRequest, EpisodeRecord, EpisodeTraceLink,
-    HealthSnapshot, HistoryPage, HistoryPageRequest, IngestTextRequest, IntegritySnapshot,
-    MemoryPolicy, OutcomeRecord, RecordOutcomeRequest, TextObject, TraceLinkRequest,
-    VectorizationConfig, VectorizationConfigPatch, VectorizationJobKind, VectorizationJobSnapshot,
-    VectorizationRunRequest, VectorizationStatus,
+    AppendAuditRecordRequest, AppendSovereignAuditRecordRequest, AuditRecord, ContextPacket,
+    ContextQuery, CreateEpisodeRequest, DatabaseLocator, EarlEvaluationRecord,
+    EarlEvaluationRequest, EpisodeRecord, EpisodeTraceLink, HealthSnapshot, HistoryPage,
+    HistoryPageRequest, IngestTextRequest, IntegritySnapshot, MemoryPolicy, OutcomeRecord,
+    RecordOutcomeRequest, RemoteEpisodeRecord, RemoteEpisodeRequest, RoutingDecision, TextObject,
+    TraceLinkRequest, ValidationOutcome, VectorizationConfig, VectorizationConfigPatch,
+    VectorizationJobKind, VectorizationJobSnapshot, VectorizationRunRequest, VectorizationStatus,
 };
 use crate::store::EmilyStore;
 use async_trait::async_trait;
@@ -26,6 +27,9 @@ mod episode_tests;
 mod episodes;
 mod lifecycle;
 mod retrieval;
+mod sovereign;
+#[cfg(test)]
+mod sovereign_tests;
 #[cfg(test)]
 mod test_support;
 #[cfg(test)]
@@ -187,6 +191,34 @@ impl<S: EmilyStore + 'static> EmilyApi for EmilyRuntime<S> {
         request: AppendAuditRecordRequest,
     ) -> Result<AuditRecord, EmilyError> {
         self.append_audit_record_internal(request).await
+    }
+
+    async fn record_routing_decision(
+        &self,
+        decision: RoutingDecision,
+    ) -> Result<RoutingDecision, EmilyError> {
+        self.record_routing_decision_internal(decision).await
+    }
+
+    async fn create_remote_episode(
+        &self,
+        request: RemoteEpisodeRequest,
+    ) -> Result<RemoteEpisodeRecord, EmilyError> {
+        self.create_remote_episode_internal(request).await
+    }
+
+    async fn record_validation_outcome(
+        &self,
+        outcome: ValidationOutcome,
+    ) -> Result<ValidationOutcome, EmilyError> {
+        self.record_validation_outcome_internal(outcome).await
+    }
+
+    async fn append_sovereign_audit_record(
+        &self,
+        request: AppendSovereignAuditRecordRequest,
+    ) -> Result<AuditRecord, EmilyError> {
+        self.append_sovereign_audit_record_internal(request).await
     }
 
     async fn evaluate_episode_risk(

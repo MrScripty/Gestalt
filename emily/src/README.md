@@ -49,9 +49,9 @@ The local paper set describes broader Emily components that are not implemented 
 
 Those belong above this crate boundary unless the crate is intentionally expanded later.
 
-The current sovereign-preparation model contracts stop short of defining
-`Semantic Membrane` IR or remote transport behavior. They intentionally cover
-only stable host-agnostic records such as route decisions, remote episode
+The current sovereign-support contracts and persistence paths stop short of
+defining `Semantic Membrane` IR or remote transport behavior. They intentionally
+cover only stable host-agnostic records such as route decisions, remote episode
 references, validation outcomes, and structured sovereign audit metadata.
 
 ## Invariants
@@ -62,7 +62,7 @@ references, validation outcomes, and structured sovereign audit metadata.
 - Episode, outcome, trace-link, and audit records are Emily-owned persisted artifacts.
 - EARL evaluations are Emily-owned persisted artifacts with deterministic replay-safe IDs.
 - Text objects now carry explicit memory states, and integrity snapshots are Emily-owned persisted artifacts.
-- Sovereign-preparation DTOs are additive public contracts and do not yet imply runtime or store support.
+- Sovereign-support records are additive public contracts with runtime/store support, but they do not yet imply membrane or transport runtime support.
 - Vectorization configuration and job state are Emily-owned runtime data.
 - Pantograph session lifecycle is managed by embedding providers, not by store modules.
 - Newly ingested text objects are not treated as integrated memory by default.

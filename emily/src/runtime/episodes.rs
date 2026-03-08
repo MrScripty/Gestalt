@@ -111,7 +111,7 @@ impl<S: EmilyStore + 'static> EmilyRuntime<S> {
         }
     }
 
-    fn conflict_error(record_type: &str, id: &str) -> EmilyError {
+    pub(super) fn conflict_error(record_type: &str, id: &str) -> EmilyError {
         EmilyError::InvalidRequest(format!(
             "{record_type} '{id}' already exists with different content"
         ))

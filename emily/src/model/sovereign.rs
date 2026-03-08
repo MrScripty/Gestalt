@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::model::AuditRecordKind;
+
 /// Request to record one bounded remote reasoning episode under a host episode.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RemoteEpisodeRequest {
@@ -115,6 +117,17 @@ pub struct SovereignAuditMetadata {
     pub validation_id: Option<String>,
     pub boundary_profile: Option<String>,
     pub metadata: Value,
+}
+
+/// Request to append one audit record with structured sovereign metadata.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppendSovereignAuditRecordRequest {
+    pub audit_id: String,
+    pub episode_id: String,
+    pub kind: AuditRecordKind,
+    pub ts_unix_ms: i64,
+    pub summary: String,
+    pub metadata: SovereignAuditMetadata,
 }
 
 #[cfg(test)]

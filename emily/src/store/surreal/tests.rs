@@ -1,7 +1,9 @@
 use super::*;
 use crate::model::{
     AuditRecord, AuditRecordKind, EpisodeRecord, EpisodeState, EpisodeTraceKind, EpisodeTraceLink,
-    HistoryPageRequest, OutcomeRecord, OutcomeStatus, TextEdgeType, TextObjectKind,
+    HistoryPageRequest, OutcomeRecord, OutcomeStatus, RemoteEpisodeRecord, RemoteEpisodeState,
+    RoutingDecision, RoutingDecisionKind, RoutingTarget, TextEdgeType, TextObjectKind,
+    ValidationDecision, ValidationFinding, ValidationFindingSeverity, ValidationOutcome,
 };
 use serde_json::json;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -218,6 +220,91 @@ async fn episode_records_roundtrip() {
     assert_eq!(
         store.list_audit_records("ep-1").await.expect("list audits"),
         vec![audit]
+    );
+
+    store.close().await.expect("close store");
+    let _ = std::fs::remove_dir_all(locator.storage_path);
+}
+
+#[tokio::test]
+async fn sovereign_records_roundtrip() {
+    let store = SurrealEmilyStore::new();
+    let locator = locator();
+    store.open(&locator).await.expect("open store");
+
+    let route = RoutingDecision {
+        decision_id: "route-1".to_string(),
+        episode_id: "ep-1".to_string(),
+        kind: RoutingDecisionKind::SingleRemote,
+        decided_at_unix_ms: 1,
+        rationale: Some("specialized reasoning".to_string()),
+        targets: vec![RoutingTarget {
+            provider_id: "provider-a".to_string(),
+            model_id: Some("model-x".to_string()),
+            profile_id: Some("reasoning".to_string()),
+            capability_tags: vec!["analysis".to_string()],
+            metadata: json!({"priority": 1}),
+        }],
+        metadata: json!({"source": "planner"}),
+    };
+    let remote_episode = RemoteEpisodeRecord {
+        id: "remote-1".to_string(),
+        episode_id: "ep-1".to_string(),
+        route_decision_id: Some("route-1".to_string()),
+        dispatch_kind: "bounded_program".to_string(),
+        state: RemoteEpisodeState::Dispatched,
+        dispatched_at_unix_ms: 2,
+        completed_at_unix_ms: None,
+        metadata: json!({"provider": "provider-a"}),
+    };
+    let validation = ValidationOutcome {
+        validation_id: "validation-1".to_string(),
+        episode_id: "ep-1".to_string(),
+        remote_episode_id: Some("remote-1".to_string()),
+        decision: ValidationDecision::AcceptedWithCaution,
+        validated_at_unix_ms: 3,
+        findings: vec![ValidationFinding {
+            code: "uncertain_reference".to_string(),
+            severity: ValidationFindingSeverity::Warning,
+            message: "cross-check before use".to_string(),
+        }],
+        metadata: json!({"checker": "eccr"}),
+    };
+
+    store
+        .upsert_routing_decision(&route)
+        .await
+        .expect("upsert route");
+    store
+        .upsert_remote_episode(&remote_episode)
+        .await
+        .expect("upsert remote episode");
+    store
+        .upsert_validation_outcome(&validation)
+        .await
+        .expect("upsert validation");
+
+    assert_eq!(
+        store
+            .get_routing_decision("route-1")
+            .await
+            .expect("get route")
+            .expect("route"),
+        route
+    );
+    assert_eq!(
+        store
+            .list_remote_episodes("ep-1")
+            .await
+            .expect("list remote episodes"),
+        vec![remote_episode]
+    );
+    assert_eq!(
+        store
+            .list_validation_outcomes("ep-1")
+            .await
+            .expect("list validation outcomes"),
+        vec![validation]
     );
 
     store.close().await.expect("close store");

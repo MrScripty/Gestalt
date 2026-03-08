@@ -1,8 +1,9 @@
 use crate::error::EmilyError;
 use crate::model::{
     AuditRecord, ContextPacket, ContextQuery, DatabaseLocator, EarlEvaluationRecord, EpisodeRecord,
-    EpisodeTraceLink, HistoryPage, HistoryPageRequest, IntegritySnapshot, OutcomeRecord, TextEdge,
-    TextObject, TextVector, VectorizationConfig,
+    EpisodeTraceLink, HistoryPage, HistoryPageRequest, IntegritySnapshot, OutcomeRecord,
+    RemoteEpisodeRecord, RoutingDecision, TextEdge, TextObject, TextVector, ValidationOutcome,
+    VectorizationConfig,
 };
 use crate::store::EmilyStore;
 use async_trait::async_trait;
@@ -13,6 +14,7 @@ use tokio::sync::RwLock;
 mod earl;
 mod ecgl;
 mod episodes;
+mod sovereign;
 #[cfg(test)]
 mod tests;
 mod text;
@@ -184,6 +186,66 @@ impl EmilyStore for SurrealEmilyStore {
 
     async fn list_audit_records(&self, episode_id: &str) -> Result<Vec<AuditRecord>, EmilyError> {
         self.list_audit_records_internal(episode_id).await
+    }
+
+    async fn upsert_routing_decision(&self, decision: &RoutingDecision) -> Result<(), EmilyError> {
+        self.upsert_routing_decision_internal(decision).await
+    }
+
+    async fn get_routing_decision(
+        &self,
+        decision_id: &str,
+    ) -> Result<Option<RoutingDecision>, EmilyError> {
+        self.get_routing_decision_internal(decision_id).await
+    }
+
+    async fn list_routing_decisions(
+        &self,
+        episode_id: &str,
+    ) -> Result<Vec<RoutingDecision>, EmilyError> {
+        self.list_routing_decisions_internal(episode_id).await
+    }
+
+    async fn upsert_remote_episode(
+        &self,
+        remote_episode: &RemoteEpisodeRecord,
+    ) -> Result<(), EmilyError> {
+        self.upsert_remote_episode_internal(remote_episode).await
+    }
+
+    async fn get_remote_episode(
+        &self,
+        remote_episode_id: &str,
+    ) -> Result<Option<RemoteEpisodeRecord>, EmilyError> {
+        self.get_remote_episode_internal(remote_episode_id).await
+    }
+
+    async fn list_remote_episodes(
+        &self,
+        episode_id: &str,
+    ) -> Result<Vec<RemoteEpisodeRecord>, EmilyError> {
+        self.list_remote_episodes_internal(episode_id).await
+    }
+
+    async fn upsert_validation_outcome(
+        &self,
+        outcome: &ValidationOutcome,
+    ) -> Result<(), EmilyError> {
+        self.upsert_validation_outcome_internal(outcome).await
+    }
+
+    async fn get_validation_outcome(
+        &self,
+        validation_id: &str,
+    ) -> Result<Option<ValidationOutcome>, EmilyError> {
+        self.get_validation_outcome_internal(validation_id).await
+    }
+
+    async fn list_validation_outcomes(
+        &self,
+        episode_id: &str,
+    ) -> Result<Vec<ValidationOutcome>, EmilyError> {
+        self.list_validation_outcomes_internal(episode_id).await
     }
 
     async fn upsert_integrity_snapshot(

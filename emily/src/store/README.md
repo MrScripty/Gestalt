@@ -1,7 +1,7 @@
 # emily/src/store
 
 ## Purpose
-`store` defines persistence contracts and concrete storage implementations for Emily text objects, vector records, episode artifacts, EARL evaluations, ECGL integrity snapshots, and query operations.
+`store` defines persistence contracts and concrete storage implementations for Emily text objects, vector records, episode artifacts, sovereign artifacts, EARL evaluations, ECGL integrity snapshots, and query operations.
 
 ## Contents
 | File/Folder | Description |
@@ -12,7 +12,7 @@
 ## Problem
 Emily runtime needs persistence operations without coupling runtime logic to one database API.
 
-This is the storage boundary for the current memory runtime. It does not attempt to model broader sovereign-dispatch concerns such as membrane budgets, provider routing, or local reconstruction state.
+This is the storage boundary for the current memory runtime. It now includes durable sovereign-support records such as routing decisions, remote episodes, and validation outcomes, but it still does not model broader membrane internals, provider transport state, or local reconstruction state.
 
 ## Constraints
 - Async-safe trait methods.
@@ -31,6 +31,7 @@ Define `EmilyStore` as the storage boundary and keep backend details inside impl
 - Episode, trace-link, outcome, and audit writes use dedicated record families rather than being embedded into text rows.
 - EARL evaluations use a dedicated persisted record family rather than hiding gate state inside audit summaries only.
 - ECGL integrity snapshots use a dedicated persisted record family rather than being derived only at query time.
+- Sovereign routing, remote-episode, and validation writes use dedicated persisted record families rather than being embedded into generic audit metadata.
 - Runtime vectorization config is persisted in dedicated runtime config records.
 
 ## Compatibility Notes
@@ -44,13 +45,17 @@ Define `EmilyStore` as the storage boundary and keep backend details inside impl
   - `earl_evaluations`
 - The current Milestone 5 schema addition is additive:
   - `integrity_snapshots`
+- The current sovereign-record schema additions are additive:
+  - `routing_decisions`
+  - `remote_episodes`
+  - `validation_outcomes`
 - Existing databases containing only text/vector/runtime-config records remain valid.
 - Replay safety for durable write paths is enforced in the runtime facade through idempotent record IDs and conflict checks.
 
 ## Revisit Triggers
 - Additional backend support is required.
 - Query/index performance requires backend-specific capability flags.
-- Emily storage needs to represent broader audit objects such as remote-episode records or membrane-boundary telemetry.
+- Emily storage needs to represent broader membrane-boundary telemetry or transport-state artifacts.
 
 ## Dependencies
 **Internal:** `model`, `error`  

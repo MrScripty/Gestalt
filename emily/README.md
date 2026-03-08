@@ -10,6 +10,7 @@ Current scope is the memory and embedding-integrity core. This crate does not ye
 
 - `EmilyApi`: open/switch/close database, ingest text, query context, page history
 - Episode contract surface: create episodes, link traces, record outcomes, append audits
+- Sovereign record surface: record routing decisions, remote episodes, validation outcomes, and structured sovereign audits
 - `EARL` control surface: evaluate episode risk and receive `OK / CAUTION / REFLEX` results
 - Integrity surface: read the latest durable cognitive-integrity snapshot
 - Retrieval policy surface: read/update `MemoryPolicy`
@@ -46,10 +47,10 @@ synchronously on outcome ingestion, assigns explicit memory states, updates
 text-level scoring fields, and persists integrity snapshots without yet adding
 background workers or the full adaptive policy stack from the papers.
 
-The crate now includes additive sovereign-preparation DTOs for remote episodes,
-routing decisions, validation outcomes, and structured audit metadata. These
-contracts prepare later sovereign Emily work without committing the core crate
-to one remote-dispatch runtime.
+The crate now includes durable sovereign-support records for remote episodes,
+routing decisions, validation outcomes, and structured sovereign audit metadata.
+Those contracts prepare later sovereign Emily work without committing the core
+crate to one membrane or transport runtime.
 
 ## Host Responsibilities
 

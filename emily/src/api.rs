@@ -1,11 +1,12 @@
 use crate::error::EmilyError;
 use crate::model::{
-    AppendAuditRecordRequest, AuditRecord, ContextPacket, ContextQuery, CreateEpisodeRequest,
-    DatabaseLocator, EarlEvaluationRecord, EarlEvaluationRequest, EpisodeRecord, EpisodeTraceLink,
-    HealthSnapshot, HistoryPage, HistoryPageRequest, IngestTextRequest, IntegritySnapshot,
-    MemoryPolicy, OutcomeRecord, RecordOutcomeRequest, TextObject, TraceLinkRequest,
-    VectorizationConfig, VectorizationConfigPatch, VectorizationJobSnapshot,
-    VectorizationRunRequest, VectorizationStatus,
+    AppendAuditRecordRequest, AppendSovereignAuditRecordRequest, AuditRecord, ContextPacket,
+    ContextQuery, CreateEpisodeRequest, DatabaseLocator, EarlEvaluationRecord,
+    EarlEvaluationRequest, EpisodeRecord, EpisodeTraceLink, HealthSnapshot, HistoryPage,
+    HistoryPageRequest, IngestTextRequest, IntegritySnapshot, MemoryPolicy, OutcomeRecord,
+    RecordOutcomeRequest, RemoteEpisodeRecord, RemoteEpisodeRequest, RoutingDecision, TextObject,
+    TraceLinkRequest, ValidationOutcome, VectorizationConfig, VectorizationConfigPatch,
+    VectorizationJobSnapshot, VectorizationRunRequest, VectorizationStatus,
 };
 use async_trait::async_trait;
 
@@ -46,6 +47,30 @@ pub trait EmilyApi: Send + Sync {
     async fn append_audit_record(
         &self,
         request: AppendAuditRecordRequest,
+    ) -> Result<AuditRecord, EmilyError>;
+
+    /// Record one durable routing decision for a host episode.
+    async fn record_routing_decision(
+        &self,
+        decision: RoutingDecision,
+    ) -> Result<RoutingDecision, EmilyError>;
+
+    /// Record one durable remote episode reference under a host episode.
+    async fn create_remote_episode(
+        &self,
+        request: RemoteEpisodeRequest,
+    ) -> Result<RemoteEpisodeRecord, EmilyError>;
+
+    /// Record one durable validation outcome for local or remote outputs.
+    async fn record_validation_outcome(
+        &self,
+        outcome: ValidationOutcome,
+    ) -> Result<ValidationOutcome, EmilyError>;
+
+    /// Append one immutable audit record with structured sovereign metadata.
+    async fn append_sovereign_audit_record(
+        &self,
+        request: AppendSovereignAuditRecordRequest,
     ) -> Result<AuditRecord, EmilyError>;
 
     /// Evaluate one episode with the current EARL gate.

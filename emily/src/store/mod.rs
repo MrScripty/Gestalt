@@ -1,8 +1,9 @@
 use crate::error::EmilyError;
 use crate::model::{
     AuditRecord, ContextPacket, ContextQuery, DatabaseLocator, EarlEvaluationRecord, EpisodeRecord,
-    EpisodeTraceLink, HistoryPage, HistoryPageRequest, IntegritySnapshot, OutcomeRecord, TextEdge,
-    TextObject, TextVector, VectorizationConfig,
+    EpisodeTraceLink, HistoryPage, HistoryPageRequest, IntegritySnapshot, OutcomeRecord,
+    RemoteEpisodeRecord, RoutingDecision, TextEdge, TextObject, TextVector, ValidationOutcome,
+    VectorizationConfig,
 };
 use async_trait::async_trait;
 
@@ -64,6 +65,39 @@ pub trait EmilyStore: Send + Sync {
     async fn upsert_audit_record(&self, audit: &AuditRecord) -> Result<(), EmilyError>;
     async fn get_audit_record(&self, audit_id: &str) -> Result<Option<AuditRecord>, EmilyError>;
     async fn list_audit_records(&self, episode_id: &str) -> Result<Vec<AuditRecord>, EmilyError>;
+    async fn upsert_routing_decision(&self, decision: &RoutingDecision) -> Result<(), EmilyError>;
+    async fn get_routing_decision(
+        &self,
+        decision_id: &str,
+    ) -> Result<Option<RoutingDecision>, EmilyError>;
+    async fn list_routing_decisions(
+        &self,
+        episode_id: &str,
+    ) -> Result<Vec<RoutingDecision>, EmilyError>;
+    async fn upsert_remote_episode(
+        &self,
+        remote_episode: &RemoteEpisodeRecord,
+    ) -> Result<(), EmilyError>;
+    async fn get_remote_episode(
+        &self,
+        remote_episode_id: &str,
+    ) -> Result<Option<RemoteEpisodeRecord>, EmilyError>;
+    async fn list_remote_episodes(
+        &self,
+        episode_id: &str,
+    ) -> Result<Vec<RemoteEpisodeRecord>, EmilyError>;
+    async fn upsert_validation_outcome(
+        &self,
+        outcome: &ValidationOutcome,
+    ) -> Result<(), EmilyError>;
+    async fn get_validation_outcome(
+        &self,
+        validation_id: &str,
+    ) -> Result<Option<ValidationOutcome>, EmilyError>;
+    async fn list_validation_outcomes(
+        &self,
+        episode_id: &str,
+    ) -> Result<Vec<ValidationOutcome>, EmilyError>;
     async fn upsert_integrity_snapshot(
         &self,
         snapshot: &IntegritySnapshot,

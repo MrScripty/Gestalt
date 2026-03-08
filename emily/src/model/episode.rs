@@ -133,6 +133,10 @@ pub enum AuditRecordKind {
     TraceLinked,
     EarlEvaluated,
     OutcomeRecorded,
+    RoutingDecided,
+    RemoteEpisodeRecorded,
+    ValidationRecorded,
+    BoundaryEvent,
     Other,
 }
 
