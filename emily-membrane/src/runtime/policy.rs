@@ -3,19 +3,34 @@ use crate::contracts::{
     RoutingPolicyFinding, RoutingPolicyFindingSeverity, RoutingPolicyOutcome, RoutingPolicyRequest,
     RoutingPolicyResult, RoutingSensitivity,
 };
-use crate::providers::{ProviderTarget, RegisteredProviderTarget};
+use crate::providers::{
+    ProviderMetadataClass, ProviderTarget, ProviderTelemetryHealth,
+    ProviderValidationCompatibility, RegisteredProviderTarget,
+};
 use emily::{EarlDecision, EarlEvaluationRecord, EpisodeRecord, EpisodeState};
 
 const SCORE_PROVIDER_HINT_MATCH: i32 = 100;
 const SCORE_PROFILE_HINT_MATCH: i32 = 50;
 const SCORE_REQUIRED_CAPABILITY_TAG: i32 = 20;
 const SCORE_ADDITIONAL_CAPABILITY_TAG: i32 = 2;
+const SCORE_PROVIDER_CLASS_MATCH: i32 = 25;
+const SCORE_LATENCY_CLASS_MATCH: i32 = 12;
+const SCORE_COST_CLASS_MATCH: i32 = 10;
+const SCORE_VALIDATION_COMPATIBILITY_MATCH: i32 = 18;
+const SCORE_TELEMETRY_STABLE: i32 = 3;
+const SCORE_TELEMETRY_PREFERRED: i32 = 6;
 const SCORE_MODEL_PRESENT: i32 = 1;
 
 #[derive(Debug, Clone)]
 struct EmilyRoutingPolicySnapshot {
     episode: EpisodeRecord,
     latest_earl: Option<EarlEvaluationRecord>,
+}
+
+#[derive(Debug, Clone)]
+struct CandidateScore {
+    total: i32,
+    findings: Vec<RoutingPolicyFinding>,
 }
 
 impl<A> super::MembraneRuntime<A>
@@ -98,12 +113,21 @@ where
         ranked_targets.sort_by(|left, right| {
             right
                 .0
-                .cmp(&left.0)
+                .total
+                .cmp(&left.0.total)
                 .then_with(|| left.1.target.provider_id.cmp(&right.1.target.provider_id))
                 .then_with(|| left.1.target.profile_id.cmp(&right.1.target.profile_id))
                 .then_with(|| left.1.target.model_id.cmp(&right.1.target.model_id))
         });
 
+        let selected_score = ranked_targets
+            .first()
+            .map(|(score, _)| score.clone())
+            .ok_or_else(|| {
+                MembraneRuntimeError::InvalidState(
+                    "ranked targets unexpectedly empty after evaluation".to_string(),
+                )
+            })?;
         let selected_target = ranked_targets
             .first()
             .map(|(_, candidate)| candidate.target.clone())
@@ -117,6 +141,7 @@ where
         if let Some(snapshot) = snapshot.as_ref() {
             findings.extend(emily_caution_findings(snapshot));
         }
+        findings.extend(selected_score.findings);
         if request.sensitivity == RoutingSensitivity::High {
             findings.push(RoutingPolicyFinding {
                 code: "high-sensitivity-caution".to_string(),
@@ -127,15 +152,6 @@ where
             });
         }
 
-        findings.push(RoutingPolicyFinding {
-            code: "provider-selected".to_string(),
-            severity: RoutingPolicyFindingSeverity::Info,
-            detail: format!(
-                "selected provider '{}' for deterministic single-remote routing",
-                selected_target.provider_id
-            ),
-        });
-
         Ok(build_policy_result(
             &request,
             RoutingPolicyOutcome::SingleRemote,
@@ -144,8 +160,9 @@ where
             Some(selected_target.clone()),
             findings,
             Some(format!(
-                "selected '{}' through deterministic routing-policy scoring",
-                selected_target.provider_id
+                "selected '{}' through deterministic routing-policy scoring ({})",
+                selected_target.provider_id,
+                factor_summary(&request)
             )),
         ))
     }
@@ -329,7 +346,7 @@ fn validate_routing_policy_request(
 fn score_registered_target(
     candidate: &RegisteredProviderTarget,
     request: &RoutingPolicyRequest,
-) -> Option<i32> {
+) -> Option<CandidateScore> {
     if let Some(provider_id) = request.preference.provider_id.as_deref()
         && candidate.target.provider_id != provider_id
     {
@@ -357,7 +374,32 @@ fn score_registered_target(
         return None;
     }
 
+    if request
+        .preference
+        .max_latency_class
+        .is_some_and(|max_class| candidate.latency_class > max_class)
+    {
+        return None;
+    }
+
+    if request
+        .preference
+        .max_cost_class
+        .is_some_and(|max_class| candidate.cost_class > max_class)
+    {
+        return None;
+    }
+
+    if request
+        .preference
+        .minimum_validation_compatibility
+        .is_some_and(|minimum| candidate.validation_compatibility < minimum)
+    {
+        return None;
+    }
+
     let mut score = 0;
+    let mut findings = Vec::new();
 
     if request.preference.provider_id.is_some() {
         score += SCORE_PROVIDER_HINT_MATCH;
@@ -368,6 +410,63 @@ fn score_registered_target(
 
     score +=
         request.preference.required_capability_tags.len() as i32 * SCORE_REQUIRED_CAPABILITY_TAG;
+
+    if request
+        .preference
+        .preferred_provider_classes
+        .contains(&candidate.metadata_class)
+    {
+        score += SCORE_PROVIDER_CLASS_MATCH;
+        findings.push(RoutingPolicyFinding {
+            code: "provider-class-match".to_string(),
+            severity: RoutingPolicyFindingSeverity::Info,
+            detail: format!(
+                "selected provider metadata class '{}' matches the routing preference",
+                provider_metadata_class_label(candidate.metadata_class)
+            ),
+        });
+    }
+
+    if let Some(max_latency_class) = request.preference.max_latency_class {
+        score += SCORE_LATENCY_CLASS_MATCH;
+        findings.push(RoutingPolicyFinding {
+            code: "latency-class-match".to_string(),
+            severity: RoutingPolicyFindingSeverity::Info,
+            detail: format!(
+                "provider latency class '{}' satisfies host limit '{}'",
+                latency_class_label(candidate.latency_class),
+                latency_class_label(max_latency_class)
+            ),
+        });
+    }
+
+    if let Some(max_cost_class) = request.preference.max_cost_class {
+        score += SCORE_COST_CLASS_MATCH;
+        findings.push(RoutingPolicyFinding {
+            code: "cost-class-match".to_string(),
+            severity: RoutingPolicyFindingSeverity::Info,
+            detail: format!(
+                "provider cost class '{}' satisfies host limit '{}'",
+                cost_class_label(candidate.cost_class),
+                cost_class_label(max_cost_class)
+            ),
+        });
+    }
+
+    if let Some(minimum_validation_compatibility) =
+        request.preference.minimum_validation_compatibility
+    {
+        score += SCORE_VALIDATION_COMPATIBILITY_MATCH;
+        findings.push(RoutingPolicyFinding {
+            code: "validation-compatible".to_string(),
+            severity: RoutingPolicyFindingSeverity::Info,
+            detail: format!(
+                "provider validation compatibility '{}' satisfies minimum '{}'",
+                validation_compatibility_label(candidate.validation_compatibility),
+                validation_compatibility_label(minimum_validation_compatibility)
+            ),
+        });
+    }
 
     let additional_capability_tags = candidate
         .target
@@ -387,7 +486,49 @@ fn score_registered_target(
         score += SCORE_MODEL_PRESENT;
     }
 
-    Some(score)
+    if let Some(telemetry) = candidate.telemetry.as_ref()
+        && !telemetry.owner.trim().is_empty()
+    {
+        match telemetry.health {
+            ProviderTelemetryHealth::Degraded => {}
+            ProviderTelemetryHealth::Stable => {
+                score += SCORE_TELEMETRY_STABLE;
+                findings.push(RoutingPolicyFinding {
+                    code: "provider-telemetry-stable".to_string(),
+                    severity: RoutingPolicyFindingSeverity::Info,
+                    detail: format!(
+                        "telemetry from '{}' marked provider health as stable at {}",
+                        telemetry.owner, telemetry.captured_at_unix_ms
+                    ),
+                });
+            }
+            ProviderTelemetryHealth::Preferred => {
+                score += SCORE_TELEMETRY_PREFERRED;
+                findings.push(RoutingPolicyFinding {
+                    code: "provider-telemetry-preferred".to_string(),
+                    severity: RoutingPolicyFindingSeverity::Info,
+                    detail: format!(
+                        "telemetry from '{}' marked provider health as preferred at {}",
+                        telemetry.owner, telemetry.captured_at_unix_ms
+                    ),
+                });
+            }
+        }
+    }
+
+    findings.push(RoutingPolicyFinding {
+        code: "provider-selected".to_string(),
+        severity: RoutingPolicyFindingSeverity::Info,
+        detail: format!(
+            "selected provider '{}' for deterministic single-remote routing",
+            candidate.target.provider_id
+        ),
+    });
+
+    Some(CandidateScore {
+        total: score,
+        findings,
+    })
 }
 
 fn build_policy_result(
@@ -405,5 +546,60 @@ fn build_policy_result(
         selected_target,
         findings,
         rationale,
+    }
+}
+
+fn factor_summary(request: &RoutingPolicyRequest) -> String {
+    let mut factors = vec!["provider/profile/capability fit".to_string()];
+
+    if !request.preference.preferred_provider_classes.is_empty() {
+        factors.push("provider metadata class".to_string());
+    }
+    if request.preference.max_latency_class.is_some() {
+        factors.push("latency class".to_string());
+    }
+    if request.preference.max_cost_class.is_some() {
+        factors.push("cost class".to_string());
+    }
+    if request
+        .preference
+        .minimum_validation_compatibility
+        .is_some()
+    {
+        factors.push("validation compatibility".to_string());
+    }
+
+    factors.join(", ")
+}
+
+fn provider_metadata_class_label(class: ProviderMetadataClass) -> &'static str {
+    match class {
+        ProviderMetadataClass::Experimental => "experimental",
+        ProviderMetadataClass::Standard => "standard",
+        ProviderMetadataClass::Preferred => "preferred",
+    }
+}
+
+fn latency_class_label(class: crate::providers::ProviderLatencyClass) -> &'static str {
+    match class {
+        crate::providers::ProviderLatencyClass::Low => "low",
+        crate::providers::ProviderLatencyClass::Medium => "medium",
+        crate::providers::ProviderLatencyClass::High => "high",
+    }
+}
+
+fn cost_class_label(class: crate::providers::ProviderCostClass) -> &'static str {
+    match class {
+        crate::providers::ProviderCostClass::Low => "low",
+        crate::providers::ProviderCostClass::Medium => "medium",
+        crate::providers::ProviderCostClass::High => "high",
+    }
+}
+
+fn validation_compatibility_label(class: ProviderValidationCompatibility) -> &'static str {
+    match class {
+        ProviderValidationCompatibility::Basic => "basic",
+        ProviderValidationCompatibility::ReviewFriendly => "review-friendly",
+        ProviderValidationCompatibility::Strict => "strict",
     }
 }

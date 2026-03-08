@@ -119,6 +119,9 @@ async fn run_local(api: Arc<dyn EmilyApi>) {
   request-scoped remote retries.
 - `contracts.rs` now also carries typed routing-policy request/result contracts
   for the next membrane policy layer.
+- Those routing-policy contracts now include typed provider-class,
+  latency/cost-class, and validation-compatibility preferences for explicit
+  provider selection.
 - `providers/` now exposes the membrane-owned remote adapter boundary for the
   next milestone.
 - `runtime.rs` now exposes both the local-only facade and the first
@@ -147,5 +150,8 @@ async fn run_local(api: Arc<dyn EmilyApi>) {
   coherence, relevance, confidence, and provenance sufficiency.
 - It now also includes bounded retry policy and per-attempt persistence
   contracts for deterministic remote retries.
+- The provider-selection path now uses typed registry metadata plus optional
+  owned telemetry snapshots for deterministic ranking rather than opaque JSON
+  heuristics alone.
 - Those artifacts are intentionally narrow and local-first in this milestone.
 - Revisit trigger: the first provider-facing or leakage-budget contract lands.

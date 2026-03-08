@@ -13,8 +13,10 @@ use emily_membrane::contracts::{
     RoutingSensitivity,
 };
 use emily_membrane::providers::{
-    InMemoryProviderRegistry, MembraneProvider, MembraneProviderError, ProviderDispatchRequest,
-    ProviderDispatchResult, ProviderDispatchStatus, ProviderTarget, RegisteredProviderTarget,
+    InMemoryProviderRegistry, MembraneProvider, MembraneProviderError, ProviderCostClass,
+    ProviderDispatchRequest, ProviderDispatchResult, ProviderDispatchStatus, ProviderLatencyClass,
+    ProviderMetadataClass, ProviderTarget, ProviderValidationCompatibility,
+    RegisteredProviderTarget,
 };
 use emily_membrane::runtime::MembraneRuntime;
 use serde_json::json;
@@ -77,6 +79,21 @@ fn routing_preference() -> RemoteRoutingPreference {
         provider_id: Some("test-provider".to_string()),
         profile_id: Some("reasoning".to_string()),
         required_capability_tags: vec!["analysis".to_string()],
+        preferred_provider_classes: Vec::new(),
+        max_latency_class: None,
+        max_cost_class: None,
+        minimum_validation_compatibility: None,
+    }
+}
+
+fn default_registered_provider_target(target: ProviderTarget) -> RegisteredProviderTarget {
+    RegisteredProviderTarget {
+        target,
+        metadata_class: ProviderMetadataClass::Standard,
+        latency_class: ProviderLatencyClass::Medium,
+        cost_class: ProviderCostClass::Medium,
+        validation_compatibility: ProviderValidationCompatibility::Basic,
+        telemetry: None,
     }
 }
 
@@ -255,15 +272,13 @@ async fn remote_execution_records_route_remote_episode_validation_and_audits_ide
     let store = Arc::new(SurrealEmilyStore::new());
     let emily = Arc::new(EmilyRuntime::new(store));
     let registry = Arc::new(InMemoryProviderRegistry::single_target(
-        RegisteredProviderTarget {
-            target: ProviderTarget {
-                provider_id: "test-provider".to_string(),
-                model_id: Some("deterministic-v1".to_string()),
-                profile_id: Some("reasoning".to_string()),
-                capability_tags: vec!["analysis".to_string()],
-                metadata: json!({"origin": "test"}),
-            },
-        },
+        default_registered_provider_target(ProviderTarget {
+            provider_id: "test-provider".to_string(),
+            model_id: Some("deterministic-v1".to_string()),
+            profile_id: Some("reasoning".to_string()),
+            capability_tags: vec!["analysis".to_string()],
+            metadata: json!({"origin": "test"}),
+        }),
         Arc::new(DeterministicTestProvider) as Arc<dyn MembraneProvider>,
     ));
     let runtime = MembraneRuntime::with_provider_registry(emily.clone(), registry);
@@ -336,15 +351,13 @@ async fn policy_selected_remote_execution_uses_earl_caution_and_persists_soverei
     let store = Arc::new(SurrealEmilyStore::new());
     let emily = Arc::new(EmilyRuntime::new(store.clone()));
     let registry = Arc::new(InMemoryProviderRegistry::single_target(
-        RegisteredProviderTarget {
-            target: ProviderTarget {
-                provider_id: "test-provider".to_string(),
-                model_id: Some("deterministic-v1".to_string()),
-                profile_id: Some("reasoning".to_string()),
-                capability_tags: vec!["analysis".to_string()],
-                metadata: json!({"origin": "test"}),
-            },
-        },
+        default_registered_provider_target(ProviderTarget {
+            provider_id: "test-provider".to_string(),
+            model_id: Some("deterministic-v1".to_string()),
+            profile_id: Some("reasoning".to_string()),
+            capability_tags: vec!["analysis".to_string()],
+            metadata: json!({"origin": "test"}),
+        }),
         Arc::new(DeterministicTestProvider) as Arc<dyn MembraneProvider>,
     ));
     let runtime = MembraneRuntime::with_provider_registry(emily.clone(), registry);
@@ -416,15 +429,13 @@ async fn broader_policy_execution_runs_remote_path_and_persists_sovereign_record
     let store = Arc::new(SurrealEmilyStore::new());
     let emily = Arc::new(EmilyRuntime::new(store.clone()));
     let registry = Arc::new(InMemoryProviderRegistry::single_target(
-        RegisteredProviderTarget {
-            target: ProviderTarget {
-                provider_id: "test-provider".to_string(),
-                model_id: Some("deterministic-v1".to_string()),
-                profile_id: Some("reasoning".to_string()),
-                capability_tags: vec!["analysis".to_string()],
-                metadata: json!({"origin": "test"}),
-            },
-        },
+        default_registered_provider_target(ProviderTarget {
+            provider_id: "test-provider".to_string(),
+            model_id: Some("deterministic-v1".to_string()),
+            profile_id: Some("reasoning".to_string()),
+            capability_tags: vec!["analysis".to_string()],
+            metadata: json!({"origin": "test"}),
+        }),
         Arc::new(DeterministicTestProvider) as Arc<dyn MembraneProvider>,
     ));
     let runtime = MembraneRuntime::with_provider_registry(emily.clone(), registry);
@@ -488,15 +499,13 @@ async fn policy_selected_remote_execution_returns_policy_only_when_earl_reflex_b
     let store = Arc::new(SurrealEmilyStore::new());
     let emily = Arc::new(EmilyRuntime::new(store.clone()));
     let registry = Arc::new(InMemoryProviderRegistry::single_target(
-        RegisteredProviderTarget {
-            target: ProviderTarget {
-                provider_id: "test-provider".to_string(),
-                model_id: Some("deterministic-v1".to_string()),
-                profile_id: Some("reasoning".to_string()),
-                capability_tags: vec!["analysis".to_string()],
-                metadata: json!({"origin": "test"}),
-            },
-        },
+        default_registered_provider_target(ProviderTarget {
+            provider_id: "test-provider".to_string(),
+            model_id: Some("deterministic-v1".to_string()),
+            profile_id: Some("reasoning".to_string()),
+            capability_tags: vec!["analysis".to_string()],
+            metadata: json!({"origin": "test"}),
+        }),
         Arc::new(DeterministicTestProvider) as Arc<dyn MembraneProvider>,
     ));
     let runtime = MembraneRuntime::with_provider_registry(emily.clone(), registry);
@@ -549,15 +558,13 @@ async fn broader_policy_execution_returns_policy_only_for_rejected_route() {
     let store = Arc::new(SurrealEmilyStore::new());
     let emily = Arc::new(EmilyRuntime::new(store.clone()));
     let registry = Arc::new(InMemoryProviderRegistry::single_target(
-        RegisteredProviderTarget {
-            target: ProviderTarget {
-                provider_id: "test-provider".to_string(),
-                model_id: Some("deterministic-v1".to_string()),
-                profile_id: Some("reasoning".to_string()),
-                capability_tags: vec!["analysis".to_string()],
-                metadata: json!({"origin": "test"}),
-            },
-        },
+        default_registered_provider_target(ProviderTarget {
+            provider_id: "test-provider".to_string(),
+            model_id: Some("deterministic-v1".to_string()),
+            profile_id: Some("reasoning".to_string()),
+            capability_tags: vec!["analysis".to_string()],
+            metadata: json!({"origin": "test"}),
+        }),
         Arc::new(DeterministicTestProvider) as Arc<dyn MembraneProvider>,
     ));
     let runtime = MembraneRuntime::with_provider_registry(emily.clone(), registry);
@@ -618,15 +625,13 @@ async fn remote_retry_execution_retries_review_and_records_boundary_audits() {
     let store = Arc::new(SurrealEmilyStore::new());
     let emily = Arc::new(EmilyRuntime::new(store));
     let registry = Arc::new(InMemoryProviderRegistry::single_target(
-        RegisteredProviderTarget {
-            target: ProviderTarget {
-                provider_id: "test-provider".to_string(),
-                model_id: Some("deterministic-v1".to_string()),
-                profile_id: Some("reasoning".to_string()),
-                capability_tags: vec!["analysis".to_string()],
-                metadata: json!({"origin": "test"}),
-            },
-        },
+        default_registered_provider_target(ProviderTarget {
+            provider_id: "test-provider".to_string(),
+            model_id: Some("deterministic-v1".to_string()),
+            profile_id: Some("reasoning".to_string()),
+            capability_tags: vec!["analysis".to_string()],
+            metadata: json!({"origin": "test"}),
+        }),
         Arc::new(ReviewThenSuccessProvider {
             attempt: Mutex::new(0),
         }) as Arc<dyn MembraneProvider>,
@@ -710,15 +715,13 @@ async fn remote_retry_execution_exhausts_after_provider_errors() {
     let store = Arc::new(SurrealEmilyStore::new());
     let emily = Arc::new(EmilyRuntime::new(store));
     let registry = Arc::new(InMemoryProviderRegistry::single_target(
-        RegisteredProviderTarget {
-            target: ProviderTarget {
-                provider_id: "test-provider".to_string(),
-                model_id: Some("deterministic-v1".to_string()),
-                profile_id: Some("reasoning".to_string()),
-                capability_tags: vec!["analysis".to_string()],
-                metadata: json!({"origin": "test"}),
-            },
-        },
+        default_registered_provider_target(ProviderTarget {
+            provider_id: "test-provider".to_string(),
+            model_id: Some("deterministic-v1".to_string()),
+            profile_id: Some("reasoning".to_string()),
+            capability_tags: vec!["analysis".to_string()],
+            metadata: json!({"origin": "test"}),
+        }),
         Arc::new(ErrorThenErrorProvider {
             attempt: Mutex::new(0),
         }) as Arc<dyn MembraneProvider>,

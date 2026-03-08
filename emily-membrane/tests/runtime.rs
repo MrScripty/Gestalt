@@ -18,8 +18,10 @@ use emily_membrane::contracts::{
     ValidationAssessmentStatus, ValidationCategory, ValidationEnvelope,
 };
 use emily_membrane::providers::{
-    InMemoryProviderRegistry, MembraneProvider, MembraneProviderError, ProviderDispatchRequest,
-    ProviderDispatchResult, ProviderDispatchStatus, ProviderTarget, RegisteredProviderTarget,
+    InMemoryProviderRegistry, MembraneProvider, MembraneProviderError, ProviderCostClass,
+    ProviderDispatchRequest, ProviderDispatchResult, ProviderDispatchStatus, ProviderLatencyClass,
+    ProviderMetadataClass, ProviderTarget, ProviderTelemetryHealth, ProviderTelemetrySnapshot,
+    ProviderValidationCompatibility, RegisteredProviderTarget,
 };
 use emily_membrane::runtime::{MembraneRuntime, MembraneRuntimeError};
 use std::sync::Arc;
@@ -106,6 +108,35 @@ fn open_episode(episode_id: &str) -> EpisodeRecord {
         last_outcome_id: None,
         created_at_unix_ms: 1,
         updated_at_unix_ms: 1,
+    }
+}
+
+fn default_registered_provider_target() -> RegisteredProviderTarget {
+    RegisteredProviderTarget {
+        target: ProviderTarget {
+            provider_id: "provider-default".to_string(),
+            model_id: None,
+            profile_id: None,
+            capability_tags: Vec::new(),
+            metadata: serde_json::json!({}),
+        },
+        metadata_class: ProviderMetadataClass::Standard,
+        latency_class: ProviderLatencyClass::Medium,
+        cost_class: ProviderCostClass::Medium,
+        validation_compatibility: ProviderValidationCompatibility::Basic,
+        telemetry: None,
+    }
+}
+
+fn default_routing_preference() -> RemoteRoutingPreference {
+    RemoteRoutingPreference {
+        provider_id: None,
+        profile_id: None,
+        required_capability_tags: Vec::new(),
+        preferred_provider_classes: Vec::new(),
+        max_latency_class: None,
+        max_cost_class: None,
+        minimum_validation_compatibility: None,
     }
 }
 
@@ -591,6 +622,7 @@ async fn select_remote_target_matches_registry_metadata() {
                     capability_tags: vec!["analysis".into()],
                     metadata: serde_json::json!({"rank": 2}),
                 },
+                ..default_registered_provider_target()
             },
             Arc::new(StubProvider {
                 provider_id: "provider-a",
@@ -605,6 +637,7 @@ async fn select_remote_target_matches_registry_metadata() {
                     capability_tags: vec!["search".into()],
                     metadata: serde_json::json!({"rank": 1}),
                 },
+                ..default_registered_provider_target()
             },
             Arc::new(StubProvider {
                 provider_id: "provider-b",
@@ -619,6 +652,7 @@ async fn select_remote_target_matches_registry_metadata() {
             provider_id: Some("provider-a".into()),
             profile_id: Some("reasoning".into()),
             required_capability_tags: vec!["analysis".into()],
+            ..default_routing_preference()
         })
         .await
         .expect("select target");
@@ -639,6 +673,7 @@ async fn evaluate_routing_policy_returns_local_only_when_remote_disabled() {
                 capability_tags: vec!["analysis".into()],
                 metadata: serde_json::json!({}),
             },
+            ..default_registered_provider_target()
         },
         Arc::new(StubProvider {
             provider_id: "provider-a",
@@ -657,6 +692,7 @@ async fn evaluate_routing_policy_returns_local_only_when_remote_disabled() {
                 provider_id: None,
                 profile_id: None,
                 required_capability_tags: Vec::new(),
+                ..default_routing_preference()
             },
         })
         .await
@@ -678,6 +714,7 @@ async fn evaluate_routing_policy_rejects_critical_sensitivity() {
                 capability_tags: vec!["analysis".into()],
                 metadata: serde_json::json!({}),
             },
+            ..default_registered_provider_target()
         },
         Arc::new(StubProvider {
             provider_id: "provider-a",
@@ -696,6 +733,7 @@ async fn evaluate_routing_policy_rejects_critical_sensitivity() {
                 provider_id: None,
                 profile_id: None,
                 required_capability_tags: Vec::new(),
+                ..default_routing_preference()
             },
         })
         .await
@@ -721,6 +759,7 @@ async fn evaluate_routing_policy_prefers_best_matching_target() {
                     capability_tags: vec!["analysis".into(), "synthesis".into()],
                     metadata: serde_json::json!({}),
                 },
+                ..default_registered_provider_target()
             },
             Arc::new(StubProvider {
                 provider_id: "provider-a",
@@ -735,6 +774,7 @@ async fn evaluate_routing_policy_prefers_best_matching_target() {
                     capability_tags: vec!["analysis".into()],
                     metadata: serde_json::json!({}),
                 },
+                ..default_registered_provider_target()
             },
             Arc::new(StubProvider {
                 provider_id: "provider-b",
@@ -754,6 +794,7 @@ async fn evaluate_routing_policy_prefers_best_matching_target() {
                 provider_id: None,
                 profile_id: Some("reasoning".into()),
                 required_capability_tags: vec!["analysis".into()],
+                ..default_routing_preference()
             },
         })
         .await
@@ -782,6 +823,7 @@ async fn evaluate_routing_policy_uses_deterministic_tie_breaking() {
                     capability_tags: vec!["analysis".into()],
                     metadata: serde_json::json!({}),
                 },
+                ..default_registered_provider_target()
             },
             Arc::new(StubProvider {
                 provider_id: "provider-b",
@@ -796,6 +838,7 @@ async fn evaluate_routing_policy_uses_deterministic_tie_breaking() {
                     capability_tags: vec!["analysis".into()],
                     metadata: serde_json::json!({}),
                 },
+                ..default_registered_provider_target()
             },
             Arc::new(StubProvider {
                 provider_id: "provider-a",
@@ -815,6 +858,7 @@ async fn evaluate_routing_policy_uses_deterministic_tie_breaking() {
                 provider_id: None,
                 profile_id: Some("reasoning".into()),
                 required_capability_tags: vec!["analysis".into()],
+                ..default_routing_preference()
             },
         })
         .await
@@ -831,6 +875,241 @@ async fn evaluate_routing_policy_uses_deterministic_tie_breaking() {
 }
 
 #[tokio::test]
+async fn evaluate_routing_policy_prefers_matching_provider_class_and_validation_profile() {
+    let registry = Arc::new(InMemoryProviderRegistry::with_targets([
+        (
+            RegisteredProviderTarget {
+                target: ProviderTarget {
+                    provider_id: "provider-a".into(),
+                    model_id: Some("model-a".into()),
+                    profile_id: Some("reasoning".into()),
+                    capability_tags: vec!["analysis".into()],
+                    metadata: serde_json::json!({}),
+                },
+                metadata_class: ProviderMetadataClass::Standard,
+                validation_compatibility: ProviderValidationCompatibility::ReviewFriendly,
+                ..default_registered_provider_target()
+            },
+            Arc::new(StubProvider {
+                provider_id: "provider-a",
+            }) as Arc<dyn MembraneProvider>,
+        ),
+        (
+            RegisteredProviderTarget {
+                target: ProviderTarget {
+                    provider_id: "provider-b".into(),
+                    model_id: Some("model-b".into()),
+                    profile_id: Some("reasoning".into()),
+                    capability_tags: vec!["analysis".into()],
+                    metadata: serde_json::json!({}),
+                },
+                metadata_class: ProviderMetadataClass::Preferred,
+                validation_compatibility: ProviderValidationCompatibility::Strict,
+                ..default_registered_provider_target()
+            },
+            Arc::new(StubProvider {
+                provider_id: "provider-b",
+            }) as Arc<dyn MembraneProvider>,
+        ),
+    ]));
+    let runtime =
+        MembraneRuntime::with_provider_registry(Arc::new(StubEmilyApi::default()), registry);
+
+    let result = runtime
+        .evaluate_routing_policy(RoutingPolicyRequest {
+            task_id: "task-1".into(),
+            episode_id: "episode-1".into(),
+            allow_remote: true,
+            sensitivity: RoutingSensitivity::Normal,
+            preference: RemoteRoutingPreference {
+                profile_id: Some("reasoning".into()),
+                required_capability_tags: vec!["analysis".into()],
+                preferred_provider_classes: vec![ProviderMetadataClass::Preferred],
+                minimum_validation_compatibility: Some(
+                    ProviderValidationCompatibility::ReviewFriendly,
+                ),
+                ..default_routing_preference()
+            },
+        })
+        .await
+        .expect("evaluate policy");
+
+    assert_eq!(result.outcome, RoutingPolicyOutcome::SingleRemote);
+    assert_eq!(
+        result
+            .selected_target
+            .as_ref()
+            .map(|target| target.provider_id.as_str()),
+        Some("provider-b")
+    );
+    assert!(
+        result
+            .findings
+            .iter()
+            .any(|finding| finding.code == "provider-class-match")
+    );
+    assert!(
+        result
+            .findings
+            .iter()
+            .any(|finding| finding.code == "validation-compatible")
+    );
+}
+
+#[tokio::test]
+async fn evaluate_routing_policy_filters_by_latency_and_cost_limits() {
+    let registry = Arc::new(InMemoryProviderRegistry::with_targets([
+        (
+            RegisteredProviderTarget {
+                target: ProviderTarget {
+                    provider_id: "provider-a".into(),
+                    model_id: Some("model-a".into()),
+                    profile_id: Some("reasoning".into()),
+                    capability_tags: vec!["analysis".into()],
+                    metadata: serde_json::json!({}),
+                },
+                latency_class: ProviderLatencyClass::Low,
+                cost_class: ProviderCostClass::High,
+                ..default_registered_provider_target()
+            },
+            Arc::new(StubProvider {
+                provider_id: "provider-a",
+            }) as Arc<dyn MembraneProvider>,
+        ),
+        (
+            RegisteredProviderTarget {
+                target: ProviderTarget {
+                    provider_id: "provider-b".into(),
+                    model_id: Some("model-b".into()),
+                    profile_id: Some("reasoning".into()),
+                    capability_tags: vec!["analysis".into()],
+                    metadata: serde_json::json!({}),
+                },
+                latency_class: ProviderLatencyClass::Medium,
+                cost_class: ProviderCostClass::Low,
+                ..default_registered_provider_target()
+            },
+            Arc::new(StubProvider {
+                provider_id: "provider-b",
+            }) as Arc<dyn MembraneProvider>,
+        ),
+    ]));
+    let runtime =
+        MembraneRuntime::with_provider_registry(Arc::new(StubEmilyApi::default()), registry);
+
+    let result = runtime
+        .evaluate_routing_policy(RoutingPolicyRequest {
+            task_id: "task-1".into(),
+            episode_id: "episode-1".into(),
+            allow_remote: true,
+            sensitivity: RoutingSensitivity::Normal,
+            preference: RemoteRoutingPreference {
+                profile_id: Some("reasoning".into()),
+                required_capability_tags: vec!["analysis".into()],
+                max_latency_class: Some(ProviderLatencyClass::Medium),
+                max_cost_class: Some(ProviderCostClass::Low),
+                ..default_routing_preference()
+            },
+        })
+        .await
+        .expect("evaluate policy");
+
+    assert_eq!(result.outcome, RoutingPolicyOutcome::SingleRemote);
+    assert_eq!(
+        result
+            .selected_target
+            .as_ref()
+            .map(|target| target.provider_id.as_str()),
+        Some("provider-b")
+    );
+    assert!(
+        result
+            .findings
+            .iter()
+            .any(|finding| finding.code == "latency-class-match")
+    );
+    assert!(
+        result
+            .findings
+            .iter()
+            .any(|finding| finding.code == "cost-class-match")
+    );
+}
+
+#[tokio::test]
+async fn evaluate_routing_policy_uses_owned_telemetry_as_a_deterministic_factor() {
+    let registry = Arc::new(InMemoryProviderRegistry::with_targets([
+        (
+            RegisteredProviderTarget {
+                target: ProviderTarget {
+                    provider_id: "provider-z".into(),
+                    model_id: Some("model-z".into()),
+                    profile_id: Some("reasoning".into()),
+                    capability_tags: vec!["analysis".into()],
+                    metadata: serde_json::json!({}),
+                },
+                telemetry: Some(ProviderTelemetrySnapshot {
+                    owner: "membrane-test".into(),
+                    captured_at_unix_ms: 50,
+                    health: ProviderTelemetryHealth::Preferred,
+                }),
+                ..default_registered_provider_target()
+            },
+            Arc::new(StubProvider {
+                provider_id: "provider-z",
+            }) as Arc<dyn MembraneProvider>,
+        ),
+        (
+            RegisteredProviderTarget {
+                target: ProviderTarget {
+                    provider_id: "provider-a".into(),
+                    model_id: Some("model-a".into()),
+                    profile_id: Some("reasoning".into()),
+                    capability_tags: vec!["analysis".into()],
+                    metadata: serde_json::json!({}),
+                },
+                ..default_registered_provider_target()
+            },
+            Arc::new(StubProvider {
+                provider_id: "provider-a",
+            }) as Arc<dyn MembraneProvider>,
+        ),
+    ]));
+    let runtime =
+        MembraneRuntime::with_provider_registry(Arc::new(StubEmilyApi::default()), registry);
+
+    let result = runtime
+        .evaluate_routing_policy(RoutingPolicyRequest {
+            task_id: "task-1".into(),
+            episode_id: "episode-1".into(),
+            allow_remote: true,
+            sensitivity: RoutingSensitivity::Normal,
+            preference: RemoteRoutingPreference {
+                profile_id: Some("reasoning".into()),
+                required_capability_tags: vec!["analysis".into()],
+                ..default_routing_preference()
+            },
+        })
+        .await
+        .expect("evaluate policy");
+
+    assert_eq!(result.outcome, RoutingPolicyOutcome::SingleRemote);
+    assert_eq!(
+        result
+            .selected_target
+            .as_ref()
+            .map(|target| target.provider_id.as_str()),
+        Some("provider-z")
+    );
+    assert!(
+        result
+            .findings
+            .iter()
+            .any(|finding| finding.code == "provider-telemetry-preferred")
+    );
+}
+
+#[tokio::test]
 async fn evaluate_routing_policy_rejects_missing_episode_anchor() {
     let registry = Arc::new(InMemoryProviderRegistry::with_targets([(
         RegisteredProviderTarget {
@@ -841,6 +1120,7 @@ async fn evaluate_routing_policy_rejects_missing_episode_anchor() {
                 capability_tags: vec!["analysis".into()],
                 metadata: serde_json::json!({}),
             },
+            ..default_registered_provider_target()
         },
         Arc::new(StubProvider {
             provider_id: "provider-a",
@@ -864,6 +1144,7 @@ async fn evaluate_routing_policy_rejects_missing_episode_anchor() {
                 provider_id: None,
                 profile_id: Some("reasoning".into()),
                 required_capability_tags: vec!["analysis".into()],
+                ..default_routing_preference()
             },
         })
         .await
@@ -884,6 +1165,7 @@ async fn evaluate_routing_policy_cautions_when_latest_earl_requires_clarificatio
                 capability_tags: vec!["analysis".into()],
                 metadata: serde_json::json!({}),
             },
+            ..default_registered_provider_target()
         },
         Arc::new(StubProvider {
             provider_id: "provider-a",
@@ -904,6 +1186,7 @@ async fn evaluate_routing_policy_cautions_when_latest_earl_requires_clarificatio
                 provider_id: None,
                 profile_id: Some("reasoning".into()),
                 required_capability_tags: vec!["analysis".into()],
+                ..default_routing_preference()
             },
         })
         .await
@@ -930,6 +1213,7 @@ async fn evaluate_routing_policy_rejects_latest_earl_reflex_gate() {
                 capability_tags: vec!["analysis".into()],
                 metadata: serde_json::json!({}),
             },
+            ..default_registered_provider_target()
         },
         Arc::new(StubProvider {
             provider_id: "provider-a",
@@ -950,6 +1234,7 @@ async fn evaluate_routing_policy_rejects_latest_earl_reflex_gate() {
                 provider_id: None,
                 profile_id: Some("reasoning".into()),
                 required_capability_tags: vec!["analysis".into()],
+                ..default_routing_preference()
             },
         })
         .await
@@ -970,6 +1255,7 @@ async fn evaluate_routing_policy_cautions_existing_cautioned_episode() {
                 capability_tags: vec!["analysis".into()],
                 metadata: serde_json::json!({}),
             },
+            ..default_registered_provider_target()
         },
         Arc::new(StubProvider {
             provider_id: "provider-a",
@@ -990,6 +1276,7 @@ async fn evaluate_routing_policy_cautions_existing_cautioned_episode() {
                 provider_id: None,
                 profile_id: Some("reasoning".into()),
                 required_capability_tags: vec!["analysis".into()],
+                ..default_routing_preference()
             },
         })
         .await
@@ -1016,6 +1303,7 @@ async fn execute_remote_with_policy_and_record_returns_policy_only_for_rejected_
                 capability_tags: vec!["analysis".into()],
                 metadata: serde_json::json!({}),
             },
+            ..default_registered_provider_target()
         },
         Arc::new(StubProvider {
             provider_id: "provider-a",
@@ -1044,6 +1332,7 @@ async fn execute_remote_with_policy_and_record_returns_policy_only_for_rejected_
                     provider_id: None,
                     profile_id: Some("reasoning".into()),
                     required_capability_tags: vec!["analysis".into()],
+                    ..default_routing_preference()
                 },
             },
             RemoteExecutionPersistence {
@@ -1074,6 +1363,7 @@ async fn execute_with_policy_and_record_returns_policy_only_for_rejected_route()
                 capability_tags: vec!["analysis".into()],
                 metadata: serde_json::json!({}),
             },
+            ..default_registered_provider_target()
         },
         Arc::new(StubProvider {
             provider_id: "provider-a",
@@ -1102,6 +1392,7 @@ async fn execute_with_policy_and_record_returns_policy_only_for_rejected_route()
                     provider_id: None,
                     profile_id: Some("reasoning".into()),
                     required_capability_tags: vec!["analysis".into()],
+                    ..default_routing_preference()
                 },
             },
             PolicyExecutionPersistence::default(),

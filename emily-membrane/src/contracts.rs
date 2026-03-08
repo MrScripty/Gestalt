@@ -1,6 +1,9 @@
 //! Executable membrane boundary contracts.
 
-use crate::providers::ProviderTarget;
+use crate::providers::{
+    ProviderCostClass, ProviderLatencyClass, ProviderMetadataClass, ProviderTarget,
+    ProviderValidationCompatibility,
+};
 use serde::{Deserialize, Serialize};
 
 mod ir;
@@ -90,6 +93,18 @@ pub struct RemoteRoutingPreference {
     /// Defaults to an empty list when omitted.
     #[serde(default)]
     pub required_capability_tags: Vec<String>,
+    /// Defaults to an empty list when omitted.
+    #[serde(default)]
+    pub preferred_provider_classes: Vec<ProviderMetadataClass>,
+    /// Defaults to `None` when omitted.
+    #[serde(default)]
+    pub max_latency_class: Option<ProviderLatencyClass>,
+    /// Defaults to `None` when omitted.
+    #[serde(default)]
+    pub max_cost_class: Option<ProviderCostClass>,
+    /// Defaults to `None` when omitted.
+    #[serde(default)]
+    pub minimum_validation_compatibility: Option<ProviderValidationCompatibility>,
 }
 
 /// Host-facing routing-policy request before provider dispatch.
@@ -379,6 +394,10 @@ mod tests {
             provider_id: Some("provider-a".into()),
             profile_id: Some("reasoning".into()),
             required_capability_tags: vec!["analysis".into()],
+            preferred_provider_classes: vec![ProviderMetadataClass::Preferred],
+            max_latency_class: Some(ProviderLatencyClass::Low),
+            max_cost_class: Some(ProviderCostClass::Medium),
+            minimum_validation_compatibility: Some(ProviderValidationCompatibility::ReviewFriendly),
         };
 
         let text = serde_json::to_string(&preference).expect("serialize remote routing preference");
@@ -390,6 +409,10 @@ mod tests {
             serde_json::from_str(r#"{"provider_id":"provider-b","profile_id":null}"#)
                 .expect("deserialize remote routing preference defaults");
         assert!(restored_default.required_capability_tags.is_empty());
+        assert!(restored_default.preferred_provider_classes.is_empty());
+        assert_eq!(restored_default.max_latency_class, None);
+        assert_eq!(restored_default.max_cost_class, None);
+        assert_eq!(restored_default.minimum_validation_compatibility, None);
     }
 
     #[test]
@@ -403,6 +426,12 @@ mod tests {
                 provider_id: Some("provider-a".into()),
                 profile_id: Some("reasoning".into()),
                 required_capability_tags: vec!["analysis".into()],
+                preferred_provider_classes: vec![ProviderMetadataClass::Preferred],
+                max_latency_class: Some(ProviderLatencyClass::Low),
+                max_cost_class: Some(ProviderCostClass::Medium),
+                minimum_validation_compatibility: Some(
+                    ProviderValidationCompatibility::ReviewFriendly,
+                ),
             },
         };
 
@@ -426,6 +455,18 @@ mod tests {
                 .preference
                 .required_capability_tags
                 .is_empty()
+        );
+        assert!(
+            restored_default
+                .preference
+                .preferred_provider_classes
+                .is_empty()
+        );
+        assert_eq!(restored_default.preference.max_latency_class, None);
+        assert_eq!(restored_default.preference.max_cost_class, None);
+        assert_eq!(
+            restored_default.preference.minimum_validation_compatibility,
+            None
         );
     }
 

@@ -51,6 +51,76 @@ pub struct ProviderTarget {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RegisteredProviderTarget {
     pub target: ProviderTarget,
+    /// Defaults to `Standard` when omitted.
+    #[serde(default)]
+    pub metadata_class: ProviderMetadataClass,
+    /// Defaults to `Medium` when omitted.
+    #[serde(default)]
+    pub latency_class: ProviderLatencyClass,
+    /// Defaults to `Medium` when omitted.
+    #[serde(default)]
+    pub cost_class: ProviderCostClass,
+    /// Defaults to `Basic` when omitted.
+    #[serde(default)]
+    pub validation_compatibility: ProviderValidationCompatibility,
+    /// Defaults to `None` when omitted.
+    #[serde(default)]
+    pub telemetry: Option<ProviderTelemetrySnapshot>,
+}
+
+/// Host-supplied metadata tier for one registered provider target.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum ProviderMetadataClass {
+    Experimental,
+    #[default]
+    Standard,
+    Preferred,
+}
+
+/// Host-declared latency class for one registered provider target.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Default)]
+pub enum ProviderLatencyClass {
+    Low,
+    #[default]
+    Medium,
+    High,
+}
+
+/// Host-declared cost class for one registered provider target.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Default)]
+pub enum ProviderCostClass {
+    Low,
+    #[default]
+    Medium,
+    High,
+}
+
+/// Validation posture compatibility declared for one provider target.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Default)]
+pub enum ProviderValidationCompatibility {
+    #[default]
+    Basic,
+    ReviewFriendly,
+    Strict,
+}
+
+/// Optional telemetry snapshot used during deterministic provider ranking.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderTelemetrySnapshot {
+    pub owner: String,
+    pub captured_at_unix_ms: i64,
+    /// Defaults to `Stable` when omitted.
+    #[serde(default)]
+    pub health: ProviderTelemetryHealth,
+}
+
+/// Health class for one provider telemetry snapshot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum ProviderTelemetryHealth {
+    Degraded,
+    #[default]
+    Stable,
+    Preferred,
 }
 
 /// Dispatch-shape label for one provider call.
@@ -126,6 +196,11 @@ impl InMemoryProviderRegistry {
                         capability_tags: Vec::new(),
                         metadata: Value::Object(Default::default()),
                     },
+                    metadata_class: ProviderMetadataClass::default(),
+                    latency_class: ProviderLatencyClass::default(),
+                    cost_class: ProviderCostClass::default(),
+                    validation_compatibility: ProviderValidationCompatibility::default(),
+                    telemetry: None,
                 },
                 provider,
             )
@@ -337,6 +412,15 @@ mod tests {
                     capability_tags: vec!["analysis".to_string()],
                     metadata: json!({"rank": 1}),
                 },
+                metadata_class: ProviderMetadataClass::Preferred,
+                latency_class: ProviderLatencyClass::Low,
+                cost_class: ProviderCostClass::Medium,
+                validation_compatibility: ProviderValidationCompatibility::Strict,
+                telemetry: Some(ProviderTelemetrySnapshot {
+                    owner: "test-harness".to_string(),
+                    captured_at_unix_ms: 10,
+                    health: ProviderTelemetryHealth::Preferred,
+                }),
             },
             Arc::new(ExampleProvider {
                 provider_id: "provider-a",
@@ -348,5 +432,19 @@ mod tests {
         assert_eq!(targets[0].target.provider_id, "provider-a");
         assert_eq!(targets[0].target.profile_id.as_deref(), Some("reasoning"));
         assert_eq!(targets[0].target.capability_tags, vec!["analysis"]);
+        assert_eq!(targets[0].metadata_class, ProviderMetadataClass::Preferred);
+        assert_eq!(targets[0].latency_class, ProviderLatencyClass::Low);
+        assert_eq!(targets[0].cost_class, ProviderCostClass::Medium);
+        assert_eq!(
+            targets[0].validation_compatibility,
+            ProviderValidationCompatibility::Strict
+        );
+        assert_eq!(
+            targets[0]
+                .telemetry
+                .as_ref()
+                .map(|telemetry| telemetry.owner.as_str()),
+            Some("test-harness")
+        );
     }
 }

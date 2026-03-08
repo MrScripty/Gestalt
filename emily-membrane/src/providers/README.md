@@ -110,6 +110,9 @@ impl MembraneProvider for ExampleProvider {
   injection.
 - `RegisteredProviderTarget` carries the registry metadata used for target
   selection before provider dispatch.
+- That registry metadata now includes typed provider metadata class,
+  latency/cost class, validation compatibility, and optional telemetry with an
+  explicit owner and capture timestamp.
 - `ProviderDispatchRequest` and `ProviderDispatchResult` are append-only DTOs
   for the first remote slices.
 - `ProviderDispatchRequest` now carries both typed membrane IR and the current

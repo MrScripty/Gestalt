@@ -45,6 +45,9 @@ runtime type in `runtime.rs`.
 - `runtime.rs` owns the public runtime type and core local path.
 - `policy.rs` owns deterministic routing-policy evaluation for the first
   sovereign routing slice.
+- That policy slice now ranks targets using typed provider metadata class,
+  latency/cost limits, validation compatibility, and optional owned telemetry
+  snapshots while preserving deterministic tie-breaking.
 - `retry.rs` owns bounded request-scoped retry and mutation behavior for
   remote execution.
 - `remote.rs` owns provider-registry-backed remote execution helpers.
