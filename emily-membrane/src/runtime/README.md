@@ -83,6 +83,8 @@ runtime type in `runtime.rs`.
   `EARL` evaluation before provider scoring.
 - Registry-backed runtimes can now also execute the policy-selected remote path
   through one helper while preserving the existing direct-target APIs.
+- That helper remains remote-only by design; a broader policy-selected facade
+  for local-plus-remote execution is planned separately.
 - This directory does not expose a separate public facade.
 - Revisit trigger: a separate runtime builder or worker owner becomes necessary.
 

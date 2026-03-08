@@ -132,6 +132,9 @@ async fn compile_locally(api: Arc<dyn EmilyApi>) {
 - The preferred host-facing remote path can now evaluate routing policy and,
   when a single remote target is selected, execute the existing sovereign write
   path through one helper call.
+- That helper remains intentionally remote-only. A broader all-path
+  policy-selected execution facade is planned as the next milestone rather than
+  widening the semantics of the remote helper.
 - Compatibility policy for this crate will be append-only while the initial
   membrane boundary is stabilized.
 - Revisit trigger: the first provider-backed adapter lands.

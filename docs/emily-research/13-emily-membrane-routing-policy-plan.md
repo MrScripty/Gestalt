@@ -335,6 +335,35 @@ crate.
 
 **Status:** Completed on 2026-03-08 in commit `0ea0324`
 
+### Milestone 5: Unified Policy Execution Facade
+
+**Goal:** Add one broader membrane execution entrypoint without overloading the
+remote-only helper added in Milestone 4.
+
+**Tasks:**
+- [ ] Preserve `execute_remote_with_policy_and_record(...)` as the precise
+  remote-only helper
+- [ ] Add a broader facade that can:
+  - execute the local path for `LocalOnly`
+  - execute the remote path for `SingleRemote`
+  - return policy-only results for `Rejected`
+- [ ] Define a typed execution result union or wrapper that can carry:
+  - policy result
+  - local execution record
+  - remote execution record
+- [ ] Ensure the broader facade reuses existing local and remote write paths
+  instead of introducing parallel persistence logic
+- [ ] Add acceptance coverage for:
+  - `LocalOnly -> local execution`
+  - `SingleRemote -> remote execution`
+  - `Rejected -> no execution`
+
+**Verification:**
+- `cargo fmt`
+- `cargo clippy --all-targets -- -D warnings`
+- `cargo test -q`
+- acceptance coverage through the broader policy-selected execution entrypoint
+
 ## Re-Plan Triggers
 
 - The first routing-policy slice requires background provider-health tracking
@@ -425,6 +454,11 @@ Update during implementation:
   - `cargo clippy --manifest-path emily-membrane/Cargo.toml --all-targets --offline -- -D warnings`
   - `cargo test --manifest-path emily-membrane/Cargo.toml -q --offline --features pantograph`
   - `cargo clippy --manifest-path emily-membrane/Cargo.toml --all-targets --offline --features pantograph -- -D warnings`
+- 2026-03-08: Milestone 5 planned but not yet implemented.
+- 2026-03-08: Milestone 5 decision:
+  - Keep `execute_remote_with_policy_and_record(...)` narrow and precise.
+  - Add the broader all-path policy execution facade as the next milestone
+    rather than overloading the remote-only helper.
 
 ## Recommendations
 
@@ -434,6 +468,8 @@ Update during implementation:
   supports it strongly.
 - Keep `ECCR` and `AOPO/APC` as explicit future hooks rather than guessing
   their implementation details now.
+- Prefer adding a new broader execution facade over widening the semantics of
+  a precisely named remote-only helper.
 
 ## Completion Criteria
 
