@@ -217,7 +217,7 @@ first real transport adapter.
 - design review against the current Pantograph crates
 - update design docs if boundary changes are required
 
-**Status:** Not started
+**Status:** Completed on 2026-03-08 through Pantograph boundary review
 
 ## Execution Notes
 
@@ -236,6 +236,18 @@ Update during implementation:
   - `cargo fmt --manifest-path emily-membrane/Cargo.toml`
   - `cargo clippy --manifest-path emily-membrane/Cargo.toml --all-targets --offline -- -D warnings`
   - `cargo test --manifest-path emily-membrane/Cargo.toml -q --offline`
+- 2026-03-08: Milestone 3C Pantograph planning gate reviewed against:
+  - `emily/src/inference/pantograph/provider.rs`
+  - `src/pantograph_host.rs`
+- 2026-03-08: Review result:
+  - The current `MembraneProvider` trait is sufficient for a first additive
+    one-shot Pantograph adapter.
+  - The next adapter slice should add explicit request metadata conventions for
+    `timeout_ms`, `priority`, and output-target selection instead of changing
+    the provider trait immediately.
+  - Streaming, cancellation, and session-reuse hooks are not blockers for the
+    first adapter, but they are future trait-evolution candidates rather than
+    metadata-only concerns.
 
 ## Commit Cadence Notes
 
@@ -281,6 +293,12 @@ Update during implementation:
   placeholder field before Pantograph integration.
 - Decide whether the first remote reconstruction envelope should carry provider
   provenance explicitly or derive it from Emily sovereign records.
+- Add documented metadata conventions for Pantograph adapter fields:
+  - `timeout_ms`
+  - `priority`
+  - output-target selection
+- Revisit the provider trait only when streaming, cancellation, or session reuse
+  become real requirements.
 
 ### Verification Summary
 
