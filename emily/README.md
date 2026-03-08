@@ -9,7 +9,7 @@ Current scope is the memory and embedding-integrity core. This crate does not ye
 ## Public API
 
 - `EmilyApi`: open/switch/close database, ingest text, query context, page history
-- Episode contract surface: create episodes, link traces, record outcomes, append audits
+- Episode contract surface: create episodes, read episodes, link traces, record outcomes, append audits
 - Sovereign record surface: record routing decisions, remote episodes, validation outcomes, and structured sovereign audits
 - Sovereign query surface: read routing decisions, remote episodes, validation outcomes, and sovereign audits by episode
 - `EARL` control surface: evaluate episode risk and receive `OK / CAUTION / REFLEX` results

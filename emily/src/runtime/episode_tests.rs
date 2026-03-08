@@ -138,10 +138,10 @@ async fn episode_flow_roundtrips_through_runtime_and_replays_idempotently() {
         .await
         .expect("replay audit");
 
-    let episode = store
-        .get_episode("ep-1")
+    let episode = runtime
+        .episode("ep-1")
         .await
-        .expect("get episode")
+        .expect("read episode")
         .expect("episode exists");
     let links = store
         .list_episode_trace_links("ep-1")
@@ -205,14 +205,34 @@ async fn record_outcome_replay_repairs_episode_projection() {
         .await
         .expect("replay outcome");
 
-    let repaired = store
-        .get_episode("ep-1")
+    let repaired = runtime
+        .episode("ep-1")
         .await
-        .expect("get repaired episode")
+        .expect("read repaired episode")
         .expect("episode exists");
     assert_eq!(repaired.state, EpisodeState::Completed);
     assert_eq!(repaired.last_outcome_id.as_deref(), Some("out-1"));
     assert_eq!(repaired.closed_at_unix_ms, Some(3));
+
+    runtime.close_db().await.expect("close runtime");
+    let _ = std::fs::remove_dir_all(locator.storage_path);
+}
+
+#[tokio::test]
+async fn episode_read_api_returns_none_for_missing_episode() {
+    let store = Arc::new(SurrealEmilyStore::new());
+    let runtime = EmilyRuntime::new(store);
+    let locator = locator();
+    runtime
+        .open_db(locator.clone())
+        .await
+        .expect("open runtime");
+
+    let episode = runtime
+        .episode("missing")
+        .await
+        .expect("read missing episode");
+    assert!(episode.is_none());
 
     runtime.close_db().await.expect("close runtime");
     let _ = std::fs::remove_dir_all(locator.storage_path);

@@ -172,6 +172,10 @@ impl<S: EmilyStore + 'static> EmilyApi for EmilyRuntime<S> {
         self.create_episode_internal(request).await
     }
 
+    async fn episode(&self, episode_id: &str) -> Result<Option<EpisodeRecord>, EmilyError> {
+        self.episode_internal(episode_id).await
+    }
+
     async fn link_text_to_episode(
         &self,
         request: TraceLinkRequest,

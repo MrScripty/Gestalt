@@ -166,6 +166,14 @@ impl<S: EmilyStore + 'static> EmilyRuntime<S> {
         Ok(record)
     }
 
+    pub(super) async fn episode_internal(
+        &self,
+        episode_id: &str,
+    ) -> Result<Option<EpisodeRecord>, EmilyError> {
+        Self::validate_required_text("episode_id", episode_id)?;
+        self.store.get_episode(episode_id).await
+    }
+
     pub(super) async fn link_text_to_episode_internal(
         &self,
         request: TraceLinkRequest,

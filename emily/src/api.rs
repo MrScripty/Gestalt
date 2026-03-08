@@ -31,6 +31,9 @@ pub trait EmilyApi: Send + Sync {
         request: CreateEpisodeRequest,
     ) -> Result<EpisodeRecord, EmilyError>;
 
+    /// Read one durable episode by id.
+    async fn episode(&self, episode_id: &str) -> Result<Option<EpisodeRecord>, EmilyError>;
+
     /// Link one persisted text object into an episode trace.
     async fn link_text_to_episode(
         &self,
