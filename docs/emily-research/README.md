@@ -30,3 +30,5 @@ Files:
 - `11-emily-membrane-milestone-1-implementation-plan.md`: standards-aligned implementation plan for the first membrane crate slice using a narrow internal test adapter
 - `12-emily-membrane-milestone-3-implementation-plan.md`: standards-aligned implementation plan for the first remote adapter slice using a provider-neutral boundary before Pantograph transport
 - `13-emily-membrane-routing-policy-plan.md`: standards-aligned plan for evolving deterministic registry lookup into Emily-informed sovereign routing policy
+- `14-emily-membrane-execution-depth-plan.md`: standards-aligned milestone plan for deepening membrane execution beyond routing-policy plumbing into IR, validation, retry, multi-target, and reconstruction layers
+- `15-gestalt-emily-adoption-and-test-data-plan.md`: standards-aligned plan for seeding Emily with deterministic test data and adopting Emily-backed flows in Gestalt
