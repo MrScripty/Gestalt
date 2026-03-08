@@ -226,14 +226,14 @@ typed membrane IR.
 current accepted/rejected wrapper.
 
 **Tasks:**
-- [ ] Add structured validation categories for:
+- [x] Add structured validation categories for:
   - coherence
   - relevance
   - confidence
   - provenance sufficiency
-- [ ] Add typed findings and disposition rules
-- [ ] Keep claims modest: this is a first slice toward `ECCR`, not full `ECCR`
-- [ ] Ensure validation results still map cleanly into Emily validation
+- [x] Add typed findings and disposition rules
+- [x] Keep claims modest: this is a first slice toward `ECCR`, not full `ECCR`
+- [x] Ensure validation results still map cleanly into Emily validation
   outcomes
 
 **Verification:**
@@ -241,6 +241,8 @@ current accepted/rejected wrapper.
 - `cargo clippy --all-targets -- -D warnings`
 - `cargo test -q`
 - acceptance tests for caution, review, and rejection paths
+
+**Status:** Completed on 2026-03-08 via `feat(emily-membrane): strengthen local validation`.
 
 ### Milestone 8: Request-Scoped Retry And Mutation
 
