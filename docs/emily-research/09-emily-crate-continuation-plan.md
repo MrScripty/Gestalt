@@ -307,7 +307,7 @@ In practice that means:
 - contract review against `docs/emily-research/02-architecture-reconstruction.md`
 - README and traceability updates describing the new boundary decision
 
-**Status:** Not started
+**Status:** Complete
 
 ## Execution Notes
 
@@ -327,6 +327,8 @@ Update during implementation:
   - `da0422e` `feat(emily): add ECGL memory integration`
 - 2026-03-08: Milestone 6 completed through one commit:
   - `c706018` `refactor(emily): harden host-agnostic runtime boundary`
+- 2026-03-08: Milestone 7 completed through one commit:
+  - `21fbc20` `feat(emily): add sovereign dispatch contracts`
 
 ## Commit Cadence Notes
 
@@ -365,6 +367,7 @@ Update during implementation:
 - Milestone 4: EARL Runtime
 - Milestone 5: ECGL Runtime
 - Milestone 6: Core And Host Separation Hardening
+- Milestone 7: Sovereign-Dispatch Preparation
 
 ### Deviations
 
@@ -372,8 +375,8 @@ Update during implementation:
 
 ### Follow-Ups
 
-- Start Milestone 7 sovereign-dispatch preparation.
-- Decide whether any new sovereign contracts belong in `emily` or in a sibling crate.
+- Decide whether future sovereign work should begin with persisted route / validation records or with a sibling membrane crate.
+- Decide when remote-episode persistence and audit writes should move from DTO-only support into runtime/store behavior.
 
 ### Verification Summary
 
@@ -403,6 +406,12 @@ Update during implementation:
   - `cargo clippy --manifest-path emily/Cargo.toml --all-targets -- -D warnings`
   - Bridge/API boundary review against `src/emily_bridge.rs`
   - `cargo check -q` attempted for Gestalt integration and blocked by unrelated UI compile errors in `src/ui/sidebar_panel_host.rs` / `src/ui/local_agent_panel.rs`
+- Milestone 7 verification:
+  - `cargo fmt --manifest-path emily/Cargo.toml`
+  - `cargo test --manifest-path emily/Cargo.toml -q`
+  - `cargo clippy --manifest-path emily/Cargo.toml --all-targets -- -D warnings`
+  - Contract review against `docs/emily-research/02-architecture-reconstruction.md`
+  - Boundary decision recorded in `emily/README.md` and `emily/src/README.md`
 - Plan reviewed against:
   - `PLAN-STANDARDS.md`
   - `ARCHITECTURE-PATTERNS.md`
