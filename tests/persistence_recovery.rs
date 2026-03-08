@@ -63,6 +63,56 @@ fn test_load_workspace_rejects_unsupported_schema_version() {
     });
 }
 
+#[test]
+fn test_load_workspace_seeds_empty_overridden_commands_from_host_workspace() {
+    with_workspace_and_host_state_paths(
+        "seed-commands-from-host",
+        |workspace_path, host_workspace_path| {
+            let isolated_workspace = PersistedWorkspaceV1::new(AppState::default(), Vec::new());
+            std::fs::create_dir_all(
+                workspace_path
+                    .parent()
+                    .expect("isolated workspace parent should exist"),
+            )
+            .expect("isolated parent should be created");
+            std::fs::write(
+                &workspace_path,
+                serde_json::to_string_pretty(&isolated_workspace)
+                    .expect("isolated workspace should serialize"),
+            )
+            .expect("isolated workspace should be written");
+
+            let mut host_state = AppState::default();
+            host_state.create_insert_command(
+                "Build".to_string(),
+                "cargo build".to_string(),
+                "Build the project".to_string(),
+                vec!["cargo".to_string()],
+            );
+            let host_workspace = PersistedWorkspaceV1::new(host_state, Vec::new());
+            std::fs::create_dir_all(
+                host_workspace_path
+                    .parent()
+                    .expect("host workspace parent should exist"),
+            )
+            .expect("host parent should be created");
+            std::fs::write(
+                &host_workspace_path,
+                serde_json::to_string_pretty(&host_workspace)
+                    .expect("host workspace should serialize"),
+            )
+            .expect("host workspace should be written");
+
+            let loaded = persistence::load_workspace()
+                .expect("load should succeed")
+                .expect("workspace should exist");
+
+            assert_eq!(loaded.app_state.commands().len(), 1);
+            assert_eq!(loaded.app_state.commands()[0].name, "Build");
+        },
+    );
+}
+
 fn with_workspace_path(test_name: &str, run: impl FnOnce(PathBuf)) {
     let _guard = ENV_LOCK.lock().expect("env lock");
     let nonce = SystemTime::now()
@@ -80,6 +130,40 @@ fn with_workspace_path(test_name: &str, run: impl FnOnce(PathBuf)) {
 
     unsafe {
         std::env::remove_var("GESTALT_WORKSPACE_PATH");
+    }
+    let _ = std::fs::remove_dir_all(root);
+}
+
+fn with_workspace_and_host_state_paths(
+    test_name: &str,
+    run: impl FnOnce(PathBuf, PathBuf),
+) {
+    let _guard = ENV_LOCK.lock().expect("env lock");
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_nanos());
+    let root = std::env::temp_dir().join(format!("gestalt-{test_name}-{nonce}"));
+    let isolated_root = root.join("isolated");
+    let home_root = root.join("home");
+    let workspace_path = isolated_root.join("workspace.json");
+    let host_workspace_path = home_root
+        .join(".local")
+        .join("state")
+        .join("gestalt")
+        .join("workspace.v1.json");
+    std::fs::create_dir_all(&isolated_root).expect("isolated root should be created");
+    std::fs::create_dir_all(&home_root).expect("home root should be created");
+
+    unsafe {
+        std::env::set_var("GESTALT_WORKSPACE_PATH", &workspace_path);
+        std::env::set_var("HOME", &home_root);
+    }
+
+    run(workspace_path.clone(), host_workspace_path.clone());
+
+    unsafe {
+        std::env::remove_var("GESTALT_WORKSPACE_PATH");
+        std::env::remove_var("HOME");
     }
     let _ = std::fs::remove_dir_all(root);
 }

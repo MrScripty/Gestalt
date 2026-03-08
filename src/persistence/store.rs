@@ -8,10 +8,16 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Loads workspace state from primary path, then backup as fallback.
 pub fn load_workspace() -> Result<Option<PersistedWorkspaceV1>, PersistenceError> {
-    let primary = workspace_path();
-    let backup = backup_path(&primary);
+    load_workspace_from_path(&workspace_path())
+}
 
-    if let Some(workspace) = load_from_path(&primary)? {
+/// Loads workspace state from an explicit primary path, then backup as fallback.
+pub fn load_workspace_from_path(
+    primary: &Path,
+) -> Result<Option<PersistedWorkspaceV1>, PersistenceError> {
+    let backup = backup_path(primary);
+
+    if let Some(workspace) = load_from_path(primary)? {
         return Ok(Some(workspace));
     }
 

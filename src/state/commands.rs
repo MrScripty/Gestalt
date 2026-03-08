@@ -49,6 +49,20 @@ impl CommandState {
 }
 
 impl AppState {
+    /// Returns true when the insert-command library has at least one command.
+    pub fn has_commands(&self) -> bool {
+        !self.commands().is_empty()
+    }
+
+    pub(crate) fn seed_commands_from(&mut self, other: &AppState) -> bool {
+        if self.has_commands() || !other.has_commands() {
+            return false;
+        }
+
+        self.commands.command_library = other.commands.command_library.clone();
+        true
+    }
+
     /// Returns all insert commands in insertion order.
     pub fn commands(&self) -> &[InsertCommand] {
         self.commands.commands()
