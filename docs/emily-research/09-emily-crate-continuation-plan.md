@@ -267,7 +267,7 @@ In practice that means:
 - integration tests for quarantine and reintegration paths
 - replay and recovery test for persisted pending/quarantined state
 
-**Status:** Not started
+**Status:** Complete
 
 ### Milestone 6: Core And Host Separation Hardening
 
@@ -323,6 +323,8 @@ Update during implementation:
   - `ef520e0` `feat(emily): add episode and outcome contracts`
 - 2026-03-08: Milestone 4 completed through one commit:
   - `bbea8df` `feat(emily): add EARL episode gating`
+- 2026-03-08: Milestone 5 completed through one commit:
+  - `da0422e` `feat(emily): add ECGL memory integration`
 
 ## Commit Cadence Notes
 
@@ -359,6 +361,7 @@ Update during implementation:
 - Milestone 2: Retrieval Core
 - Milestone 3: Episode And Outcome Contracts
 - Milestone 4: EARL Runtime
+- Milestone 5: ECGL Runtime
 
 ### Deviations
 
@@ -366,8 +369,8 @@ Update during implementation:
 
 ### Follow-Ups
 
-- Start Milestone 5 `ECGL` runtime work.
-- Decide which persisted state transitions should move from provisional text fields into explicit ECGL memory states first.
+- Start Milestone 6 core and host separation review.
+- Decide whether any remaining crate docs still over-fit to Gestalt host terminology.
 - Decide whether sovereign-dispatch contracts belong in `emily` or a sibling crate.
 
 ### Verification Summary
@@ -385,6 +388,10 @@ Update during implementation:
   - `cargo test --manifest-path emily/Cargo.toml -q`
   - `cargo clippy --manifest-path emily/Cargo.toml --all-targets -- -D warnings`
 - Milestone 4 verification:
+  - `cargo fmt --manifest-path emily/Cargo.toml`
+  - `cargo test --manifest-path emily/Cargo.toml -q`
+  - `cargo clippy --manifest-path emily/Cargo.toml --all-targets -- -D warnings`
+- Milestone 5 verification:
   - `cargo fmt --manifest-path emily/Cargo.toml`
   - `cargo test --manifest-path emily/Cargo.toml -q`
   - `cargo clippy --manifest-path emily/Cargo.toml --all-targets -- -D warnings`
