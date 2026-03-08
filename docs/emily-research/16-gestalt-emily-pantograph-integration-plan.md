@@ -227,12 +227,12 @@ without leaking model/workflow knowledge into Emily core crates.
 dependence.
 
 **Tasks:**
-- [ ] Prioritize vector-backed context retrieval using the embedding workflow
-- [ ] Keep lexical fallback explicit when vectors are absent
-- [ ] Define deterministic seeded datasets that prove useful context comes back
+- [x] Prioritize vector-backed context retrieval using the embedding workflow
+- [x] Keep lexical fallback explicit when vectors are absent
+- [x] Define deterministic seeded datasets that prove useful context comes back
   from Emily
-- [ ] Confirm Gestalt continues to consume retrieval only through public APIs
-- [ ] Explicitly defer reranker integration unless ranking quality becomes the
+- [x] Confirm Gestalt continues to consume retrieval only through public APIs
+- [x] Explicitly defer reranker integration unless ranking quality becomes the
   demonstrated bottleneck
 
 **Verification:**
@@ -242,7 +242,7 @@ dependence.
   -> host context consumption
 - replay/idempotency check for seeded or repeated ingestion
 
-**Status:** Not started
+**Status:** Complete
 
 ### Milestone 3: Real Gestalt Local-Only Membrane Adoption
 
@@ -329,6 +329,10 @@ Update during implementation:
   workflow config path, builds a Pantograph-backed membrane provider registry
   from host env/config, and verifies the mapping through focused integration
   coverage.
+- 2026-03-08: Milestone 2 completed. Gestalt now auto-applies host-owned
+  embedding vectorization defaults at Emily startup, seeds a semantic-context
+  corpus for retrieval checks, and verifies both semantic retrieval and lexical
+  fallback through bridge-level public APIs.
 
 ## Commit Cadence Notes
 
@@ -359,6 +363,7 @@ Update during implementation:
 ### Completed
 
 - Milestone 1: Host configuration and provider mapping
+- Milestone 2: Retrieval hardening for real Emily use
 
 ### Deviations
 
@@ -369,20 +374,24 @@ Update during implementation:
 
 ### Follow-Ups
 
-- Start Milestone 2: retrieval hardening for real Emily use.
+- Start Milestone 3: real Gestalt local-only membrane adoption.
 
 ### Verification Summary
 
 - `cargo fmt`
 - `cargo test -q --test pantograph_host_reasoning`
+- `cargo test -q --test pantograph_host_reasoning --test emily_seed_corpus --test emily_semantic_retrieval`
 - `cargo check -q`
 - `cargo clippy --test pantograph_host_reasoning -- -D warnings`
+  - blocked by pre-existing unrelated warnings/errors outside this slice
+- `cargo clippy --test emily_semantic_retrieval --test emily_seed_corpus --test pantograph_host_reasoning -- -D warnings`
   - blocked by pre-existing unrelated warnings/errors outside this slice
 
 ### Traceability Links
 
 - Module README updated:
   - [src/README.md](/media/jeremy/OrangeCream/Linux%20Software/Gestalt/src/README.md)
+  - [src/emily_seed/README.md](/media/jeremy/OrangeCream/Linux%20Software/Gestalt/src/emily_seed/README.md)
   - [tests/README.md](/media/jeremy/OrangeCream/Linux%20Software/Gestalt/tests/README.md)
 - ADR added/updated: N/A
 - PR notes completed per `templates/PULL_REQUEST_TEMPLATE.md`: not applicable in
