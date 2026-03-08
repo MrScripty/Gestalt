@@ -57,9 +57,8 @@ mod tests {
         let error = migrate_to_latest(workspace).expect_err("migration should reject schema");
         assert!(matches!(
             error,
-            PersistenceError::UnsupportedSchemaVersion {
-                version: WORKSPACE_SCHEMA_VERSION + 1
-            }
+            PersistenceError::UnsupportedSchemaVersion { version }
+                if version == WORKSPACE_SCHEMA_VERSION + 1
         ));
     }
 }
