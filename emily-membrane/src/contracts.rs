@@ -142,6 +142,27 @@ pub enum ReconstructionSource {
     ValidationPolicy,
 }
 
+/// Deterministic identifiers and timestamps used for local-only Emily writes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocalExecutionPersistence {
+    pub route_decision_id: String,
+    pub route_decided_at_unix_ms: i64,
+    pub validation_id: String,
+    pub validated_at_unix_ms: i64,
+}
+
+/// Combined local-only membrane execution result with Emily persistence ids.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocalExecutionRecord {
+    pub compile: CompileResult,
+    pub route: RoutingPlan,
+    pub dispatch: DispatchResult,
+    pub validation: ValidationEnvelope,
+    pub reconstruction: ReconstructionResult,
+    pub route_decision_id: String,
+    pub validation_id: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -282,5 +303,64 @@ mod tests {
                 .expect("deserialize reconstruction defaults");
         assert!(restored_default.references.is_empty());
         assert!(!restored_default.caution);
+    }
+
+    #[test]
+    fn local_execution_contracts_roundtrip() {
+        let record = LocalExecutionRecord {
+            compile: CompileResult {
+                compiled_task: CompiledMembraneTask {
+                    task_id: "task-1".into(),
+                    episode_id: "episode-1".into(),
+                    bounded_prompt: "bounded prompt".into(),
+                    context_fragment_ids: vec!["ctx-1".into()],
+                },
+                truncated: false,
+            },
+            route: RoutingPlan {
+                task_id: "task-1".into(),
+                decision: MembraneRouteKind::LocalOnly,
+                targets: Vec::new(),
+                rationale: Some("local runtime".into()),
+            },
+            dispatch: DispatchResult {
+                task_id: "task-1".into(),
+                route: MembraneRouteKind::LocalOnly,
+                status: DispatchStatus::LocalCompleted,
+                response_text: "LOCAL: bounded prompt".into(),
+                remote_reference: None,
+            },
+            validation: ValidationEnvelope {
+                task_id: "task-1".into(),
+                disposition: MembraneValidationDisposition::Accepted,
+                findings: Vec::new(),
+                validated_text: Some("LOCAL: bounded prompt".into()),
+            },
+            reconstruction: ReconstructionResult {
+                task_id: "task-1".into(),
+                output_text: "LOCAL: bounded prompt".into(),
+                references: Vec::new(),
+                caution: false,
+            },
+            route_decision_id: "route-1".into(),
+            validation_id: "validation-1".into(),
+        };
+
+        let text = serde_json::to_string(&record).expect("serialize local execution record");
+        let restored: LocalExecutionRecord =
+            serde_json::from_str(&text).expect("deserialize local execution record");
+        assert_eq!(restored, record);
+
+        let persistence = LocalExecutionPersistence {
+            route_decision_id: "route-1".into(),
+            route_decided_at_unix_ms: 10,
+            validation_id: "validation-1".into(),
+            validated_at_unix_ms: 11,
+        };
+        let text =
+            serde_json::to_string(&persistence).expect("serialize local execution persistence");
+        let restored: LocalExecutionPersistence =
+            serde_json::from_str(&text).expect("deserialize local execution persistence");
+        assert_eq!(restored, persistence);
     }
 }

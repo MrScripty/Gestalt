@@ -73,32 +73,37 @@ until those responsibilities become real in code.
 use std::sync::Arc;
 
 use emily::EmilyApi;
-use emily_membrane::contracts::MembraneTaskRequest;
+use emily_membrane::contracts::{LocalExecutionPersistence, MembraneTaskRequest};
 use emily_membrane::runtime::MembraneRuntime;
 
 async fn run_local(api: Arc<dyn EmilyApi>) {
     let runtime = MembraneRuntime::new(api);
-    let compiled = runtime
-        .compile(MembraneTaskRequest {
-            task_id: "task-1".into(),
-            episode_id: "episode-1".into(),
-            task_text: "Local-only task".into(),
-            context_fragments: Vec::new(),
-            allow_remote: false,
-        })
+    let result = runtime
+        .execute_local_only_and_record(
+            MembraneTaskRequest {
+                task_id: "task-1".into(),
+                episode_id: "episode-1".into(),
+                task_text: "Local-only task".into(),
+                context_fragments: Vec::new(),
+                allow_remote: false,
+            },
+            LocalExecutionPersistence {
+                route_decision_id: "route-1".into(),
+                route_decided_at_unix_ms: 10,
+                validation_id: "validation-1".into(),
+                validated_at_unix_ms: 11,
+            },
+        )
         .await
-        .expect("compile");
-    let route = runtime.route(&compiled).await.expect("route");
-    let dispatch = runtime.dispatch_local(&compiled, &route).await.expect("dispatch");
-    let validation = runtime.validate(&dispatch).await.expect("validate");
-    let result = runtime.reconstruct(&validation).await.expect("reconstruct");
-    assert!(result.output_text.starts_with("LOCAL: "));
+        .expect("execute");
+    assert!(result.reconstruction.output_text.starts_with("LOCAL: "));
 }
 ```
 
 ## API Consumer Contract
 
-- `contracts.rs` now exposes the first stable DTO families for Milestone 1.
+- `contracts.rs` now exposes the first stable DTO families for Milestone 1,
+  including local-only persistence envelopes.
 - `runtime.rs` now exposes the first local-only membrane facade above `EmilyApi`.
 - Revisit trigger: the first provider-backed runtime path lands.
 

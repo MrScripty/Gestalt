@@ -80,7 +80,7 @@ and defer real provider adapters until after the local-only boundary is proven.
 use std::sync::Arc;
 
 use emily::EmilyApi;
-use emily_membrane::contracts::MembraneTaskRequest;
+use emily_membrane::contracts::{LocalExecutionPersistence, MembraneTaskRequest};
 use emily_membrane::runtime::MembraneRuntime;
 
 async fn compile_locally(api: Arc<dyn EmilyApi>) {
@@ -93,12 +93,19 @@ async fn compile_locally(api: Arc<dyn EmilyApi>) {
         allow_remote: false,
     };
 
-    let compiled = runtime.compile(request).await.expect("compile");
-    let route = runtime.route(&compiled).await.expect("route");
-    assert!(matches!(
-        route.decision,
-        emily_membrane::contracts::MembraneRouteKind::LocalOnly
-    ));
+    let record = runtime
+        .execute_local_only_and_record(
+            request,
+            LocalExecutionPersistence {
+                route_decision_id: "route-1".into(),
+                route_decided_at_unix_ms: 10,
+                validation_id: "validation-1".into(),
+                validated_at_unix_ms: 11,
+            },
+        )
+        .await
+        .expect("execute local-only flow");
+    assert_eq!(record.route_decision_id, "route-1");
 }
 ```
 
@@ -108,6 +115,8 @@ async fn compile_locally(api: Arc<dyn EmilyApi>) {
 - `contracts` now exposes typed DTOs for task input, compile results, routing,
   dispatch, validation, and reconstruction.
 - `runtime` exposes a minimal local-only facade above an injected `EmilyApi`.
+- Local-only execution can already persist routing and validation artifacts
+  through Emily's public sovereign APIs.
 - Compatibility policy for this crate will be append-only while the initial
   membrane boundary is stabilized.
 - Revisit trigger: the first provider-backed adapter lands.
