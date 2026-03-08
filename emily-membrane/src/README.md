@@ -126,6 +126,8 @@ async fn run_local(api: Arc<dyn EmilyApi>) {
 - `contracts.rs` now also exposes a typed result for policy-selected remote
   execution so hosts can observe both policy findings and any resulting remote
   write path through one call.
+- `contracts.rs` now also exposes broader policy-selected execution wrappers
+  for local-or-remote execution through one typed membrane entrypoint.
 - Revisit trigger: the first provider-backed runtime path lands.
 
 ## Structured Producer Contract

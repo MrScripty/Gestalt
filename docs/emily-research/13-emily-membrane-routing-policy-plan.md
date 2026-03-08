@@ -364,6 +364,8 @@ remote-only helper added in Milestone 4.
 - `cargo test -q`
 - acceptance coverage through the broader policy-selected execution entrypoint
 
+**Status:** Completed on 2026-03-08 in commit `4f2ab54`
+
 ## Re-Plan Triggers
 
 - The first routing-policy slice requires background provider-health tracking
@@ -454,11 +456,22 @@ Update during implementation:
   - `cargo clippy --manifest-path emily-membrane/Cargo.toml --all-targets --offline -- -D warnings`
   - `cargo test --manifest-path emily-membrane/Cargo.toml -q --offline --features pantograph`
   - `cargo clippy --manifest-path emily-membrane/Cargo.toml --all-targets --offline --features pantograph -- -D warnings`
-- 2026-03-08: Milestone 5 planned but not yet implemented.
-- 2026-03-08: Milestone 5 decision:
-  - Keep `execute_remote_with_policy_and_record(...)` narrow and precise.
-  - Add the broader all-path policy execution facade as the next milestone
-    rather than overloading the remote-only helper.
+- 2026-03-08: Milestone 5 completed in commit `4f2ab54`.
+- 2026-03-08: Milestone 5 scope:
+  - Added a broader all-path policy execution facade above the existing
+    precise remote-only helper.
+  - Added typed persistence and result wrappers for policy-selected local or
+    remote execution.
+  - Reused the existing local-only and direct remote sovereign write paths
+    rather than introducing parallel persistence logic.
+  - Added acceptance coverage for `LocalOnly`, `SingleRemote`, and `Rejected`
+    outcomes through the broader facade.
+- 2026-03-08: Milestone 5 verification passed with:
+  - `cargo fmt --manifest-path emily-membrane/Cargo.toml`
+  - `cargo test --manifest-path emily-membrane/Cargo.toml -q --offline`
+  - `cargo clippy --manifest-path emily-membrane/Cargo.toml --all-targets --offline -- -D warnings`
+  - `cargo test --manifest-path emily-membrane/Cargo.toml -q --offline --features pantograph`
+  - `cargo clippy --manifest-path emily-membrane/Cargo.toml --all-targets --offline --features pantograph -- -D warnings`
 
 ## Recommendations
 
