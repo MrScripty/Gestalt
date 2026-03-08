@@ -1,0 +1,8 @@
+[package]
+name = "emily-membrane"
+version = "0.1.0"
+edition = "2024"
+description = "Sovereign-dispatch membrane layer above the Emily core crate"
+
+[dependencies]
+emily = { path = "../emily" }
