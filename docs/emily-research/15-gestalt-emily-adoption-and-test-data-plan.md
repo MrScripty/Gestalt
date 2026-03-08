@@ -223,13 +223,25 @@ This keeps the early loop testable while still moving toward real usage.
 **Goal:** Start using Emily context in one narrow host flow.
 
 **Tasks:**
-- [ ] Pick the first real consumer:
+- [x] Pick the first real consumer:
   - local agent prompt assembly
   - command follow-up assistance
   - snippet recall
-- [ ] Pull context from Emily through the public facade
-- [ ] Add host-level acceptance coverage using seeded DBs
-- [ ] Keep fallback behavior explicit if Emily is unavailable
+- [x] Pull context from Emily through the public facade
+- [x] Add host-level acceptance coverage using seeded DBs
+- [x] Keep fallback behavior explicit if Emily is unavailable
+
+**Execution Notes:**
+- Adopted Emily in the local-agent send flow first, with host-side prompt
+  assembly kept outside the Dioxus component in `gestalt::local_agent_context`.
+- The local-agent panel now reads Emily context asynchronously through
+  `EmilyBridge`, augments the dispatched terminal payload when context exists,
+  and preserves the human-entered command separately for run checkpoints and
+  orchestration history.
+- Added host-level acceptance coverage for:
+  - seeded Emily context lookup through the bridge
+  - prepared local-agent dispatch preserving display text while logging the
+    Emily-augmented payload
 
 **Verification:**
 - `cargo fmt`
