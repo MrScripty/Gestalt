@@ -121,6 +121,8 @@ async fn compile_locally(api: Arc<dyn EmilyApi>) {
   through Emily's public sovereign APIs.
 - The runtime now has a dedicated provider-backed remote path behind an
   injected membrane provider or host-supplied provider registry.
+- Registry-backed runtimes can now select remote targets from registered
+  provider metadata through a small routing-preference contract.
 - Compatibility policy for this crate will be append-only while the initial
   membrane boundary is stabilized.
 - Revisit trigger: the first provider-backed adapter lands.

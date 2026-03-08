@@ -108,6 +108,8 @@ impl MembraneProvider for ExampleProvider {
   host-supplied routing resolution.
 - `InMemoryProviderRegistry` is the default registry for request-scoped host
   injection.
+- `RegisteredProviderTarget` carries the registry metadata used for target
+  selection before provider dispatch.
 - `ProviderDispatchRequest` and `ProviderDispatchResult` are append-only DTOs
   for the first remote slices.
 - The optional `pantograph` feature adds a one-shot workflow adapter without

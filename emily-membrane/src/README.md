@@ -115,6 +115,8 @@ async fn run_local(api: Arc<dyn EmilyApi>) {
 - `runtime.rs` now exposes both the local-only facade and the first
   provider-backed remote path above `EmilyApi`, including host-supplied
   provider registry support.
+- `contracts.rs` now also exposes a small registry-backed remote routing
+  preference contract for host-facing target selection.
 - Revisit trigger: the first provider-backed runtime path lands.
 
 ## Structured Producer Contract

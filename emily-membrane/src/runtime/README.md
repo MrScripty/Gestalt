@@ -72,6 +72,8 @@ runtime type in `runtime.rs`.
 - Consumers continue to use `emily_membrane::runtime::MembraneRuntime`.
 - The public runtime can be constructed with a single provider or a host-owned
   provider registry.
+- Registry-backed runtimes can now resolve `ProviderTarget` values from
+  `RemoteRoutingPreference` instead of requiring the host to prebuild targets.
 - This directory does not expose a separate public facade.
 - Revisit trigger: a separate runtime builder or worker owner becomes necessary.
 

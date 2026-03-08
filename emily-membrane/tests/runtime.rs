@@ -12,13 +12,20 @@ use emily::{
 };
 use emily_membrane::contracts::{
     ContextFragment, MembraneRouteKind, MembraneTaskRequest, MembraneValidationDisposition,
-    RemoteExecutionPersistence, RoutingPlan, ValidationEnvelope,
+    RemoteExecutionPersistence, RemoteRoutingPreference, RoutingPlan, ValidationEnvelope,
 };
-use emily_membrane::providers::{InMemoryProviderRegistry, ProviderTarget};
+use emily_membrane::providers::{
+    InMemoryProviderRegistry, MembraneProvider, MembraneProviderError, ProviderDispatchRequest,
+    ProviderDispatchResult, ProviderDispatchStatus, ProviderTarget, RegisteredProviderTarget,
+};
 use emily_membrane::runtime::{MembraneRuntime, MembraneRuntimeError};
 use std::sync::Arc;
 
 struct StubEmilyApi;
+
+struct StubProvider {
+    provider_id: &'static str,
+}
 
 fn unused<T>() -> Result<T, EmilyError> {
     Err(EmilyError::Runtime("unused test stub".to_string()))
@@ -222,6 +229,26 @@ impl EmilyApi for StubEmilyApi {
     }
 }
 
+#[async_trait::async_trait]
+impl MembraneProvider for StubProvider {
+    fn provider_id(&self) -> &str {
+        self.provider_id
+    }
+
+    async fn dispatch(
+        &self,
+        request: ProviderDispatchRequest,
+    ) -> Result<ProviderDispatchResult, MembraneProviderError> {
+        Ok(ProviderDispatchResult {
+            provider_request_id: request.provider_request_id,
+            provider_id: self.provider_id().to_string(),
+            status: ProviderDispatchStatus::Completed,
+            output_text: "ok".to_string(),
+            metadata: serde_json::json!({}),
+        })
+    }
+}
+
 #[tokio::test]
 async fn runtime_executes_deterministic_local_flow() {
     let runtime = MembraneRuntime::new(Arc::new(StubEmilyApi));
@@ -386,4 +413,52 @@ async fn execute_remote_and_record_rejects_missing_registered_provider() {
         .expect_err("remote execution with a missing provider should fail");
 
     assert!(matches!(error, MembraneRuntimeError::InvalidRequest(_)));
+}
+
+#[tokio::test]
+async fn select_remote_target_matches_registry_metadata() {
+    let registry = Arc::new(InMemoryProviderRegistry::with_targets([
+        (
+            RegisteredProviderTarget {
+                target: ProviderTarget {
+                    provider_id: "provider-a".into(),
+                    model_id: Some("model-a".into()),
+                    profile_id: Some("reasoning".into()),
+                    capability_tags: vec!["analysis".into()],
+                    metadata: serde_json::json!({"rank": 2}),
+                },
+            },
+            Arc::new(StubProvider {
+                provider_id: "provider-a",
+            }) as Arc<dyn MembraneProvider>,
+        ),
+        (
+            RegisteredProviderTarget {
+                target: ProviderTarget {
+                    provider_id: "provider-b".into(),
+                    model_id: Some("model-b".into()),
+                    profile_id: Some("retrieval".into()),
+                    capability_tags: vec!["search".into()],
+                    metadata: serde_json::json!({"rank": 1}),
+                },
+            },
+            Arc::new(StubProvider {
+                provider_id: "provider-b",
+            }) as Arc<dyn MembraneProvider>,
+        ),
+    ]));
+    let runtime = MembraneRuntime::with_provider_registry(Arc::new(StubEmilyApi), registry);
+
+    let target = runtime
+        .select_remote_target(&RemoteRoutingPreference {
+            provider_id: Some("provider-a".into()),
+            profile_id: Some("reasoning".into()),
+            required_capability_tags: vec!["analysis".into()],
+        })
+        .await
+        .expect("select target");
+
+    assert_eq!(target.provider_id, "provider-a");
+    assert_eq!(target.profile_id.as_deref(), Some("reasoning"));
+    assert_eq!(target.model_id.as_deref(), Some("model-a"));
 }

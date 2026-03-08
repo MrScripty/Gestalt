@@ -3,10 +3,12 @@ use emily::api::EmilyApi;
 use emily::runtime::EmilyRuntime;
 use emily::store::surreal::SurrealEmilyStore;
 use emily::{CreateEpisodeRequest, DatabaseLocator, EpisodeState, RemoteEpisodeState};
-use emily_membrane::contracts::{MembraneTaskRequest, RemoteExecutionPersistence};
+use emily_membrane::contracts::{
+    MembraneTaskRequest, RemoteExecutionPersistence, RemoteRoutingPreference,
+};
 use emily_membrane::providers::{
     InMemoryProviderRegistry, MembraneProvider, MembraneProviderError, ProviderDispatchRequest,
-    ProviderDispatchResult, ProviderDispatchStatus, ProviderTarget,
+    ProviderDispatchResult, ProviderDispatchStatus, ProviderTarget, RegisteredProviderTarget,
 };
 use emily_membrane::runtime::MembraneRuntime;
 use serde_json::json;
@@ -64,13 +66,11 @@ fn persistence() -> RemoteExecutionPersistence {
     }
 }
 
-fn target() -> ProviderTarget {
-    ProviderTarget {
-        provider_id: "test-provider".to_string(),
-        model_id: Some("deterministic-v1".to_string()),
+fn routing_preference() -> RemoteRoutingPreference {
+    RemoteRoutingPreference {
+        provider_id: Some("test-provider".to_string()),
         profile_id: Some("reasoning".to_string()),
-        capability_tags: vec!["analysis".to_string()],
-        metadata: json!({"origin": "test"}),
+        required_capability_tags: vec!["analysis".to_string()],
     }
 }
 
@@ -100,7 +100,16 @@ impl MembraneProvider for DeterministicTestProvider {
 async fn remote_execution_records_route_remote_episode_validation_and_audits_idempotently() {
     let store = Arc::new(SurrealEmilyStore::new());
     let emily = Arc::new(EmilyRuntime::new(store));
-    let registry = Arc::new(InMemoryProviderRegistry::single(
+    let registry = Arc::new(InMemoryProviderRegistry::single_target(
+        RegisteredProviderTarget {
+            target: ProviderTarget {
+                provider_id: "test-provider".to_string(),
+                model_id: Some("deterministic-v1".to_string()),
+                profile_id: Some("reasoning".to_string()),
+                capability_tags: vec!["analysis".to_string()],
+                metadata: json!({"origin": "test"}),
+            },
+        },
         Arc::new(DeterministicTestProvider) as Arc<dyn MembraneProvider>,
     ));
     let runtime = MembraneRuntime::with_provider_registry(emily.clone(), registry);
@@ -113,11 +122,19 @@ async fn remote_execution_records_route_remote_episode_validation_and_audits_ide
         .expect("create episode");
 
     let first = runtime
-        .execute_remote_and_record(task_request(), target(), persistence())
+        .execute_remote_with_registry_and_record(
+            task_request(),
+            routing_preference(),
+            persistence(),
+        )
         .await
         .expect("first execution");
     let second = runtime
-        .execute_remote_and_record(task_request(), target(), persistence())
+        .execute_remote_with_registry_and_record(
+            task_request(),
+            routing_preference(),
+            persistence(),
+        )
         .await
         .expect("replayed execution");
 

@@ -43,6 +43,12 @@ pub struct ProviderTarget {
     pub metadata: Value,
 }
 
+/// Host-supplied provider registration entry for registry-backed routing.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RegisteredProviderTarget {
+    pub target: ProviderTarget,
+}
+
 /// Dispatch-shape label for one provider call.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ProviderDispatchKind {
@@ -85,11 +91,19 @@ pub trait MembraneProvider: Send + Sync {
 pub trait MembraneProviderRegistry: Send + Sync {
     /// Resolve one provider by its stable provider identifier.
     fn provider(&self, provider_id: &str) -> Option<Arc<dyn MembraneProvider>>;
+
+    /// Return all registered targets available for routing decisions.
+    fn targets(&self) -> Vec<RegisteredProviderTarget>;
 }
 
 /// In-memory registry for membrane-owned provider lookup.
 pub struct InMemoryProviderRegistry {
-    providers: HashMap<String, Arc<dyn MembraneProvider>>,
+    providers: HashMap<String, RegisteredProvider>,
+}
+
+struct RegisteredProvider {
+    target: RegisteredProviderTarget,
+    provider: Arc<dyn MembraneProvider>,
 }
 
 impl InMemoryProviderRegistry {
@@ -98,9 +112,34 @@ impl InMemoryProviderRegistry {
     where
         I: IntoIterator<Item = Arc<dyn MembraneProvider>>,
     {
+        let registered = providers.into_iter().map(|provider| {
+            (
+                RegisteredProviderTarget {
+                    target: ProviderTarget {
+                        provider_id: provider.provider_id().to_string(),
+                        model_id: None,
+                        profile_id: None,
+                        capability_tags: Vec::new(),
+                        metadata: Value::Object(Default::default()),
+                    },
+                },
+                provider,
+            )
+        });
+        Self::with_targets(registered)
+    }
+
+    /// Build a registry from explicit target metadata and providers.
+    pub fn with_targets<I>(providers: I) -> Self
+    where
+        I: IntoIterator<Item = (RegisteredProviderTarget, Arc<dyn MembraneProvider>)>,
+    {
         let mut entries = HashMap::new();
-        for provider in providers {
-            entries.insert(provider.provider_id().to_string(), provider);
+        for (target, provider) in providers {
+            entries.insert(
+                provider.provider_id().to_string(),
+                RegisteredProvider { target, provider },
+            );
         }
         Self { providers: entries }
     }
@@ -109,11 +148,37 @@ impl InMemoryProviderRegistry {
     pub fn single(provider: Arc<dyn MembraneProvider>) -> Self {
         Self::new([provider])
     }
+
+    /// Build a registry from one explicit target and provider pair.
+    pub fn single_target(
+        target: RegisteredProviderTarget,
+        provider: Arc<dyn MembraneProvider>,
+    ) -> Self {
+        Self::with_targets([(target, provider)])
+    }
 }
 
 impl MembraneProviderRegistry for InMemoryProviderRegistry {
     fn provider(&self, provider_id: &str) -> Option<Arc<dyn MembraneProvider>> {
-        self.providers.get(provider_id).cloned()
+        self.providers
+            .get(provider_id)
+            .map(|entry| entry.provider.clone())
+    }
+
+    fn targets(&self) -> Vec<RegisteredProviderTarget> {
+        let mut targets: Vec<_> = self
+            .providers
+            .values()
+            .map(|entry| entry.target.clone())
+            .collect();
+        targets.sort_by(|left, right| {
+            left.target
+                .provider_id
+                .cmp(&right.target.provider_id)
+                .then_with(|| left.target.profile_id.cmp(&right.target.profile_id))
+                .then_with(|| left.target.model_id.cmp(&right.target.model_id))
+        });
+        targets
     }
 }
 
@@ -238,5 +303,29 @@ mod tests {
         assert!(registry.provider("provider-a").is_some());
         assert!(registry.provider("provider-b").is_some());
         assert!(registry.provider("missing").is_none());
+    }
+
+    #[test]
+    fn in_memory_registry_preserves_registered_target_metadata() {
+        let registry = InMemoryProviderRegistry::single_target(
+            RegisteredProviderTarget {
+                target: ProviderTarget {
+                    provider_id: "provider-a".to_string(),
+                    model_id: Some("model-a".to_string()),
+                    profile_id: Some("reasoning".to_string()),
+                    capability_tags: vec!["analysis".to_string()],
+                    metadata: json!({"rank": 1}),
+                },
+            },
+            Arc::new(ExampleProvider {
+                provider_id: "provider-a",
+            }) as Arc<dyn MembraneProvider>,
+        );
+
+        let targets = registry.targets();
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].target.provider_id, "provider-a");
+        assert_eq!(targets[0].target.profile_id.as_deref(), Some("reasoning"));
+        assert_eq!(targets[0].target.capability_tags, vec!["analysis"]);
     }
 }

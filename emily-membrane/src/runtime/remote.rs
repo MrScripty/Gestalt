@@ -3,12 +3,12 @@ use super::{
 };
 use crate::contracts::{
     CompileResult, DispatchResult, DispatchStatus, MembraneRouteKind, MembraneTaskRequest,
-    RemoteExecutionPersistence, RemoteExecutionRecord, RoutingPlan, RoutingTarget,
-    ValidationEnvelope, ValidationFinding,
+    RemoteExecutionPersistence, RemoteExecutionRecord, RemoteRoutingPreference, RoutingPlan,
+    RoutingTarget, ValidationEnvelope, ValidationFinding,
 };
 use crate::providers::{
     ProviderDispatchKind, ProviderDispatchRequest, ProviderDispatchResult, ProviderDispatchStatus,
-    ProviderTarget,
+    ProviderTarget, RegisteredProviderTarget,
 };
 use emily::{
     RemoteEpisodeRecord, RemoteEpisodeRequest, RoutingDecision, RoutingDecisionKind,
@@ -45,6 +45,55 @@ where
                 target.provider_id
             )),
         })
+    }
+
+    /// Resolve one remote target from the injected provider registry.
+    pub async fn select_remote_target(
+        &self,
+        preference: &RemoteRoutingPreference,
+    ) -> Result<ProviderTarget, MembraneRuntimeError> {
+        let Some(provider_registry) = self.provider_registry.as_ref() else {
+            return Err(MembraneRuntimeError::InvalidState(
+                "remote target selection requires an injected provider registry".to_string(),
+            ));
+        };
+
+        validate_remote_routing_preference(preference)?;
+
+        let mut matching_targets: Vec<RegisteredProviderTarget> = provider_registry
+            .targets()
+            .into_iter()
+            .filter(|candidate| registered_target_matches_preference(candidate, preference))
+            .collect();
+
+        if matching_targets.is_empty() {
+            return Err(MembraneRuntimeError::InvalidRequest(
+                "no registered providers match the requested routing preference".to_string(),
+            ));
+        }
+
+        matching_targets.sort_by(|left, right| {
+            left.target
+                .provider_id
+                .cmp(&right.target.provider_id)
+                .then_with(|| left.target.profile_id.cmp(&right.target.profile_id))
+                .then_with(|| left.target.model_id.cmp(&right.target.model_id))
+        });
+
+        Ok(matching_targets.remove(0).target)
+    }
+
+    /// Resolve a target from the registry, then execute and persist one remote
+    /// provider-backed membrane flow.
+    pub async fn execute_remote_with_registry_and_record(
+        &self,
+        request: MembraneTaskRequest,
+        preference: RemoteRoutingPreference,
+        persistence: RemoteExecutionPersistence,
+    ) -> Result<RemoteExecutionRecord, MembraneRuntimeError> {
+        let target = self.select_remote_target(&preference).await?;
+        self.execute_remote_and_record(request, target, persistence)
+            .await
     }
 
     /// Execute the first provider-backed remote path and persist the resulting
@@ -194,6 +243,29 @@ where
     }
 }
 
+fn validate_remote_routing_preference(
+    preference: &RemoteRoutingPreference,
+) -> Result<(), MembraneRuntimeError> {
+    if matches!(preference.provider_id.as_deref(), Some(value) if value.trim().is_empty()) {
+        return Err(MembraneRuntimeError::InvalidRequest(
+            "provider_id preference must not be empty when provided".to_string(),
+        ));
+    }
+    if matches!(preference.profile_id.as_deref(), Some(value) if value.trim().is_empty()) {
+        return Err(MembraneRuntimeError::InvalidRequest(
+            "profile_id preference must not be empty when provided".to_string(),
+        ));
+    }
+    for tag in &preference.required_capability_tags {
+        if tag.trim().is_empty() {
+            return Err(MembraneRuntimeError::InvalidRequest(
+                "required_capability_tags must not contain empty values".to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn validate_remote_persistence(
     persistence: &RemoteExecutionPersistence,
 ) -> Result<(), MembraneRuntimeError> {
@@ -225,6 +297,31 @@ fn validate_remote_persistence(
         ));
     }
     Ok(())
+}
+
+fn registered_target_matches_preference(
+    candidate: &RegisteredProviderTarget,
+    preference: &RemoteRoutingPreference,
+) -> bool {
+    if let Some(provider_id) = preference.provider_id.as_deref()
+        && candidate.target.provider_id != provider_id
+    {
+        return false;
+    }
+
+    if let Some(profile_id) = preference.profile_id.as_deref()
+        && candidate.target.profile_id.as_deref() != Some(profile_id)
+    {
+        return false;
+    }
+
+    preference.required_capability_tags.iter().all(|required| {
+        candidate
+            .target
+            .capability_tags
+            .iter()
+            .any(|tag| tag == required)
+    })
 }
 
 fn validate_provider_target(target: &ProviderTarget) -> Result<(), MembraneRuntimeError> {

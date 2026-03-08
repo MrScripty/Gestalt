@@ -70,6 +70,16 @@ pub struct RoutingTarget {
     pub capability_tag: String,
 }
 
+/// Host-facing routing preference for registry-backed remote target selection.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemoteRoutingPreference {
+    pub provider_id: Option<String>,
+    pub profile_id: Option<String>,
+    /// Defaults to an empty list when omitted.
+    #[serde(default)]
+    pub required_capability_tags: Vec<String>,
+}
+
 /// Result of executing a routing plan.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DispatchResult {
@@ -266,6 +276,25 @@ mod tests {
         let text = serde_json::to_string(&plan).expect("serialize routing plan");
         let restored: RoutingPlan = serde_json::from_str(&text).expect("deserialize routing plan");
         assert_eq!(restored, plan);
+    }
+
+    #[test]
+    fn remote_routing_preference_roundtrip_preserves_defaults() {
+        let preference = RemoteRoutingPreference {
+            provider_id: Some("provider-a".into()),
+            profile_id: Some("reasoning".into()),
+            required_capability_tags: vec!["analysis".into()],
+        };
+
+        let text = serde_json::to_string(&preference).expect("serialize remote routing preference");
+        let restored: RemoteRoutingPreference =
+            serde_json::from_str(&text).expect("deserialize remote routing preference");
+        assert_eq!(restored, preference);
+
+        let restored_default: RemoteRoutingPreference =
+            serde_json::from_str(r#"{"provider_id":"provider-b","profile_id":null}"#)
+                .expect("deserialize remote routing preference defaults");
+        assert!(restored_default.required_capability_tags.is_empty());
     }
 
     #[test]
