@@ -56,7 +56,9 @@ references, validation outcomes, and structured sovereign audit metadata.
 They now also include bounded sovereign lifecycle policy inside the runtime:
 route-shape guards for remote dispatch and validation-driven projection updates
 for remote episodes and host episodes, plus explicit host-facing terminal
-remote-state transitions when validation is not the closure path.
+remote-state transitions when validation is not the closure path. New
+sovereign record families should default to write-side auto-auditing unless a
+record family is explicitly exempted.
 
 ## Invariants
 

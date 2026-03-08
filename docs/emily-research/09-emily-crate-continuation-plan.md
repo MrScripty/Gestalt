@@ -338,6 +338,9 @@ Update during implementation:
 - 2026-03-08: Sovereign audit scope decision recorded:
   - automatic audit generation remains write-side only for now
   - read/query access remains unaudited until a real boundary-crossing host flow requires it
+- 2026-03-08: Sovereign audit inheritance decision recorded:
+  - future sovereign record families default to write-side automatic audit generation
+  - exemptions require explicit documentation at the record-family boundary
 - 2026-03-08: Follow-on bounded sovereign lifecycle slice completed through one commit:
   - `507be15` `feat(emily): add bounded sovereign lifecycle policy`
 - 2026-03-08: Follow-on episode-read slice completed through one commit:
@@ -391,7 +394,6 @@ Update during implementation:
 ### Follow-Ups
 
 - Decide whether the next sovereign slice belongs inside `emily` as richer policy/runtime behavior or in a sibling membrane crate.
-- Decide whether future sovereign record types should inherit automatic audit generation by default inside `emily`.
 - Decide whether Emily should expose episode lists or stream-scoped episode queries now that single-episode reads exist through the public facade.
 - Decide whether explicit remote-state transitions should later support non-terminal transitions or remain limited to terminal closure events.
 - Decide whether Emily should keep the current explicit sovereign query facade or later add generic query primitives above the same persisted records.

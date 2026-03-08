@@ -58,7 +58,9 @@ sovereign audit records automatically. Hosts can still append explicit
 sovereign audits for additional boundary events or annotations. Automatic
 generation is intentionally limited to write-side lifecycle events for now;
 read/query access does not emit sovereign audits until a real boundary-crossing
-host flow requires it.
+host flow requires it. Future sovereign record families should inherit
+write-side automatic audit generation by default unless they are explicitly
+documented as exempt.
 
 The sovereign runtime now also applies bounded lifecycle policy inside the
 crate: routes marked `LocalOnly` or `Rejected` cannot be used for remote
