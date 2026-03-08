@@ -1,9 +1,11 @@
 mod commands;
 mod knowledge;
+mod panel_dock;
 mod workspace;
 
 pub use commands::CommandState;
 pub use knowledge::KnowledgeState;
+pub use panel_dock::{AuxiliaryPanelHost, AuxiliaryPanelKind, AuxiliaryPanelLayout};
 pub use workspace::WorkspaceState;
 
 use crate::commands::{CommandId, InsertCommand};

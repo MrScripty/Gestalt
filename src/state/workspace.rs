@@ -8,6 +8,8 @@ pub struct WorkspaceState {
     pub(crate) groups: Vec<TabGroup>,
     #[serde(default = "default_ui_scale")]
     ui_scale: f64,
+    #[serde(default)]
+    auxiliary_panels: AuxiliaryPanelLayout,
     pub(crate) selected_session: Option<SessionId>,
     next_session_id: SessionId,
     next_group_id: GroupId,
@@ -19,6 +21,7 @@ impl Default for WorkspaceState {
             sessions: Vec::new(),
             groups: Vec::new(),
             ui_scale: UI_SCALE_DEFAULT,
+            auxiliary_panels: AuxiliaryPanelLayout::default(),
             selected_session: None,
             next_session_id: 1,
             next_group_id: 1,
@@ -49,6 +52,7 @@ impl WorkspaceState {
 
     pub(crate) fn repair_after_restore(&mut self) {
         self.ui_scale = clamp_ui_scale(self.ui_scale);
+        self.auxiliary_panels = self.auxiliary_panels.clone().normalized();
         self.groups.retain(|group| !group.path.trim().is_empty());
         for group in &mut self.groups {
             group.layout = group.layout.normalized();
@@ -559,6 +563,42 @@ impl WorkspaceState {
         self.ui_scale = normalized;
         true
     }
+
+    pub fn auxiliary_panel_layout(&self) -> AuxiliaryPanelLayout {
+        self.auxiliary_panels.clone()
+    }
+
+    pub fn active_auxiliary_panel(&self, host: AuxiliaryPanelHost) -> Option<AuxiliaryPanelKind> {
+        self.auxiliary_panels.active_tab(host)
+    }
+
+    pub fn auxiliary_panel_tabs(&self, host: AuxiliaryPanelHost) -> Vec<AuxiliaryPanelKind> {
+        self.auxiliary_panels.tabs(host).to_vec()
+    }
+
+    pub fn set_active_auxiliary_panel(
+        &mut self,
+        host: AuxiliaryPanelHost,
+        panel: AuxiliaryPanelKind,
+    ) -> bool {
+        self.auxiliary_panels.set_active_tab(host, panel)
+    }
+
+    pub fn move_auxiliary_panel_before(
+        &mut self,
+        source: AuxiliaryPanelKind,
+        target: AuxiliaryPanelKind,
+    ) -> bool {
+        self.auxiliary_panels.move_panel_before(source, target)
+    }
+
+    pub fn move_auxiliary_panel_to_host_end(
+        &mut self,
+        panel: AuxiliaryPanelKind,
+        host: AuxiliaryPanelHost,
+    ) -> bool {
+        self.auxiliary_panels.move_panel_to_host_end(panel, host)
+    }
 }
 
 impl AppState {
@@ -753,6 +793,54 @@ impl AppState {
     /// Sets the GUI font scale and marks the state dirty when changed.
     pub fn set_ui_scale(&mut self, scale: f64) {
         if self.workspace.set_ui_scale(scale) {
+            self.mark_dirty();
+        }
+    }
+
+    /// Returns the durable auxiliary panel layout.
+    pub fn auxiliary_panel_layout(&self) -> AuxiliaryPanelLayout {
+        self.workspace.auxiliary_panel_layout()
+    }
+
+    /// Returns the active panel for the requested auxiliary host.
+    pub fn active_auxiliary_panel(&self, host: AuxiliaryPanelHost) -> Option<AuxiliaryPanelKind> {
+        self.workspace.active_auxiliary_panel(host)
+    }
+
+    /// Returns the ordered tabs for one auxiliary host.
+    pub fn auxiliary_panel_tabs(&self, host: AuxiliaryPanelHost) -> Vec<AuxiliaryPanelKind> {
+        self.workspace.auxiliary_panel_tabs(host)
+    }
+
+    /// Selects the active panel in one auxiliary host.
+    pub fn set_active_auxiliary_panel(
+        &mut self,
+        host: AuxiliaryPanelHost,
+        panel: AuxiliaryPanelKind,
+    ) {
+        if self.workspace.set_active_auxiliary_panel(host, panel) {
+            self.mark_dirty();
+        }
+    }
+
+    /// Reorders or moves one auxiliary panel before another tab.
+    pub fn move_auxiliary_panel_before(
+        &mut self,
+        source: AuxiliaryPanelKind,
+        target: AuxiliaryPanelKind,
+    ) {
+        if self.workspace.move_auxiliary_panel_before(source, target) {
+            self.mark_dirty();
+        }
+    }
+
+    /// Moves one auxiliary panel to the end of a host.
+    pub fn move_auxiliary_panel_to_host_end(
+        &mut self,
+        panel: AuxiliaryPanelKind,
+        host: AuxiliaryPanelHost,
+    ) {
+        if self.workspace.move_auxiliary_panel_to_host_end(panel, host) {
             self.mark_dirty();
         }
     }

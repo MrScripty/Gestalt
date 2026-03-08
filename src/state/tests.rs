@@ -1,6 +1,7 @@
 use super::{
-    AppState, NewSnippet, NoteDocument, SessionRole, SessionStatus, SnippetEmbeddingStatus,
-    VisibleAgentSlot, parse_snippet_reference_tokens, snippet_reference_token,
+    AppState, AuxiliaryPanelHost, AuxiliaryPanelKind, NewSnippet, NoteDocument, SessionRole,
+    SessionStatus, SnippetEmbeddingStatus, VisibleAgentSlot, parse_snippet_reference_tokens,
+    snippet_reference_token,
 };
 use serde_json::Value;
 
@@ -230,6 +231,134 @@ fn move_session_to_group_end_places_session_into_empty_group() {
         .expect("moved session to exist");
     assert_eq!(state.sessions()[moved_idx].group_id, empty_group);
     assert_eq!(moved_idx, state.sessions().len() - 1);
+}
+
+#[test]
+fn auxiliary_panel_defaults_match_existing_hosts() {
+    let state = AppState::default();
+
+    assert_eq!(
+        state.auxiliary_panel_tabs(AuxiliaryPanelHost::RunSidebar),
+        vec![
+            AuxiliaryPanelKind::LocalAgent,
+            AuxiliaryPanelKind::RunReview,
+            AuxiliaryPanelKind::Notes,
+        ]
+    );
+    assert_eq!(
+        state.auxiliary_panel_tabs(AuxiliaryPanelHost::SidePanel),
+        vec![
+            AuxiliaryPanelKind::Commands,
+            AuxiliaryPanelKind::Git,
+            AuxiliaryPanelKind::Files,
+        ]
+    );
+    assert_eq!(
+        state.active_auxiliary_panel(AuxiliaryPanelHost::RunSidebar),
+        Some(AuxiliaryPanelKind::LocalAgent)
+    );
+    assert_eq!(
+        state.active_auxiliary_panel(AuxiliaryPanelHost::SidePanel),
+        Some(AuxiliaryPanelKind::Commands)
+    );
+}
+
+#[test]
+fn move_auxiliary_panel_before_rehomes_panel_into_target_host() {
+    let mut state = AppState::default();
+
+    state.move_auxiliary_panel_before(AuxiliaryPanelKind::Git, AuxiliaryPanelKind::RunReview);
+
+    assert_eq!(
+        state.auxiliary_panel_tabs(AuxiliaryPanelHost::RunSidebar),
+        vec![
+            AuxiliaryPanelKind::LocalAgent,
+            AuxiliaryPanelKind::Git,
+            AuxiliaryPanelKind::RunReview,
+            AuxiliaryPanelKind::Notes,
+        ]
+    );
+    assert_eq!(
+        state.auxiliary_panel_tabs(AuxiliaryPanelHost::SidePanel),
+        vec![AuxiliaryPanelKind::Commands, AuxiliaryPanelKind::Files]
+    );
+    assert_eq!(
+        state.active_auxiliary_panel(AuxiliaryPanelHost::RunSidebar),
+        Some(AuxiliaryPanelKind::Git)
+    );
+    assert_eq!(
+        state.active_auxiliary_panel(AuxiliaryPanelHost::SidePanel),
+        Some(AuxiliaryPanelKind::Commands)
+    );
+}
+
+#[test]
+fn move_auxiliary_panel_to_host_end_sets_destination_active() {
+    let mut state = AppState::default();
+
+    state
+        .move_auxiliary_panel_to_host_end(AuxiliaryPanelKind::Notes, AuxiliaryPanelHost::SidePanel);
+
+    assert_eq!(
+        state.auxiliary_panel_tabs(AuxiliaryPanelHost::RunSidebar),
+        vec![
+            AuxiliaryPanelKind::LocalAgent,
+            AuxiliaryPanelKind::RunReview
+        ]
+    );
+    assert_eq!(
+        state.auxiliary_panel_tabs(AuxiliaryPanelHost::SidePanel),
+        vec![
+            AuxiliaryPanelKind::Commands,
+            AuxiliaryPanelKind::Git,
+            AuxiliaryPanelKind::Files,
+            AuxiliaryPanelKind::Notes,
+        ]
+    );
+    assert_eq!(
+        state.active_auxiliary_panel(AuxiliaryPanelHost::RunSidebar),
+        Some(AuxiliaryPanelKind::LocalAgent)
+    );
+    assert_eq!(
+        state.active_auxiliary_panel(AuxiliaryPanelHost::SidePanel),
+        Some(AuxiliaryPanelKind::Notes)
+    );
+}
+
+#[test]
+fn restore_repairs_duplicate_auxiliary_panels_and_active_selection() {
+    let mut payload = serde_json::to_value(AppState::default()).expect("serialize state");
+    payload["auxiliary_panels"] = serde_json::json!({
+        "run_sidebar": ["LocalAgent", "Git", "Git"],
+        "side_panel": ["Commands"],
+        "active_run_sidebar": "Files",
+        "active_side_panel": "RunReview"
+    });
+
+    let restored: AppState = serde_json::from_value(payload).expect("deserialize app state");
+    let restored = restored.into_restored();
+
+    assert_eq!(
+        restored.auxiliary_panel_tabs(AuxiliaryPanelHost::RunSidebar),
+        vec![
+            AuxiliaryPanelKind::LocalAgent,
+            AuxiliaryPanelKind::Git,
+            AuxiliaryPanelKind::RunReview,
+            AuxiliaryPanelKind::Notes,
+        ]
+    );
+    assert_eq!(
+        restored.auxiliary_panel_tabs(AuxiliaryPanelHost::SidePanel),
+        vec![AuxiliaryPanelKind::Commands, AuxiliaryPanelKind::Files]
+    );
+    assert_eq!(
+        restored.active_auxiliary_panel(AuxiliaryPanelHost::RunSidebar),
+        Some(AuxiliaryPanelKind::LocalAgent)
+    );
+    assert_eq!(
+        restored.active_auxiliary_panel(AuxiliaryPanelHost::SidePanel),
+        Some(AuxiliaryPanelKind::Commands)
+    );
 }
 
 #[test]

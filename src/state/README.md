@@ -9,6 +9,7 @@ insert-command models plus the pure transition rules that mutate them.
 | ----------- | ----------- |
 | `mod.rs` | Shared state types, the aggregate `AppState`, and persistence-facing compatibility surface |
 | `workspace.rs` | Path groups, sessions, selection, layout, and workspace repair rules |
+| `panel_dock.rs` | Durable auxiliary panel tab identities plus host/order/selection repair rules |
 | `knowledge.rs` | Notes, snippets, embedding metadata, and knowledge repair rules without UI navigation state |
 | `commands.rs` | Durable insert-command state facade over `CommandLibrary` |
 | `tests.rs` | Unit tests for state transitions, restore compatibility, and domain invariants |
@@ -39,6 +40,7 @@ live in the owning module, and purely transient note selection stays in UI.
 ## Invariants
 - Workspace state remains serializable and repairable from persisted JSON.
 - Active group resolution falls back to the first durable group when selection is missing or invalid.
+- Auxiliary panel tabs appear at most once across both sidebar hosts and repair missing entries back to a valid layout.
 - Knowledge objects never own runtime resources, UI handles, or editor selection state.
 - Command CRUD remains durable and restore-safe.
 - `AppState` revision tracks durable mutations only.
@@ -79,4 +81,5 @@ state.select_session(session_id);
   domain structs unless a versioned migration says otherwise.
 - Missing layout/UI scale/note/snippet ID fields fall back to documented defaults.
 - Group/session ordering is stable and preserved for consumers that rely on insertion order.
+- Auxiliary panel layout persists under the workspace domain and repairs duplicate/missing panel membership on restore.
 - When the persisted contract changes, `persistence::migrate` must own upgrade behavior.
