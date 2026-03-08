@@ -1,5 +1,5 @@
 use crate::emily_bridge::EmilyBridge;
-use crate::state::{AppState, GroupId, SessionId};
+use crate::state::{GroupId, SessionId, WorkspaceState};
 use crate::terminal::{PersistedTerminalState, TerminalManager};
 use std::collections::{HashMap, HashSet};
 
@@ -54,12 +54,12 @@ impl StartupCoordinator {
         Self::default()
     }
 
-    pub fn has_deferred_targets(&self, state: &AppState) -> bool {
-        has_deferred_startup_targets(state, &self.started_session_ids)
+    pub fn has_deferred_targets(&self, workspace: &WorkspaceState) -> bool {
+        has_deferred_startup_targets(workspace, &self.started_session_ids)
     }
 
-    pub fn prune_for_sessions(&mut self, state: &AppState) {
-        let active_session_ids = state
+    pub fn prune_for_sessions(&mut self, workspace: &WorkspaceState) {
+        let active_session_ids = workspace
             .sessions()
             .iter()
             .map(|session| session.id)
@@ -72,26 +72,26 @@ impl StartupCoordinator {
 
     pub async fn load_pending_history(
         &mut self,
-        state: &AppState,
+        workspace: &WorkspaceState,
         emily_bridge: &EmilyBridge,
         terminal_manager: &TerminalManager,
     ) -> Vec<HistoryLoadUpdate> {
-        self.prune_for_sessions(state);
+        self.prune_for_sessions(workspace);
         self.load_pending_history_updates(emily_bridge, terminal_manager)
             .await
     }
 
     pub fn start_due_sessions(
         &mut self,
-        state: &AppState,
+        workspace: &WorkspaceState,
         terminal_manager: &TerminalManager,
         restored: &mut HashMap<SessionId, PersistedTerminalState>,
     ) -> StartupTickResult {
-        self.prune_for_sessions(state);
+        self.prune_for_sessions(workspace);
         let mut result = StartupTickResult::default();
         let mut deferred_starts = 0_usize;
 
-        for target in startup_targets(state) {
+        for target in startup_targets(workspace) {
             if self.started_session_ids.contains(&target.session_id) {
                 continue;
             }
@@ -181,25 +181,25 @@ impl StartupCoordinator {
     }
 }
 
-pub fn visible_active_group_session_ids(state: &AppState) -> Vec<SessionId> {
-    state
+pub fn visible_active_group_session_ids(workspace: &WorkspaceState) -> Vec<SessionId> {
+    workspace
         .active_group_id()
-        .map(|group_id| state.workspace_session_ids_for_group(group_id))
+        .map(|group_id| workspace.workspace_session_ids_for_group(group_id))
         .unwrap_or_default()
 }
 
-pub fn startup_targets(state: &AppState) -> Vec<SessionStartupTarget> {
-    let visible_active_sessions = visible_active_group_session_ids(state)
+pub fn startup_targets(workspace: &WorkspaceState) -> Vec<SessionStartupTarget> {
+    let visible_active_sessions = visible_active_group_session_ids(workspace)
         .into_iter()
         .collect::<HashSet<_>>();
-    let active_group_id = state.active_group_id();
+    let active_group_id = workspace.active_group_id();
 
     let mut immediate = Vec::new();
     let mut active_deferred = Vec::new();
     let mut background = Vec::new();
 
-    for session in state.sessions() {
-        let Some(path) = state.group_path(session.group_id) else {
+    for session in workspace.sessions() {
+        let Some(path) = workspace.group_path(session.group_id) else {
             continue;
         };
 
@@ -242,10 +242,10 @@ pub fn startup_targets(state: &AppState) -> Vec<SessionStartupTarget> {
 }
 
 pub fn has_deferred_startup_targets(
-    state: &AppState,
+    workspace: &WorkspaceState,
     started_session_ids: &HashSet<SessionId>,
 ) -> bool {
-    startup_targets(state).into_iter().any(|target| {
+    startup_targets(workspace).into_iter().any(|target| {
         !started_session_ids.contains(&target.session_id)
             && target.priority != SessionStartupPriority::ActiveGroupVisible
     })
@@ -268,8 +268,8 @@ mod tests {
         let hidden_id = state.add_session(group_id);
         state.select_session(extra_ids[0]);
 
-        let targets = startup_targets(&state);
-        let visible_ids = visible_active_group_session_ids(&state);
+        let targets = startup_targets(state.workspace_state());
+        let visible_ids = visible_active_group_session_ids(state.workspace_state());
         assert_eq!(
             targets
                 .iter()
@@ -307,7 +307,7 @@ mod tests {
         let (group_id, extra_ids) = state.create_group_with_defaults("/tmp/secondary".to_string());
         state.select_session(state.sessions()[0].id);
 
-        let targets = startup_targets(&state);
+        let targets = startup_targets(state.workspace_state());
         let background_indices = extra_ids
             .iter()
             .filter_map(|session_id| {
@@ -344,15 +344,21 @@ mod tests {
     fn deferred_target_detection_ignores_started_sessions() {
         let mut state = AppState::default();
         let (_group_id, extra_ids) = state.create_group_with_defaults("/tmp/secondary".to_string());
-        let mut started = visible_active_group_session_ids(&state)
+        let mut started = visible_active_group_session_ids(state.workspace_state())
             .into_iter()
             .collect::<HashSet<_>>();
 
-        assert!(has_deferred_startup_targets(&state, &started));
+        assert!(has_deferred_startup_targets(
+            state.workspace_state(),
+            &started
+        ));
 
         started.extend(extra_ids);
         started.extend(state.sessions().iter().map(|session| session.id));
-        assert!(!has_deferred_startup_targets(&state, &started));
+        assert!(!has_deferred_startup_targets(
+            state.workspace_state(),
+            &started,
+        ));
     }
 
     #[test]
@@ -362,6 +368,6 @@ mod tests {
             state.create_group_with_defaults("/tmp/secondary".to_string());
         let coordinator = StartupCoordinator::new();
 
-        assert!(coordinator.has_deferred_targets(&state));
+        assert!(coordinator.has_deferred_targets(state.workspace_state()));
     }
 }

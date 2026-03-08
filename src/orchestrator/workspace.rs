@@ -1,7 +1,7 @@
 use crate::orchestrator::{
     GroupOrchestratorSnapshot, SessionRuntimeView, snapshot_group_from_runtime,
 };
-use crate::state::{AppState, GroupId, GroupLayout, Session, SessionId, SessionStatus};
+use crate::state::{GroupId, GroupLayout, Session, SessionId, SessionStatus, WorkspaceState};
 use crate::terminal::{TerminalManager, TerminalSnapshot};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -44,14 +44,14 @@ pub struct SessionStatusUpdate {
 }
 
 pub fn active_workspace_projection(
-    app_state: &AppState,
+    workspace: &WorkspaceState,
     terminal_manager: &TerminalManager,
     focused_session: Option<SessionId>,
 ) -> Option<WorkspaceProjection> {
-    let group_id = app_state.active_group_id()?;
-    let group_path = app_state.group_path(group_id).unwrap_or(".").to_string();
-    let (agents, runner) = app_state.workspace_sessions_for_group(group_id);
-    let pane_by_session = app_state
+    let group_id = workspace.active_group_id()?;
+    let group_path = workspace.group_path(group_id).unwrap_or(".").to_string();
+    let (agents, runner) = workspace.workspace_sessions_for_group(group_id);
+    let pane_by_session = workspace
         .sessions_in_group(group_id)
         .into_iter()
         .map(|session| {
@@ -63,7 +63,7 @@ pub fn active_workspace_projection(
                 .session_cwd(session.id)
                 .unwrap_or_else(|| group_path.clone());
             let pane = TerminalPaneProjection {
-                is_selected: app_state.selected_session() == Some(session.id),
+                is_selected: workspace.selected_session() == Some(session.id),
                 is_focused: focused_session == Some(session.id),
                 session,
                 terminal,
@@ -96,14 +96,14 @@ pub fn active_workspace_projection(
             .filter_map(|session| pane_by_session.get(&session.id).cloned())
             .collect(),
         runner: runner.and_then(|session| pane_by_session.get(&session.id).cloned()),
-        layout: app_state.group_layout(group_id),
+        layout: workspace.group_layout(group_id),
         status_counts: SessionStatusCounts {
-            idle: app_state.session_count_by_status(SessionStatus::Idle),
-            busy: app_state.session_count_by_status(SessionStatus::Busy),
-            error: app_state.session_count_by_status(SessionStatus::Error),
+            idle: workspace.session_count_by_status(SessionStatus::Idle),
+            busy: workspace.session_count_by_status(SessionStatus::Busy),
+            error: workspace.session_count_by_status(SessionStatus::Error),
         },
         orchestrator: snapshot_group_from_runtime(
-            app_state,
+            workspace,
             group_id,
             focused_session,
             &runtime_by_session,
@@ -112,14 +112,14 @@ pub fn active_workspace_projection(
 }
 
 pub fn apply_session_activity(
-    app_state: &AppState,
+    workspace: &WorkspaceState,
     terminal_manager: &TerminalManager,
     session_id: SessionId,
     idle_deadlines: &mut HashMap<SessionId, tokio::time::Instant>,
 ) -> Option<SessionStatusUpdate> {
     let now_ms = unix_now_ms();
     let last_activity = terminal_manager.session_last_activity_unix_ms(session_id);
-    let current_status = app_state
+    let current_status = workspace
         .sessions()
         .iter()
         .find(|session| session.id == session_id)
@@ -146,13 +146,13 @@ pub fn apply_session_activity(
 }
 
 pub fn reconcile_session_statuses(
-    app_state: &AppState,
+    workspace: &WorkspaceState,
     terminal_manager: &TerminalManager,
     idle_deadlines: &mut HashMap<SessionId, tokio::time::Instant>,
 ) -> Vec<SessionStatusUpdate> {
     let now_ms = unix_now_ms();
     let mut pending_updates = Vec::<SessionStatusUpdate>::new();
-    let tracked_session_ids = app_state
+    let tracked_session_ids = workspace
         .sessions()
         .iter()
         .map(|session| {
@@ -269,8 +269,9 @@ mod tests {
         let state = AppState::default();
         let terminal_manager = TerminalManager::new();
 
-        let projection = active_workspace_projection(&state, &terminal_manager, None)
-            .expect("projection should exist for default workspace");
+        let projection =
+            active_workspace_projection(state.workspace_state(), &terminal_manager, None)
+                .expect("projection should exist for default workspace");
 
         assert_eq!(projection.group_path, ".");
         assert_eq!(
@@ -307,7 +308,11 @@ mod tests {
         let mut idle_deadlines = HashMap::new();
         idle_deadlines.insert(999, tokio::time::Instant::now());
 
-        let updates = reconcile_session_statuses(&state, &terminal_manager, &mut idle_deadlines);
+        let updates = reconcile_session_statuses(
+            state.workspace_state(),
+            &terminal_manager,
+            &mut idle_deadlines,
+        );
 
         assert!(updates.is_empty());
         assert!(idle_deadlines.is_empty());

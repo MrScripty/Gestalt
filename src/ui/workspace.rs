@@ -3,11 +3,11 @@ use crate::orchestrator::{self, GroupOrchestratorSnapshot};
 use crate::resource_monitor::ResourceSnapshot;
 use crate::state::{AppState, GroupLayout, SessionId};
 use crate::terminal::TerminalManager;
+use crate::ui::TerminalHistoryState;
 use crate::ui::insert_command_mode::InsertModeState;
 use crate::ui::run_sidebar_panel_host::{RunSidebarPanelHost, RunSidebarPanelKind};
 use crate::ui::sidebar_panel_host::{SidebarPanelHost, SidebarPanelKind};
-use crate::ui::terminal_view::{terminal_shell, SnippetHotkeyState, TerminalInteractionSignals};
-use crate::ui::TerminalHistoryState;
+use crate::ui::terminal_view::{SnippetHotkeyState, TerminalInteractionSignals, terminal_shell};
 use dioxus::prelude::*;
 use emily::model::VectorizationStatus;
 use std::collections::HashMap;
@@ -60,7 +60,7 @@ pub(crate) fn WorkspaceMain(
                 apply_status_updates(
                     app_state,
                     orchestrator::reconcile_session_statuses(
-                        &app_state.read(),
+                        app_state.read().workspace_state(),
                         &terminal_manager,
                         &mut idle_deadlines,
                     ),
@@ -76,7 +76,7 @@ pub(crate) fn WorkspaceMain(
                                             apply_status_updates(
                                                 app_state,
                                                 orchestrator::apply_session_activity(
-                                                    &app_state.read(),
+                                                    app_state.read().workspace_state(),
                                                     &terminal_manager,
                                                     event.session_id,
                                                     &mut idle_deadlines,
@@ -88,7 +88,7 @@ pub(crate) fn WorkspaceMain(
                                         apply_status_updates(
                                             app_state,
                                             orchestrator::reconcile_session_statuses(
-                                                &app_state.read(),
+                                                app_state.read().workspace_state(),
                                                 &terminal_manager,
                                                 &mut idle_deadlines,
                                             ),
@@ -101,7 +101,7 @@ pub(crate) fn WorkspaceMain(
                                 apply_status_updates(
                                     app_state,
                                     orchestrator::reconcile_session_statuses(
-                                        &app_state.read(),
+                                        app_state.read().workspace_state(),
                                         &terminal_manager,
                                         &mut idle_deadlines,
                                     ),
@@ -116,7 +116,7 @@ pub(crate) fn WorkspaceMain(
                                 apply_status_updates(
                                     app_state,
                                     orchestrator::apply_session_activity(
-                                        &app_state.read(),
+                                        app_state.read().workspace_state(),
                                         &terminal_manager,
                                         event.session_id,
                                         &mut idle_deadlines,
@@ -130,7 +130,7 @@ pub(crate) fn WorkspaceMain(
                                 apply_status_updates(
                                     app_state,
                                     orchestrator::reconcile_session_statuses(
-                                        &app_state.read(),
+                                        app_state.read().workspace_state(),
                                         &terminal_manager,
                                         &mut idle_deadlines,
                                     ),
@@ -150,7 +150,7 @@ pub(crate) fn WorkspaceMain(
     let focused_terminal_id = *focused_terminal.read();
     let terminal_manager_for_projection = terminal_manager.read().clone();
     let workspace_projection = orchestrator::active_workspace_projection(
-        &snapshot,
+        snapshot.workspace_state(),
         &terminal_manager_for_projection,
         focused_terminal_id,
     );

@@ -360,7 +360,7 @@ pub fn App() -> Element {
                         first_pass = false;
                     } else {
                         let snapshot = app_state_signal.read().clone();
-                        if startup_coordinator.has_deferred_targets(&snapshot) {
+                        if startup_coordinator.has_deferred_targets(snapshot.workspace_state()) {
                             tokio::select! {
                                 _ = startup_notify.notified() => {}
                                 _ = tokio::time::sleep(Duration::from_millis(STARTUP_BACKGROUND_TICK_MS)) => {}
@@ -383,14 +383,18 @@ pub fn App() -> Element {
                     apply_history_load_updates(
                         terminal_history_state,
                         startup_coordinator
-                            .load_pending_history(&snapshot, &emily_bridge, &terminal_manager)
+                            .load_pending_history(
+                                snapshot.workspace_state(),
+                                &emily_bridge,
+                                &terminal_manager,
+                            )
                             .await,
                     );
 
                     let result = {
                         let mut restored = restored_terminals.write();
                         startup_coordinator.start_due_sessions(
-                            &snapshot,
+                            snapshot.workspace_state(),
                             &terminal_manager,
                             &mut restored,
                         )

@@ -4,16 +4,16 @@ use crate::state::{AppState, NewSnippet, SessionId, SessionStatus};
 use crate::terminal::{TerminalManager, TerminalSnapshot};
 use crate::ui::command_palette::{InsertCommandPalette, PaletteRow};
 use crate::ui::insert_command_mode::{
-    command_matches, mode_after_blur, mode_after_focus, route_terminal_key, selected_command_id,
     InsertModeOutcome, InsertModeSelection, InsertModeState, KeyModifiers, TerminalKeyRoute,
+    command_matches, mode_after_blur, mode_after_focus, route_terminal_key, selected_command_id,
 };
 use crate::ui::terminal_input::{
-    cursor_move_bytes, install_terminal_paste_bridge, install_terminal_scroll_behavior,
-    is_terminal_scrolled_near_top, key_event_to_bytes, map_click_to_terminal_cell,
-    read_terminal_selection, select_terminal_round, take_terminal_paste_buffer, COPY_SELECTION_JS,
-    READ_CLIPBOARD_JS,
+    COPY_SELECTION_JS, READ_CLIPBOARD_JS, cursor_move_bytes, install_terminal_paste_bridge,
+    install_terminal_scroll_behavior, is_terminal_scrolled_near_top, key_event_to_bytes,
+    map_click_to_terminal_cell, read_terminal_selection, select_terminal_round,
+    take_terminal_paste_buffer,
 };
-use crate::ui::{TerminalHistoryState, EMILY_HISTORY_BACKFILL_PAGE_LINES};
+use crate::ui::{EMILY_HISTORY_BACKFILL_PAGE_LINES, TerminalHistoryState};
 use dioxus::document;
 use dioxus::prelude::*;
 use std::collections::HashMap;

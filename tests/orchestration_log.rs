@@ -166,7 +166,7 @@ fn group_broadcast_records_failed_timeline_when_sessions_are_unavailable() {
     let terminal_manager = TerminalManager::new();
 
     let results = orchestrator::broadcast_line_to_group(
-        &state,
+        state.workspace_state(),
         &terminal_manager,
         group_id,
         "echo orchestration-log",
@@ -216,7 +216,7 @@ fn local_agent_send_records_distinct_timeline_kind() {
     let terminal_manager = TerminalManager::new();
 
     let results = orchestrator::send_local_agent_command_to_group(
-        &state,
+        state.workspace_state(),
         &terminal_manager,
         group_id,
         "cargo check",

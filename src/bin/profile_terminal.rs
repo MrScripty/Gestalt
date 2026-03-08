@@ -572,7 +572,12 @@ fn simulate_render_pass(app_state: &AppState, runtime: &TerminalManager) -> Rend
         })
         .collect::<HashMap<SessionId, orchestrator::SessionRuntimeView>>();
     let orchestrator_started = Instant::now();
-    let _ = orchestrator::snapshot_group_from_runtime(app_state, group_id, None, &runtime_map);
+    let _ = orchestrator::snapshot_group_from_runtime(
+        app_state.workspace_state(),
+        group_id,
+        None,
+        &runtime_map,
+    );
     probe.orchestrator_round_extract_us = orchestrator_started.elapsed().as_micros();
     probe
 }
@@ -936,7 +941,12 @@ fn probe_orchestrator_snapshot_build(
             )
         })
         .collect::<HashMap<SessionId, orchestrator::SessionRuntimeView>>();
-    let _ = orchestrator::snapshot_group_from_runtime(app_state, group_id, None, &runtime_map);
+    let _ = orchestrator::snapshot_group_from_runtime(
+        app_state.workspace_state(),
+        group_id,
+        None,
+        &runtime_map,
+    );
 }
 
 fn emulate_resize_measure_work(terminal_body_id: &str, rows: u16, cols: u16) -> (u16, u16) {

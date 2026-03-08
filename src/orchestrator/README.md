@@ -58,7 +58,7 @@ None.
 ```rust
 use crate::orchestrator;
 
-let ids = orchestrator::group_session_ids(&app_state, group_id);
+let ids = orchestrator::group_session_ids(app_state.workspace_state(), group_id);
 let results = orchestrator::interrupt_sessions(&terminal_manager, &ids);
 # let _ = results;
 ```

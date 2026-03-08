@@ -2,7 +2,7 @@ use crate::orchestration_log::{
     CommandPayload, EventPayload, NewCommandRecord, NewEventRecord, NewReceiptRecord,
     OrchestrationLogStore, ReceiptPayload, ReceiptStatus,
 };
-use crate::state::{AppState, GroupId, SessionId, SessionRole, SessionStatus};
+use crate::state::{GroupId, SessionId, SessionRole, SessionStatus, WorkspaceState};
 use crate::terminal::TerminalManager;
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -64,13 +64,13 @@ pub struct SessionRuntimeView<'a> {
 
 /// Builds a group snapshot directly from live terminal manager runtime.
 pub fn snapshot_group(
-    app_state: &AppState,
+    workspace: &WorkspaceState,
     terminal_manager: &TerminalManager,
     group_id: GroupId,
     focused_session: Option<SessionId>,
 ) -> GroupOrchestratorSnapshot {
-    let group_path = app_state.group_path(group_id).unwrap_or(".").to_string();
-    let terminals = app_state
+    let group_path = workspace.group_path(group_id).unwrap_or(".").to_string();
+    let terminals = workspace
         .sessions_in_group(group_id)
         .into_iter()
         .map(|session| {
@@ -88,7 +88,7 @@ pub fn snapshot_group(
                 cwd: terminal_manager
                     .session_cwd(session.id)
                     .unwrap_or_else(|| group_path.clone()),
-                is_selected: app_state.selected_session() == Some(session.id),
+                is_selected: workspace.selected_session() == Some(session.id),
                 is_focused: focused_session == Some(session.id),
                 is_runtime_ready: runtime_snapshot.is_some(),
                 latest_round: latest_round_from_lines(&lines),
@@ -105,13 +105,13 @@ pub fn snapshot_group(
 
 /// Builds a group snapshot from caller-provided runtime state.
 pub fn snapshot_group_from_runtime(
-    app_state: &AppState,
+    workspace: &WorkspaceState,
     group_id: GroupId,
     focused_session: Option<SessionId>,
     runtime_by_session: &HashMap<SessionId, SessionRuntimeView<'_>>,
 ) -> GroupOrchestratorSnapshot {
-    let group_path = app_state.group_path(group_id).unwrap_or(".").to_string();
-    let terminals = app_state
+    let group_path = workspace.group_path(group_id).unwrap_or(".").to_string();
+    let terminals = workspace
         .sessions_in_group(group_id)
         .into_iter()
         .map(|session| {
@@ -130,7 +130,7 @@ pub fn snapshot_group_from_runtime(
                     .as_ref()
                     .map(|runtime| runtime.cwd.to_string())
                     .unwrap_or_else(|| group_path.clone()),
-                is_selected: app_state.selected_session() == Some(session.id),
+                is_selected: workspace.selected_session() == Some(session.id),
                 is_focused: focused_session == Some(session.id),
                 is_runtime_ready: runtime
                     .as_ref()
@@ -149,8 +149,8 @@ pub fn snapshot_group_from_runtime(
 }
 
 /// Returns all session IDs currently attached to a group.
-pub fn group_session_ids(app_state: &AppState, group_id: GroupId) -> Vec<SessionId> {
-    app_state
+pub fn group_session_ids(workspace: &WorkspaceState, group_id: GroupId) -> Vec<SessionId> {
+    workspace
         .sessions()
         .iter()
         .filter(|session| session.group_id == group_id)
@@ -179,13 +179,13 @@ pub fn send_line_to_sessions(
 
 /// Sends a line of input to every session in one group and records the lifecycle durably.
 pub fn broadcast_line_to_group(
-    app_state: &AppState,
+    workspace: &WorkspaceState,
     terminal_manager: &TerminalManager,
     group_id: GroupId,
     line: &str,
 ) -> Vec<SessionWriteResult> {
-    let session_ids = group_session_ids(app_state, group_id);
-    let group_path = app_state.group_path(group_id).unwrap_or(".").to_string();
+    let session_ids = group_session_ids(workspace, group_id);
+    let group_path = workspace.group_path(group_id).unwrap_or(".").to_string();
     let now_ms = current_unix_ms();
     let command_id = Uuid::new_v4().to_string();
     let store = OrchestrationLogStore::default();
@@ -242,12 +242,12 @@ pub fn interrupt_sessions(
 
 /// Sends Ctrl+C to every session in one group and records the lifecycle durably.
 pub fn interrupt_group(
-    app_state: &AppState,
+    workspace: &WorkspaceState,
     terminal_manager: &TerminalManager,
     group_id: GroupId,
 ) -> Vec<SessionWriteResult> {
-    let session_ids = group_session_ids(app_state, group_id);
-    let group_path = app_state.group_path(group_id).unwrap_or(".").to_string();
+    let session_ids = group_session_ids(workspace, group_id);
+    let group_path = workspace.group_path(group_id).unwrap_or(".").to_string();
     let now_ms = current_unix_ms();
     let command_id = Uuid::new_v4().to_string();
     let store = OrchestrationLogStore::default();
@@ -285,13 +285,13 @@ pub fn interrupt_group(
 
 /// Sends a local-agent command to every session in one group and records a distinct lifecycle.
 pub fn send_local_agent_command_to_group(
-    app_state: &AppState,
+    workspace: &WorkspaceState,
     terminal_manager: &TerminalManager,
     group_id: GroupId,
     line: &str,
 ) -> Vec<SessionWriteResult> {
-    let session_ids = group_session_ids(app_state, group_id);
-    let group_path = app_state.group_path(group_id).unwrap_or(".").to_string();
+    let session_ids = group_session_ids(workspace, group_id);
+    let group_path = workspace.group_path(group_id).unwrap_or(".").to_string();
     let now_ms = current_unix_ms();
     let command_id = Uuid::new_v4().to_string();
     let store = OrchestrationLogStore::default();
@@ -331,12 +331,12 @@ pub fn send_local_agent_command_to_group(
 
 /// Sends Ctrl+C to every session in one group from the local-agent panel and records it separately.
 pub fn interrupt_local_agent_group(
-    app_state: &AppState,
+    workspace: &WorkspaceState,
     terminal_manager: &TerminalManager,
     group_id: GroupId,
 ) -> Vec<SessionWriteResult> {
-    let session_ids = group_session_ids(app_state, group_id);
-    let group_path = app_state.group_path(group_id).unwrap_or(".").to_string();
+    let session_ids = group_session_ids(workspace, group_id);
+    let group_path = workspace.group_path(group_id).unwrap_or(".").to_string();
     let now_ms = current_unix_ms();
     let command_id = Uuid::new_v4().to_string();
     let store = OrchestrationLogStore::default();
