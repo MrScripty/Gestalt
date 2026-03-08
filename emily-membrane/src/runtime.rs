@@ -5,6 +5,7 @@ use crate::contracts::{
     LocalExecutionRecord, MembraneRouteKind, MembraneTaskRequest, MembraneValidationDisposition,
     ReconstructionResult, RoutingPlan, ValidationEnvelope, ValidationFinding,
 };
+use crate::providers::{MembraneProvider, MembraneProviderError};
 use emily::EmilyApi;
 use emily::error::EmilyError;
 use emily::{
@@ -16,10 +17,13 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 
+mod remote;
+
 /// Minimal membrane runtime error surface for Milestone 1.
 #[derive(Debug)]
 pub enum MembraneRuntimeError {
     Emily(EmilyError),
+    Provider(MembraneProviderError),
     InvalidRequest(String),
     InvalidState(String),
     Adapter(String),
@@ -29,6 +33,7 @@ impl Display for MembraneRuntimeError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Emily(error) => write!(f, "emily runtime error: {error}"),
+            Self::Provider(error) => write!(f, "membrane provider error: {error}"),
             Self::InvalidRequest(message) => write!(f, "invalid membrane request: {message}"),
             Self::InvalidState(message) => write!(f, "invalid membrane state: {message}"),
             Self::Adapter(message) => write!(f, "local adapter error: {message}"),
@@ -44,6 +49,12 @@ impl From<EmilyError> for MembraneRuntimeError {
     }
 }
 
+impl From<MembraneProviderError> for MembraneRuntimeError {
+    fn from(value: MembraneProviderError) -> Self {
+        Self::Provider(value)
+    }
+}
+
 /// Runtime facade for the sibling membrane crate.
 ///
 /// Milestone 1 keeps this runtime local-only and deterministic. The Emily API
@@ -54,6 +65,7 @@ where
     A: EmilyApi + ?Sized,
 {
     emily: Arc<A>,
+    provider: Option<Arc<dyn MembraneProvider>>,
     adapter: DeterministicLocalAdapter,
 }
 
@@ -65,6 +77,16 @@ where
     pub fn new(emily: Arc<A>) -> Self {
         Self {
             emily,
+            provider: None,
+            adapter: DeterministicLocalAdapter,
+        }
+    }
+
+    /// Construct a new membrane runtime with an injected remote provider.
+    pub fn with_provider(emily: Arc<A>, provider: Arc<dyn MembraneProvider>) -> Self {
+        Self {
+            emily,
+            provider: Some(provider),
             adapter: DeterministicLocalAdapter,
         }
     }
@@ -72,6 +94,11 @@ where
     /// Return the injected Emily dependency.
     pub fn emily(&self) -> &Arc<A> {
         &self.emily
+    }
+
+    /// Return the injected provider dependency when remote execution is enabled.
+    pub fn provider(&self) -> Option<&Arc<dyn MembraneProvider>> {
+        self.provider.as_ref()
     }
 
     /// Compile a host task into a bounded membrane task.

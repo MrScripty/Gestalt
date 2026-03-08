@@ -12,8 +12,9 @@ use emily::{
 };
 use emily_membrane::contracts::{
     ContextFragment, MembraneRouteKind, MembraneTaskRequest, MembraneValidationDisposition,
-    RoutingPlan, ValidationEnvelope,
+    RemoteExecutionPersistence, RoutingPlan, ValidationEnvelope,
 };
+use emily_membrane::providers::ProviderTarget;
 use emily_membrane::runtime::{MembraneRuntime, MembraneRuntimeError};
 use std::sync::Arc;
 
@@ -312,6 +313,41 @@ async fn reconstruct_rejects_rejected_validation() {
         })
         .await
         .expect_err("rejected validation should not reconstruct");
+
+    assert!(matches!(error, MembraneRuntimeError::InvalidState(_)));
+}
+
+#[tokio::test]
+async fn execute_remote_and_record_requires_provider() {
+    let runtime = MembraneRuntime::new(Arc::new(StubEmilyApi));
+    let error = runtime
+        .execute_remote_and_record(
+            MembraneTaskRequest {
+                task_id: "task-1".into(),
+                episode_id: "episode-1".into(),
+                task_text: "remote task".into(),
+                context_fragments: Vec::new(),
+                allow_remote: true,
+            },
+            ProviderTarget {
+                provider_id: "provider-a".into(),
+                model_id: Some("model-x".into()),
+                profile_id: Some("reasoning".into()),
+                capability_tags: vec!["analysis".into()],
+                metadata: serde_json::json!({}),
+            },
+            RemoteExecutionPersistence {
+                route_decision_id: "route-1".into(),
+                route_decided_at_unix_ms: 10,
+                provider_request_id: "provider-request-1".into(),
+                remote_episode_id: "remote-1".into(),
+                remote_dispatched_at_unix_ms: 11,
+                validation_id: "validation-1".into(),
+                validated_at_unix_ms: 12,
+            },
+        )
+        .await
+        .expect_err("remote execution without provider should fail");
 
     assert!(matches!(error, MembraneRuntimeError::InvalidState(_)));
 }

@@ -85,6 +85,7 @@ pub struct DispatchResult {
 pub enum DispatchStatus {
     LocalCompleted,
     RemoteDispatched,
+    RemoteCompleted,
     Blocked,
 }
 
@@ -160,6 +161,32 @@ pub struct LocalExecutionRecord {
     pub validation: ValidationEnvelope,
     pub reconstruction: ReconstructionResult,
     pub route_decision_id: String,
+    pub validation_id: String,
+}
+
+/// Deterministic identifiers and timestamps used for remote Emily writes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemoteExecutionPersistence {
+    pub route_decision_id: String,
+    pub route_decided_at_unix_ms: i64,
+    pub provider_request_id: String,
+    pub remote_episode_id: String,
+    pub remote_dispatched_at_unix_ms: i64,
+    pub validation_id: String,
+    pub validated_at_unix_ms: i64,
+}
+
+/// Combined remote membrane execution result with Emily persistence ids.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RemoteExecutionRecord {
+    pub compile: CompileResult,
+    pub route: RoutingPlan,
+    pub dispatch: DispatchResult,
+    pub validation: ValidationEnvelope,
+    pub reconstruction: ReconstructionResult,
+    pub provider_request_id: String,
+    pub route_decision_id: String,
+    pub remote_episode_id: String,
     pub validation_id: String,
 }
 
@@ -361,6 +388,73 @@ mod tests {
             serde_json::to_string(&persistence).expect("serialize local execution persistence");
         let restored: LocalExecutionPersistence =
             serde_json::from_str(&text).expect("deserialize local execution persistence");
+        assert_eq!(restored, persistence);
+    }
+
+    #[test]
+    fn remote_execution_contracts_roundtrip() {
+        let record = RemoteExecutionRecord {
+            compile: CompileResult {
+                compiled_task: CompiledMembraneTask {
+                    task_id: "task-1".into(),
+                    episode_id: "episode-1".into(),
+                    bounded_prompt: "bounded prompt".into(),
+                    context_fragment_ids: vec!["ctx-1".into()],
+                },
+                truncated: false,
+            },
+            route: RoutingPlan {
+                task_id: "task-1".into(),
+                decision: MembraneRouteKind::SingleRemote,
+                targets: vec![RoutingTarget {
+                    target_id: "provider-a".into(),
+                    capability_tag: "analysis".into(),
+                }],
+                rationale: Some("remote route".into()),
+            },
+            dispatch: DispatchResult {
+                task_id: "task-1".into(),
+                route: MembraneRouteKind::SingleRemote,
+                status: DispatchStatus::RemoteCompleted,
+                response_text: "REMOTE: bounded prompt".into(),
+                remote_reference: Some("remote-1".into()),
+            },
+            validation: ValidationEnvelope {
+                task_id: "task-1".into(),
+                disposition: MembraneValidationDisposition::Accepted,
+                findings: Vec::new(),
+                validated_text: Some("REMOTE: bounded prompt".into()),
+            },
+            reconstruction: ReconstructionResult {
+                task_id: "task-1".into(),
+                output_text: "REMOTE: bounded prompt".into(),
+                references: Vec::new(),
+                caution: false,
+            },
+            provider_request_id: "provider-request-1".into(),
+            route_decision_id: "route-1".into(),
+            remote_episode_id: "remote-1".into(),
+            validation_id: "validation-1".into(),
+        };
+
+        let text = serde_json::to_string(&record).expect("serialize remote execution record");
+        let restored: RemoteExecutionRecord =
+            serde_json::from_str(&text).expect("deserialize remote execution record");
+        assert_eq!(restored, record);
+
+        let persistence = RemoteExecutionPersistence {
+            route_decision_id: "route-1".into(),
+            route_decided_at_unix_ms: 10,
+            provider_request_id: "provider-request-1".into(),
+            remote_episode_id: "remote-1".into(),
+            remote_dispatched_at_unix_ms: 11,
+            validation_id: "validation-1".into(),
+            validated_at_unix_ms: 12,
+        };
+        let text =
+            serde_json::to_string(&persistence).expect("serialize remote execution persistence");
+        let restored: RemoteExecutionPersistence =
+            serde_json::from_str(&text).expect("deserialize remote execution persistence");
         assert_eq!(restored, persistence);
     }
 }

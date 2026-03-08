@@ -119,6 +119,8 @@ async fn compile_locally(api: Arc<dyn EmilyApi>) {
   request/result DTOs.
 - Local-only execution can already persist routing and validation artifacts
   through Emily's public sovereign APIs.
+- The runtime now has a dedicated provider-backed remote path behind an
+  injected membrane provider.
 - Compatibility policy for this crate will be append-only while the initial
   membrane boundary is stabilized.
 - Revisit trigger: the first provider-backed adapter lands.
