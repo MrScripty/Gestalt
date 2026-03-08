@@ -272,6 +272,8 @@ explanation outputs.
 - `cargo test -q`
 - README updates for affected membrane directories
 
+**Status:** Completed on 2026-03-08 in commit `790ff02`
+
 ### Milestone 2: Policy Evaluation Core
 
 **Goal:** Implement deterministic target scoring and route recommendation.
@@ -337,6 +339,31 @@ crate.
   recommendation
 - Host requirements force policy semantics that contradict the Emily research
   posture
+
+## Execution Notes
+
+Update during implementation:
+
+- 2026-03-08: Routing-policy plan written and indexed in the Emily research
+  docs.
+- 2026-03-08: Milestone 1 completed in commit `790ff02`.
+- 2026-03-08: Milestone 1 scope:
+  - Added typed routing-policy request/result DTOs.
+  - Added typed routing sensitivity, outcome, and finding enums.
+  - Reused `ProviderTarget` as the selected-target contract to preserve
+    append-only compatibility with the existing membrane boundary.
+  - Added serde roundtrip tests for the new contracts.
+  - Updated membrane crate READMEs to reflect the new public contract surface.
+- 2026-03-08: Milestone 1 verification passed with:
+  - `cargo fmt --manifest-path emily-membrane/Cargo.toml`
+  - `cargo test --manifest-path emily-membrane/Cargo.toml -q --offline`
+  - `cargo clippy --manifest-path emily-membrane/Cargo.toml --all-targets --offline -- -D warnings`
+  - `cargo test --manifest-path emily-membrane/Cargo.toml -q --offline --features pantograph`
+  - `cargo clippy --manifest-path emily-membrane/Cargo.toml --all-targets --offline --features pantograph -- -D warnings`
+- 2026-03-08: Verification caveat:
+  - Feature-gated Pantograph checks still emit upstream warnings from the
+    Pantograph workspace, but `emily-membrane` itself passes under
+    `-D warnings`.
 
 ## Recommendations
 
