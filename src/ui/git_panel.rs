@@ -1,7 +1,7 @@
 use crate::git::{CheckoutTarget, CommitDetails, CommitDraft, RepoContext};
 use crate::state::AppState;
 use crate::terminal::TerminalManager;
-use crate::ui::git_helpers::{bump_refresh_nonce, create_group_for_worktree, toggle_bool_signal};
+use crate::ui::git_helpers::bump_refresh_nonce;
 use dioxus::prelude::*;
 use std::sync::Arc;
 
@@ -12,8 +12,8 @@ use git_commit_graph::{GRAPH_NODE_RADIUS_PX, GRAPH_ROW_HEIGHT_PX, build_commit_g
 
 #[component]
 pub(crate) fn GitPanel(
-    app_state: Signal<AppState>,
-    terminal_manager: Signal<Arc<TerminalManager>>,
+    _app_state: Signal<AppState>,
+    _terminal_manager: Signal<Arc<TerminalManager>>,
     active_group_path: String,
     repo_context: Signal<Option<RepoContext>>,
     repo_loading: Signal<bool>,
@@ -34,11 +34,6 @@ pub(crate) fn GitPanel(
     let mut edit_message = use_signal(String::new);
     let mut commit_title = use_signal(String::new);
     let mut commit_message = use_signal(String::new);
-    let mut tag_name = use_signal(String::new);
-    let mut tag_message = use_signal(String::new);
-    let mut worktree_path = use_signal(String::new);
-    let mut worktree_target = use_signal(String::new);
-    let auto_workspace = use_signal(|| true);
     let op_inflight = use_signal(|| false);
     let op_inflight_value = *op_inflight.read();
 
@@ -56,7 +51,6 @@ pub(crate) fn GitPanel(
         article { class: "git-panel-card",
             div { class: "git-panel-head",
                 h3 { "Git" }
-                p { "Path context: {active_group_path}" }
             }
 
             if let Some(context) = context {
@@ -82,59 +76,19 @@ pub(crate) fn GitPanel(
                                     selected
                                 }
                             };
-                            let worktree_target_value = {
-                                let value = worktree_target.read().trim().to_string();
-                                if value.is_empty() {
-                                    snapshot
-                                        .current_branch
-                                        .clone()
-                                        .or_else(|| snapshot.head.clone())
-                                        .unwrap_or_default()
-                                } else {
-                                    value
-                                }
-                            };
                             let commit_title_value = commit_title.read().clone();
                             let commit_message_value = commit_message.read().clone();
                             let edit_title_value = edit_title.read().clone();
                             let edit_message_value = edit_message.read().clone();
-                            let tag_name_value = tag_name.read().clone();
-                            let tag_message_value = tag_message.read().clone();
-                            let worktree_path_value = worktree_path.read().clone();
-                            let worktree_target_input_value = worktree_target.read().clone();
-                            let auto_workspace_checked = *auto_workspace.read();
                             let graph_layout = build_commit_graph_layout(&snapshot.commits);
                             let graph_overlay_width = graph_layout.gutter_width_px;
                             let graph_overlay_height = graph_layout.overlay_height_px;
-                            let recent_tags = snapshot
-                                .tags
-                                .iter()
-                                .take(8)
-                                .map(|tag| tag.name.clone())
-                                .collect::<Vec<_>>()
-                                .join(", ");
                             let branch_checkout_group_path = active_group_path.clone();
                             let commit_checkout_group_path = active_group_path.clone();
                             let commit_group_path = active_group_path.clone();
-                            let tag_group_path = active_group_path.clone();
-                            let worktree_group_path = active_group_path.clone();
                             let selected_commit_for_checkout = selected_commit_value.clone();
-                            let selected_commit_for_tag = selected_commit_value.clone();
-                            let worktree_target_for_create = worktree_target_value.clone();
 
                             rsx! {
-                                div { class: "git-repo-meta",
-                                    p { class: "git-meta", "Repo root: {snapshot.root}" }
-                                    p { class: "git-meta",
-                                        "HEAD: "
-                                        {snapshot.head.clone().unwrap_or_else(|| "(none)".to_string())}
-                                    }
-                                    p { class: "git-meta",
-                                        "Branch: "
-                                        {snapshot.current_branch.clone().unwrap_or_else(|| "(detached)".to_string())}
-                                    }
-                                }
-
                                 section { class: "git-section",
                                     h4 { "Branches" }
                                     div { class: "git-branch-list",
@@ -566,141 +520,6 @@ pub(crate) fn GitPanel(
                                             finish_operation(op_inflight);
                                         },
                                         "Create Commit"
-                                    }
-                                }
-
-                                section { class: "git-section",
-                                    h4 { "Tag Release" }
-                                    input {
-                                        class: "git-input",
-                                        disabled: op_inflight_value,
-                                        placeholder: "Tag name (e.g. v1.2.0)",
-                                        value: "{tag_name_value}",
-                                        oninput: move |event| tag_name.set(event.value()),
-                                    }
-                                    textarea {
-                                        class: "git-textarea",
-                                        disabled: op_inflight_value,
-                                        rows: "2",
-                                        placeholder: "Tag annotation message",
-                                        value: "{tag_message_value}",
-                                        oninput: move |event| tag_message.set(event.value()),
-                                    }
-                                    button {
-                                        class: "git-action-btn",
-                                        disabled: op_inflight_value,
-                                        onclick: move |_| {
-                                            if selected_commit_for_tag.trim().is_empty() {
-                                                op_feedback.set("Select a commit to tag.".to_string());
-                                                return;
-                                            }
-                                            if !start_operation(op_inflight, op_feedback) {
-                                                return;
-                                            }
-                                            let tag_name_value = tag_name.read().trim().to_string();
-                                            let tag_message_value = tag_message.read().trim().to_string();
-
-                                            match crate::orchestrator::git::create_tag(
-                                                &tag_group_path,
-                                                &tag_name_value,
-                                                &tag_message_value,
-                                                &selected_commit_for_tag,
-                                            ) {
-                                                Ok(_) => {
-                                                    op_feedback.set(format!(
-                                                        "Tag '{}' created.",
-                                                        tag_name_value
-                                                    ));
-                                                    tag_name.set(String::new());
-                                                    tag_message.set(String::new());
-                                                    bump_refresh_nonce(git_refresh_nonce);
-                                                }
-                                                Err(error) => op_feedback.set(error.to_string()),
-                                            }
-                                            finish_operation(op_inflight);
-                                        },
-                                        "Create Tag"
-                                    }
-                                    if !snapshot.tags.is_empty() {
-                                        p { class: "git-meta", "Recent tags: {recent_tags}" }
-                                    }
-                                }
-
-                                section { class: "git-section",
-                                    h4 { "Create Workspace (Worktree)" }
-                                    input {
-                                        class: "git-input",
-                                        disabled: op_inflight_value,
-                                        placeholder: "/abs/path/to/new-worktree",
-                                        value: "{worktree_path_value}",
-                                        oninput: move |event| worktree_path.set(event.value()),
-                                    }
-                                    input {
-                                        class: "git-input",
-                                        disabled: op_inflight_value,
-                                        placeholder: "Target branch or commit (defaults to current branch)",
-                                        value: "{worktree_target_input_value}",
-                                        oninput: move |event| worktree_target.set(event.value()),
-                                    }
-                                    label {
-                                        class: "git-checkbox-row",
-                                        input {
-                                            r#type: "checkbox",
-                                            checked: auto_workspace_checked,
-                                            disabled: op_inflight_value,
-                                            onchange: move |_| toggle_bool_signal(auto_workspace),
-                                        }
-                                        "Create Gestalt path-group after worktree creation"
-                                    }
-                                    button {
-                                        class: "git-action-btn git-action-primary",
-                                        disabled: op_inflight_value,
-                                        onclick: move |_| {
-                                            let path_value = worktree_path.read().trim().to_string();
-                                            if path_value.is_empty() {
-                                                op_feedback.set("Worktree path is required.".to_string());
-                                                return;
-                                            }
-                                            if !start_operation(op_inflight, op_feedback) {
-                                                return;
-                                            }
-
-                                            let result = crate::orchestrator::git::create_worktree(
-                                                &worktree_group_path,
-                                                &path_value,
-                                                &worktree_target_for_create,
-                                            );
-
-                                            match result {
-                                                Ok(_) => {
-                                                    if *auto_workspace.read() {
-                                                        match create_group_for_worktree(
-                                                            app_state,
-                                                            terminal_manager,
-                                                            &path_value,
-                                                        ) {
-                                                            Ok(_) => {
-                                                                op_feedback.set(format!(
-                                                                    "Worktree created and workspace group added at {}.",
-                                                                    path_value
-                                                                ));
-                                                            }
-                                                            Err(error) => op_feedback.set(error),
-                                                        }
-                                                    } else {
-                                                        op_feedback
-                                                            .set(format!("Worktree created at {}.", path_value));
-                                                    }
-
-                                                    worktree_path.set(String::new());
-                                                    worktree_target.set(String::new());
-                                                    bump_refresh_nonce(git_refresh_nonce);
-                                                }
-                                                Err(error) => op_feedback.set(error.to_string()),
-                                            }
-                                            finish_operation(op_inflight);
-                                        },
-                                        "Create Worktree"
                                     }
                                 }
                             }
