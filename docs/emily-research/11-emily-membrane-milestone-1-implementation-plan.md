@@ -183,7 +183,7 @@ entrypoints.
 - `cargo test -q`
 - README review against `DOCUMENTATION-STANDARDS.md`
 
-**Status:** Not started
+**Status:** Completed on 2026-03-08 in commit `e95f341`
 
 ### Milestone 1B: Minimal Contracts
 
@@ -257,6 +257,11 @@ through Emily's public APIs.
 Update during implementation:
 - 2026-03-08: Milestone 1 implementation plan written.
 - 2026-03-08: First adapter decision fixed to a narrow internal test adapter.
+- 2026-03-08: Milestone 1A crate skeleton implemented in commit `e95f341`.
+- 2026-03-08: Verification passed with:
+  - `cargo fmt --manifest-path emily-membrane/Cargo.toml`
+  - `cargo clippy --manifest-path emily-membrane/Cargo.toml --all-targets --offline -- -D warnings`
+  - `cargo test --manifest-path emily-membrane/Cargo.toml -q --offline`
 
 ## Commit Cadence Notes
 
