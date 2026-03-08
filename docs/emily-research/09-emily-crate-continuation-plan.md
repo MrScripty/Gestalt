@@ -287,7 +287,7 @@ In practice that means:
 - doc review of crate README and `emily/src/README.md`
 - at least one integration path proving Gestalt can consume the crate without depending on internal modules
 
-**Status:** Not started
+**Status:** Complete
 
 ### Milestone 7: Sovereign-Dispatch Preparation
 
@@ -325,6 +325,8 @@ Update during implementation:
   - `bbea8df` `feat(emily): add EARL episode gating`
 - 2026-03-08: Milestone 5 completed through one commit:
   - `da0422e` `feat(emily): add ECGL memory integration`
+- 2026-03-08: Milestone 6 completed through one commit:
+  - `c706018` `refactor(emily): harden host-agnostic runtime boundary`
 
 ## Commit Cadence Notes
 
@@ -362,16 +364,16 @@ Update during implementation:
 - Milestone 3: Episode And Outcome Contracts
 - Milestone 4: EARL Runtime
 - Milestone 5: ECGL Runtime
+- Milestone 6: Core And Host Separation Hardening
 
 ### Deviations
 
-- None yet.
+- Full Gestalt workspace acceptance remains pending while unrelated UI worktree changes break `cargo check -q`.
 
 ### Follow-Ups
 
-- Start Milestone 6 core and host separation review.
-- Decide whether any remaining crate docs still over-fit to Gestalt host terminology.
-- Decide whether sovereign-dispatch contracts belong in `emily` or a sibling crate.
+- Start Milestone 7 sovereign-dispatch preparation.
+- Decide whether any new sovereign contracts belong in `emily` or in a sibling crate.
 
 ### Verification Summary
 
@@ -395,6 +397,12 @@ Update during implementation:
   - `cargo fmt --manifest-path emily/Cargo.toml`
   - `cargo test --manifest-path emily/Cargo.toml -q`
   - `cargo clippy --manifest-path emily/Cargo.toml --all-targets -- -D warnings`
+- Milestone 6 verification:
+  - `cargo fmt --manifest-path emily/Cargo.toml`
+  - `cargo test --manifest-path emily/Cargo.toml -q`
+  - `cargo clippy --manifest-path emily/Cargo.toml --all-targets -- -D warnings`
+  - Bridge/API boundary review against `src/emily_bridge.rs`
+  - `cargo check -q` attempted for Gestalt integration and blocked by unrelated UI compile errors in `src/ui/sidebar_panel_host.rs` / `src/ui/local_agent_panel.rs`
 - Plan reviewed against:
   - `PLAN-STANDARDS.md`
   - `ARCHITECTURE-PATTERNS.md`
