@@ -165,18 +165,24 @@ This keeps the early loop testable while still moving toward real usage.
 **Goal:** Make it easy to put known data into Emily for testing.
 
 **Tasks:**
-- [ ] Add a deterministic seed runner for Emily test DBs
-- [ ] Define fixture format for:
+- [x] Add a deterministic seed runner for Emily test DBs
+- [x] Define fixture format for:
   - text objects
   - episodes
   - trace links
   - outcomes
   - optional `EARL` evaluations
-- [ ] Add dataset labels such as:
+- [x] Add dataset labels such as:
   - `synthetic-terminal`
   - `synthetic-agent-round`
   - `synthetic-risk-gated`
-- [ ] Ensure seeded runs are replay-safe and resettable
+- [x] Ensure seeded runs are replay-safe and resettable
+
+**Execution Notes:**
+- Implemented in `gestalt::emily_seed` with a reusable host-side seed corpus
+  module, a diagnostic `emily_seed` binary, and host-level acceptance coverage.
+- Built-in datasets now cover terminal history, a succeeded agent round, and
+  cautioned / blocked `EARL` scenarios.
 
 **Verification:**
 - `cargo fmt`
