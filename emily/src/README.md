@@ -12,10 +12,12 @@ This source tree currently covers the memory-side runtime, not the full Emily so
 | ----------- | ----------- |
 | `lib.rs` | Library exports |
 | `api.rs` | Public Emily API trait |
-| `runtime.rs` | Default runtime implementation |
+| `runtime.rs` | Default runtime facade and API implementation |
+| `runtime/` | Runtime submodules for vectorization jobs and runtime tests |
 | `model.rs` | Shared request/response and domain models |
 | `error.rs` | Typed Emily error types |
-| `inference.rs` | Embedding provider abstraction |
+| `inference.rs` | Embedding provider facade and feature gating |
+| `inference/` | Provider-specific embedding integrations |
 | `store/` | Storage interfaces and concrete backends |
 
 ## Problem
