@@ -369,7 +369,10 @@ fn active_group_falls_back_to_first_group_when_selected_session_is_invalid() {
     let mut state = seeded_state();
     state.select_session(u32::MAX);
 
-    assert_eq!(state.active_group_id(), state.groups().first().map(|group| group.id));
+    assert_eq!(
+        state.active_group_id(),
+        state.groups().first().map(|group| group.id)
+    );
 }
 
 #[test]
