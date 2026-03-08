@@ -23,3 +23,6 @@ target
 # Local icon source files
 icon.jpg
 icon.xcf
+
+# Launcher-managed local workflow state
+.launcher-state/

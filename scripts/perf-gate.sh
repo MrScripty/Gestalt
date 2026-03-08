@@ -8,4 +8,4 @@ if [[ "${GESTALT_SKIP_PERF_GATE:-0}" == "1" ]]; then
   exit 0
 fi
 
-cargo run --quiet --bin profile_terminal -- --assert
+cargo run --quiet --bin profile_terminal -- --assert "$@"

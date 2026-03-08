@@ -41,7 +41,32 @@ It is built with Dioxus Desktop (`0.7.x`) and uses real PTY sessions + VT100 par
 
 - Orchestration API for local agents: [ORCHESTRATION-API.md](ORCHESTRATION-API.md)
 
-## Run
+## Developer Launcher
+
+`launcher.sh` is the canonical local workflow entry point. It wraps build, test,
+perf, and release smoke commands and uses repo-local state dirs by default so
+development runs do not pollute the host's normal Gestalt state.
+
+```bash
+./launcher.sh --run
+```
+
+Common workflows:
+
+- `./launcher.sh --test`
+- `./launcher.sh --perf`
+- `./launcher.sh --release-smoke`
+- `./launcher.sh --run-release`
+
+State isolation controls:
+
+- `GESTALT_LAUNCHER_ISOLATE_STATE=1` enables repo-local isolated state dirs
+  under `.launcher-state/` (default)
+- `GESTALT_LAUNCHER_ISOLATE_STATE=0` uses the host's normal state locations
+- `GESTALT_LAUNCHER_STATE_ROOT=/custom/path` overrides the launcher-managed
+  state root
+
+If you need the raw Cargo entrypoint instead of the launcher:
 
 ```bash
 cargo run
@@ -70,13 +95,13 @@ Installer/icon metadata is configured via `Dioxus.toml` using
 Run the terminal latency regression gate (PTY required):
 
 ```bash
-scripts/perf-gate.sh
+./launcher.sh --perf
 ```
 
 If PTY access is unavailable in your environment:
 
 ```bash
-GESTALT_SKIP_PERF_GATE=1 scripts/perf-gate.sh
+GESTALT_SKIP_PERF_GATE=1 ./launcher.sh --perf
 ```
 
 ## Current Limitations
