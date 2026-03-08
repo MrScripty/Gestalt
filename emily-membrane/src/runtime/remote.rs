@@ -58,10 +58,16 @@ where
         validate_remote_persistence(&persistence)?;
         validate_provider_target(&target)?;
 
-        let Some(provider) = self.provider.as_ref() else {
+        let Some(provider_registry) = self.provider_registry.as_ref() else {
             return Err(MembraneRuntimeError::InvalidState(
-                "remote execution requires an injected provider".to_string(),
+                "remote execution requires an injected provider registry".to_string(),
             ));
+        };
+        let Some(provider) = provider_registry.provider(&target.provider_id) else {
+            return Err(MembraneRuntimeError::InvalidRequest(format!(
+                "no provider registered for target '{}'",
+                target.provider_id
+            )));
         };
 
         let compile = self.compile(request).await?;

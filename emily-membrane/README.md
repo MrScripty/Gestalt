@@ -116,11 +116,11 @@ async fn compile_locally(api: Arc<dyn EmilyApi>) {
   dispatch, validation, and reconstruction.
 - `runtime` exposes a minimal local-only facade above an injected `EmilyApi`.
 - `providers` now exposes a membrane-owned remote adapter trait and provider
-  request/result DTOs.
+  registry plus provider request/result DTOs.
 - Local-only execution can already persist routing and validation artifacts
   through Emily's public sovereign APIs.
 - The runtime now has a dedicated provider-backed remote path behind an
-  injected membrane provider.
+  injected membrane provider or host-supplied provider registry.
 - Compatibility policy for this crate will be append-only while the initial
   membrane boundary is stabilized.
 - Revisit trigger: the first provider-backed adapter lands.

@@ -11,7 +11,7 @@ focused files.
 
 | File/Folder | Description |
 | ----------- | ----------- |
-| `remote.rs` | Remote execution helpers and provider-backed runtime methods |
+| `remote.rs` | Remote execution helpers and provider-registry-backed runtime methods |
 
 ## Problem
 
@@ -40,7 +40,7 @@ runtime type in `runtime.rs`.
 ## Invariants
 
 - `runtime.rs` owns the public runtime type and core local path.
-- `remote.rs` owns provider-backed remote execution helpers.
+- `remote.rs` owns provider-registry-backed remote execution helpers.
 - Remote execution remains synchronous and request-scoped in this milestone.
 
 ## Revisit Triggers
@@ -70,6 +70,8 @@ runtime type in `runtime.rs`.
 ## API Consumer Contract
 
 - Consumers continue to use `emily_membrane::runtime::MembraneRuntime`.
+- The public runtime can be constructed with a single provider or a host-owned
+  provider registry.
 - This directory does not expose a separate public facade.
 - Revisit trigger: a separate runtime builder or worker owner becomes necessary.
 

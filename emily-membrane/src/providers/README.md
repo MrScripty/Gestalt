@@ -11,7 +11,7 @@ types into the rest of the crate.
 
 | File/Folder | Description |
 | ----------- | ----------- |
-| `mod.rs` | Provider trait, provider request/result DTOs, and provider error surface |
+| `mod.rs` | Provider trait, registry contracts, provider request/result DTOs, and provider error surface |
 | `pantograph.rs` | Feature-gated one-shot Pantograph workflow adapter |
 
 ## Problem
@@ -46,8 +46,9 @@ or another provider implementation later.
 ## Invariants
 
 - `providers` defines provider-facing contracts, not Emily persistence records.
-- Provider implementations must be injectable into the membrane runtime rather
-  than globally discovered.
+- Provider implementations must be injectable into the membrane runtime through
+  a host-supplied provider or provider registry rather than globally
+  discovered.
 - Provider DTOs stay generic enough that Pantograph remains an adapter, not the
   model for the whole crate.
 
@@ -103,6 +104,10 @@ impl MembraneProvider for ExampleProvider {
 ## API Consumer Contract
 
 - `MembraneProvider` is the membrane-owned remote adapter trait.
+- `MembraneProviderRegistry` is the membrane-owned provider lookup boundary for
+  host-supplied routing resolution.
+- `InMemoryProviderRegistry` is the default registry for request-scoped host
+  injection.
 - `ProviderDispatchRequest` and `ProviderDispatchResult` are append-only DTOs
   for the first remote slices.
 - The optional `pantograph` feature adds a one-shot workflow adapter without

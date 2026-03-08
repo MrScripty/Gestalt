@@ -3,8 +3,10 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use std::sync::Arc;
 
 #[cfg(feature = "pantograph")]
 mod pantograph;
@@ -79,6 +81,42 @@ pub trait MembraneProvider: Send + Sync {
     ) -> Result<ProviderDispatchResult, MembraneProviderError>;
 }
 
+/// Registry abstraction for host-supplied provider lookup.
+pub trait MembraneProviderRegistry: Send + Sync {
+    /// Resolve one provider by its stable provider identifier.
+    fn provider(&self, provider_id: &str) -> Option<Arc<dyn MembraneProvider>>;
+}
+
+/// In-memory registry for membrane-owned provider lookup.
+pub struct InMemoryProviderRegistry {
+    providers: HashMap<String, Arc<dyn MembraneProvider>>,
+}
+
+impl InMemoryProviderRegistry {
+    /// Build a registry from an iterator of injected providers.
+    pub fn new<I>(providers: I) -> Self
+    where
+        I: IntoIterator<Item = Arc<dyn MembraneProvider>>,
+    {
+        let mut entries = HashMap::new();
+        for provider in providers {
+            entries.insert(provider.provider_id().to_string(), provider);
+        }
+        Self { providers: entries }
+    }
+
+    /// Build a registry from one injected provider.
+    pub fn single(provider: Arc<dyn MembraneProvider>) -> Self {
+        Self::new([provider])
+    }
+}
+
+impl MembraneProviderRegistry for InMemoryProviderRegistry {
+    fn provider(&self, provider_id: &str) -> Option<Arc<dyn MembraneProvider>> {
+        self.providers.get(provider_id).cloned()
+    }
+}
+
 /// Provider-facing error surface owned by the membrane crate.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MembraneProviderError {
@@ -103,6 +141,30 @@ impl Error for MembraneProviderError {}
 mod tests {
     use super::*;
     use serde_json::json;
+
+    struct ExampleProvider {
+        provider_id: &'static str,
+    }
+
+    #[async_trait]
+    impl MembraneProvider for ExampleProvider {
+        fn provider_id(&self) -> &str {
+            self.provider_id
+        }
+
+        async fn dispatch(
+            &self,
+            request: ProviderDispatchRequest,
+        ) -> Result<ProviderDispatchResult, MembraneProviderError> {
+            Ok(ProviderDispatchResult {
+                provider_request_id: request.provider_request_id,
+                provider_id: self.provider_id().to_string(),
+                status: ProviderDispatchStatus::Completed,
+                output_text: "ok".to_string(),
+                metadata: json!({}),
+            })
+        }
+    }
 
     #[test]
     fn provider_dispatch_request_roundtrip_preserves_defaults() {
@@ -160,5 +222,21 @@ mod tests {
         let restored: ProviderDispatchResult =
             serde_json::from_str(&text).expect("deserialize provider dispatch result");
         assert_eq!(restored, result);
+    }
+
+    #[test]
+    fn in_memory_registry_resolves_provider_by_id() {
+        let registry = InMemoryProviderRegistry::new([
+            Arc::new(ExampleProvider {
+                provider_id: "provider-a",
+            }) as Arc<dyn MembraneProvider>,
+            Arc::new(ExampleProvider {
+                provider_id: "provider-b",
+            }) as Arc<dyn MembraneProvider>,
+        ]);
+
+        assert!(registry.provider("provider-a").is_some());
+        assert!(registry.provider("provider-b").is_some());
+        assert!(registry.provider("missing").is_none());
     }
 }

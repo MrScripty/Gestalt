@@ -5,8 +5,8 @@ use emily::store::surreal::SurrealEmilyStore;
 use emily::{CreateEpisodeRequest, DatabaseLocator, EpisodeState, RemoteEpisodeState};
 use emily_membrane::contracts::{MembraneTaskRequest, RemoteExecutionPersistence};
 use emily_membrane::providers::{
-    MembraneProvider, MembraneProviderError, ProviderDispatchRequest, ProviderDispatchResult,
-    ProviderDispatchStatus, ProviderTarget,
+    InMemoryProviderRegistry, MembraneProvider, MembraneProviderError, ProviderDispatchRequest,
+    ProviderDispatchResult, ProviderDispatchStatus, ProviderTarget,
 };
 use emily_membrane::runtime::MembraneRuntime;
 use serde_json::json;
@@ -100,8 +100,10 @@ impl MembraneProvider for DeterministicTestProvider {
 async fn remote_execution_records_route_remote_episode_validation_and_audits_idempotently() {
     let store = Arc::new(SurrealEmilyStore::new());
     let emily = Arc::new(EmilyRuntime::new(store));
-    let runtime =
-        MembraneRuntime::with_provider(emily.clone(), Arc::new(DeterministicTestProvider));
+    let registry = Arc::new(InMemoryProviderRegistry::single(
+        Arc::new(DeterministicTestProvider) as Arc<dyn MembraneProvider>,
+    ));
+    let runtime = MembraneRuntime::with_provider_registry(emily.clone(), registry);
     let locator = locator();
 
     emily.open_db(locator.clone()).await.expect("open db");

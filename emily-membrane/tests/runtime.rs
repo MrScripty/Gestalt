@@ -14,7 +14,7 @@ use emily_membrane::contracts::{
     ContextFragment, MembraneRouteKind, MembraneTaskRequest, MembraneValidationDisposition,
     RemoteExecutionPersistence, RoutingPlan, ValidationEnvelope,
 };
-use emily_membrane::providers::ProviderTarget;
+use emily_membrane::providers::{InMemoryProviderRegistry, ProviderTarget};
 use emily_membrane::runtime::{MembraneRuntime, MembraneRuntimeError};
 use std::sync::Arc;
 
@@ -347,7 +347,43 @@ async fn execute_remote_and_record_requires_provider() {
             },
         )
         .await
-        .expect_err("remote execution without provider should fail");
+        .expect_err("remote execution without provider registry should fail");
 
     assert!(matches!(error, MembraneRuntimeError::InvalidState(_)));
+}
+
+#[tokio::test]
+async fn execute_remote_and_record_rejects_missing_registered_provider() {
+    let registry = Arc::new(InMemoryProviderRegistry::new([]));
+    let runtime = MembraneRuntime::with_provider_registry(Arc::new(StubEmilyApi), registry);
+    let error = runtime
+        .execute_remote_and_record(
+            MembraneTaskRequest {
+                task_id: "task-1".into(),
+                episode_id: "episode-1".into(),
+                task_text: "remote task".into(),
+                context_fragments: Vec::new(),
+                allow_remote: true,
+            },
+            ProviderTarget {
+                provider_id: "provider-a".into(),
+                model_id: Some("model-x".into()),
+                profile_id: Some("reasoning".into()),
+                capability_tags: vec!["analysis".into()],
+                metadata: serde_json::json!({}),
+            },
+            RemoteExecutionPersistence {
+                route_decision_id: "route-1".into(),
+                route_decided_at_unix_ms: 10,
+                provider_request_id: "provider-request-1".into(),
+                remote_episode_id: "remote-1".into(),
+                remote_dispatched_at_unix_ms: 11,
+                validation_id: "validation-1".into(),
+                validated_at_unix_ms: 12,
+            },
+        )
+        .await
+        .expect_err("remote execution with a missing provider should fail");
+
+    assert!(matches!(error, MembraneRuntimeError::InvalidRequest(_)));
 }

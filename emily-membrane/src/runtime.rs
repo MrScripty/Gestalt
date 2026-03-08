@@ -5,7 +5,9 @@ use crate::contracts::{
     LocalExecutionRecord, MembraneRouteKind, MembraneTaskRequest, MembraneValidationDisposition,
     ReconstructionResult, RoutingPlan, ValidationEnvelope, ValidationFinding,
 };
-use crate::providers::{MembraneProvider, MembraneProviderError};
+use crate::providers::{
+    InMemoryProviderRegistry, MembraneProvider, MembraneProviderError, MembraneProviderRegistry,
+};
 use emily::EmilyApi;
 use emily::error::EmilyError;
 use emily::{
@@ -59,13 +61,16 @@ impl From<MembraneProviderError> for MembraneRuntimeError {
 ///
 /// Milestone 1 keeps this runtime local-only and deterministic. The Emily API
 /// dependency is injected now so later slices can persist sovereign artifacts
-/// through Emily without changing the membrane ownership model.
+/// through Emily without changing the membrane ownership model. Remote
+/// execution can be enabled with either one injected provider or a
+/// host-supplied provider registry.
 pub struct MembraneRuntime<A>
 where
     A: EmilyApi + ?Sized,
 {
     emily: Arc<A>,
     provider: Option<Arc<dyn MembraneProvider>>,
+    provider_registry: Option<Arc<dyn MembraneProviderRegistry>>,
     adapter: DeterministicLocalAdapter,
 }
 
@@ -78,15 +83,32 @@ where
         Self {
             emily,
             provider: None,
+            provider_registry: None,
             adapter: DeterministicLocalAdapter,
         }
     }
 
     /// Construct a new membrane runtime with an injected remote provider.
     pub fn with_provider(emily: Arc<A>, provider: Arc<dyn MembraneProvider>) -> Self {
+        let registry = Arc::new(InMemoryProviderRegistry::single(provider.clone()))
+            as Arc<dyn MembraneProviderRegistry>;
         Self {
             emily,
             provider: Some(provider),
+            provider_registry: Some(registry),
+            adapter: DeterministicLocalAdapter,
+        }
+    }
+
+    /// Construct a new membrane runtime with a host-supplied provider registry.
+    pub fn with_provider_registry(
+        emily: Arc<A>,
+        provider_registry: Arc<dyn MembraneProviderRegistry>,
+    ) -> Self {
+        Self {
+            emily,
+            provider: None,
+            provider_registry: Some(provider_registry),
             adapter: DeterministicLocalAdapter,
         }
     }
@@ -99,6 +121,11 @@ where
     /// Return the injected provider dependency when remote execution is enabled.
     pub fn provider(&self) -> Option<&Arc<dyn MembraneProvider>> {
         self.provider.as_ref()
+    }
+
+    /// Return the injected provider registry when remote execution is enabled.
+    pub fn provider_registry(&self) -> Option<&Arc<dyn MembraneProviderRegistry>> {
+        self.provider_registry.as_ref()
     }
 
     /// Compile a host task into a bounded membrane task.
