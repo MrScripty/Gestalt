@@ -250,7 +250,7 @@ through Emily's public APIs.
 - one acceptance test from membrane request to persisted Emily sovereign state
 - one replay/idempotency test for repeated local-only membrane execution
 
-**Status:** Not started
+**Status:** Completed on 2026-03-08 in commit `7386037`
 
 ## Execution Notes
 
@@ -270,6 +270,12 @@ Update during implementation:
 - 2026-03-08: Milestone 1C runtime facade and internal test adapter implemented
   in commit `bab8c90`.
 - 2026-03-08: Runtime verification passed with:
+  - `cargo fmt --manifest-path emily-membrane/Cargo.toml`
+  - `cargo clippy --manifest-path emily-membrane/Cargo.toml --all-targets --offline -- -D warnings`
+  - `cargo test --manifest-path emily-membrane/Cargo.toml -q --offline`
+- 2026-03-08: Milestone 1D local-only Emily write-path acceptance implemented
+  in commit `7386037`.
+- 2026-03-08: Acceptance verification passed with:
   - `cargo fmt --manifest-path emily-membrane/Cargo.toml`
   - `cargo clippy --manifest-path emily-membrane/Cargo.toml --all-targets --offline -- -D warnings`
   - `cargo test --manifest-path emily-membrane/Cargo.toml -q --offline`
