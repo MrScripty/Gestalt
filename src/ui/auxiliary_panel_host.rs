@@ -44,23 +44,24 @@ pub(crate) fn DockedAuxiliaryPanelHost(
     };
 
     rsx! {
-        div { class: "aux-panel-host",
+        div {
+            class: "aux-panel-host",
+            ondragover: move |event| {
+                event.prevent_default();
+            },
+            ondrop: move |event| {
+                event.prevent_default();
+                if let Some(source_panel) = *dragging_panel.read() {
+                    app_state
+                        .write()
+                        .move_auxiliary_panel_to_host_end(source_panel, host);
+                }
+                dragging_panel.set(None);
+            },
             div {
                 class: "{tablist_class}",
                 role: "tablist",
                 aria_label: "{tablist_aria_label}",
-                ondragover: move |event| {
-                    event.prevent_default();
-                },
-                ondrop: move |event| {
-                    event.prevent_default();
-                    if let Some(source_panel) = *dragging_panel.read() {
-                        app_state
-                            .write()
-                            .move_auxiliary_panel_to_host_end(source_panel, host);
-                    }
-                    dragging_panel.set(None);
-                },
                 ondragleave: move |_| {},
                 for panel in tabs {
                     {
@@ -76,22 +77,9 @@ pub(crate) fn DockedAuxiliaryPanelHost(
                         };
 
                         rsx! {
-                            button {
+                            div {
                                 key: "aux-panel-tab-{panel_id.label()}",
-                                class: "{class}",
-                                r#type: "button",
-                                role: "tab",
-                                aria_selected: is_active,
-                                draggable: "true",
-                                onclick: move |_| {
-                                    app_state.write().set_active_auxiliary_panel(host, panel_id);
-                                },
-                                ondragstart: move |_| {
-                                    dragging_panel.set(Some(panel_id));
-                                },
-                                ondragend: move |_| {
-                                    dragging_panel.set(None);
-                                },
+                                class: "aux-panel-tab-slot",
                                 ondragover: move |event| {
                                     event.stop_propagation();
                                     event.prevent_default();
@@ -106,7 +94,23 @@ pub(crate) fn DockedAuxiliaryPanelHost(
                                     }
                                     dragging_panel.set(None);
                                 },
-                                "{panel_id.label()}"
+                                button {
+                                    class: "{class}",
+                                    r#type: "button",
+                                    role: "tab",
+                                    aria_selected: is_active,
+                                    draggable: "true",
+                                    onclick: move |_| {
+                                        app_state.write().set_active_auxiliary_panel(host, panel_id);
+                                    },
+                                    ondragstart: move |_| {
+                                        dragging_panel.set(Some(panel_id));
+                                    },
+                                    ondragend: move |_| {
+                                        dragging_panel.set(None);
+                                    },
+                                    "{panel_id.label()}"
+                                }
                             }
                         }
                     }

@@ -461,6 +461,10 @@
     0 8px 20px #050b0c40;
 }
 
+.aux-panel-tab-slot {
+  display: inline-flex;
+}
+
 .aux-panel-tab {
   border: 1px solid #35584a;
   border-radius: 9px;
