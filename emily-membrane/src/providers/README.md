@@ -12,6 +12,7 @@ types into the rest of the crate.
 | File/Folder | Description |
 | ----------- | ----------- |
 | `mod.rs` | Provider trait, provider request/result DTOs, and provider error surface |
+| `pantograph.rs` | Feature-gated one-shot Pantograph workflow adapter |
 
 ## Problem
 
@@ -104,6 +105,8 @@ impl MembraneProvider for ExampleProvider {
 - `MembraneProvider` is the membrane-owned remote adapter trait.
 - `ProviderDispatchRequest` and `ProviderDispatchResult` are append-only DTOs
   for the first remote slices.
+- The optional `pantograph` feature adds a one-shot workflow adapter without
+  changing the provider trait.
 - Revisit trigger: the first real adapter needs streaming, cancellation, or
   multi-step execution hooks.
 

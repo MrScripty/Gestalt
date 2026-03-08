@@ -6,6 +6,14 @@ use serde_json::Value;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
+#[cfg(feature = "pantograph")]
+mod pantograph;
+
+#[cfg(feature = "pantograph")]
+pub use pantograph::{
+    PantographProviderConfig, PantographWorkflowBinding, PantographWorkflowProvider,
+};
+
 /// Remote dispatch request issued by the membrane to one provider.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProviderDispatchRequest {

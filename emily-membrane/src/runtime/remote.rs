@@ -1,6 +1,5 @@
 use super::{
-    MembraneRuntime, MembraneRuntimeError, to_emily_finding_severity,
-    to_emily_validation_decision,
+    MembraneRuntime, MembraneRuntimeError, to_emily_finding_severity, to_emily_validation_decision,
 };
 use crate::contracts::{
     CompileResult, DispatchResult, DispatchStatus, MembraneRouteKind, MembraneTaskRequest,
