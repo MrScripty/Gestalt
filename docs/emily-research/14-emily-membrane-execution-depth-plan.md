@@ -271,19 +271,21 @@ background orchestration.
 introducing opaque heuristics.
 
 **Tasks:**
-- [ ] Add explicit provider selection factors such as:
+- [x] Add explicit provider selection factors such as:
   - capability fit
   - provider metadata class
   - host-declared latency/cost class
   - validation compatibility
-- [ ] Add optional telemetry inputs only if lifecycle ownership is explicit
-- [ ] Keep tie-breaking deterministic
+- [x] Add optional telemetry inputs only if lifecycle ownership is explicit
+- [x] Keep tie-breaking deterministic
 
 **Verification:**
 - `cargo fmt`
 - `cargo clippy --all-targets -- -D warnings`
 - `cargo test -q`
 - deterministic ranking tests with explained findings
+
+**Status:** Completed on 2026-03-08 via `feat(emily-membrane): add richer provider policy`.
 
 ### Milestone 10: Multi-Target Execution
 
