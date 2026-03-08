@@ -5,6 +5,7 @@ use std::path::PathBuf;
 mod earl;
 mod ecgl;
 mod episode;
+mod sovereign;
 
 pub use earl::{
     EarlDecision, EarlEvaluationRecord, EarlEvaluationRequest, EarlHostAction, EarlSignalVector,
@@ -14,6 +15,11 @@ pub use episode::{
     AppendAuditRecordRequest, AuditRecord, AuditRecordKind, CreateEpisodeRequest, EpisodeRecord,
     EpisodeState, EpisodeTraceKind, EpisodeTraceLink, OutcomeRecord, OutcomeStatus,
     RecordOutcomeRequest, TraceLinkRequest,
+};
+pub use sovereign::{
+    RemoteEpisodeRecord, RemoteEpisodeRequest, RemoteEpisodeState, RoutingDecision,
+    RoutingDecisionKind, RoutingTarget, SovereignAuditMetadata, ValidationDecision,
+    ValidationFinding, ValidationFindingSeverity, ValidationOutcome,
 };
 
 /// Address of an embedded database instance that can be opened or switched at runtime.

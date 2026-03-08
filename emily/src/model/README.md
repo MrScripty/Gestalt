@@ -11,6 +11,7 @@
 | `earl.rs` | EARL signal and evaluation contracts for pre-cognitive episode gating |
 | `ecgl.rs` | ECGL memory-state and integrity-snapshot contracts |
 | `episode.rs` | Episode, trace-link, outcome, and audit contracts for host-agnostic policy inputs |
+| `sovereign.rs` | Additive sovereign-preparation contracts for routing, remote episodes, validation, and audit metadata |
 
 ## Problem
 
@@ -24,17 +25,19 @@ Milestone 3 adds new public contracts for episode-oriented Emily behavior. Keepi
 
 ## Decision
 
-Add focused episode/outcome/audit/EARL/ECGL contracts under `model/` and re-export them from `model.rs`.
+Add focused episode/outcome/audit/EARL/ECGL/sovereign contracts under `model/` and re-export them from `model.rs`.
 
 ## Invariants
 
 - Episode and outcome records are additive extensions to the existing text-memory model.
 - EARL evaluations are additive extensions to the existing text-memory model.
 - ECGL memory states and integrity snapshots are additive extensions to the existing text-memory model.
+- Sovereign-preparation contracts are additive extensions to the existing text-memory model.
 - Audit records remain immutable event records.
 - Request/record types avoid Gestalt-specific UI or transport assumptions.
 
 ## Revisit Triggers
 
 - Model contracts expand into separate policy-runtime namespaces.
-- Remote-episode and membrane contracts become large enough for additional submodules.
+- Remote-episode contracts become large enough for additional submodules.
+- Semantic Membrane IR or transport contracts need a dedicated sibling crate boundary.

@@ -15,7 +15,7 @@ This source tree currently covers the memory-side runtime, not the full Emily so
 | `runtime.rs` | Default runtime facade and API implementation |
 | `runtime/` | Runtime submodules for retrieval, vectorization jobs, and runtime tests |
 | `model.rs` | Shared request/response and domain models |
-| `model/` | Focused model submodules for episode, outcome, audit, EARL, and ECGL contracts |
+| `model/` | Focused model submodules for episode, outcome, audit, EARL, ECGL, and sovereign-preparation contracts |
 | `error.rs` | Typed Emily error types |
 | `inference.rs` | Embedding provider facade and feature gating |
 | `inference/` | Provider-specific embedding integrations |
@@ -49,6 +49,11 @@ The local paper set describes broader Emily components that are not implemented 
 
 Those belong above this crate boundary unless the crate is intentionally expanded later.
 
+The current sovereign-preparation model contracts stop short of defining
+`Semantic Membrane` IR or remote transport behavior. They intentionally cover
+only stable host-agnostic records such as route decisions, remote episode
+references, validation outcomes, and structured sovereign audit metadata.
+
 ## Invariants
 
 - `EmilyApi` remains the primary integration contract for the current memory runtime.
@@ -57,6 +62,7 @@ Those belong above this crate boundary unless the crate is intentionally expande
 - Episode, outcome, trace-link, and audit records are Emily-owned persisted artifacts.
 - EARL evaluations are Emily-owned persisted artifacts with deterministic replay-safe IDs.
 - Text objects now carry explicit memory states, and integrity snapshots are Emily-owned persisted artifacts.
+- Sovereign-preparation DTOs are additive public contracts and do not yet imply runtime or store support.
 - Vectorization configuration and job state are Emily-owned runtime data.
 - Pantograph session lifecycle is managed by embedding providers, not by store modules.
 - Newly ingested text objects are not treated as integrated memory by default.

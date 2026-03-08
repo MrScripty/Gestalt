@@ -14,6 +14,7 @@ Current scope is the memory and embedding-integrity core. This crate does not ye
 - Integrity surface: read the latest durable cognitive-integrity snapshot
 - Retrieval policy surface: read/update `MemoryPolicy`
 - Vectorization control surface: config updates, status, backfill/revectorize jobs, cancellation
+- Sovereign-preparation model surface: remote episode, routing, validation, and audit metadata DTOs
 - Generic DTOs in `model.rs` (no Gestalt-specific types)
 - Optional Pantograph workflow-session embedding provider via feature `pantograph`
 
@@ -45,6 +46,11 @@ synchronously on outcome ingestion, assigns explicit memory states, updates
 text-level scoring fields, and persists integrity snapshots without yet adding
 background workers or the full adaptive policy stack from the papers.
 
+The crate now includes additive sovereign-preparation DTOs for remote episodes,
+routing decisions, validation outcomes, and structured audit metadata. These
+contracts prepare later sovereign Emily work without committing the core crate
+to one remote-dispatch runtime.
+
 ## Host Responsibilities
 
 Host applications remain responsible for:
@@ -54,6 +60,13 @@ Host applications remain responsible for:
 - mapping host events into Emily episodes, trace links, and outcomes
 - deciding when EARL or ECGL results should influence host behavior
 - keeping UI, transport, and provider-routing concerns outside this crate
+
+## Boundary Decision
+
+`Semantic Membrane` IR, leakage-accounting internals, and provider transport
+contracts remain outside `emily` for now. The core crate keeps only the stable,
+host-agnostic records that higher layers can persist, exchange, or audit across
+hosts.
 
 ## Internal Modules
 
@@ -69,3 +82,4 @@ Host applications remain responsible for:
 - Emily expands from memory-runtime scope into sovereign-dispatch orchestration
 - `EARL` / `ECGL` controls move from stored fields to active runtime policy
 - Membrane-bound remote reasoning or audit surfaces are added
+- Semantic Membrane IR or provider transport contracts need to become durable crate contracts
