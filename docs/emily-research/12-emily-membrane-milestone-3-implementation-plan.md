@@ -180,7 +180,7 @@ This plan assumes:
 - `cargo test -q`
 - README review against `DOCUMENTATION-STANDARDS.md`
 
-**Status:** Not started
+**Status:** Completed on 2026-03-08 in commit `6b069f7`
 
 ### Milestone 3B: Runtime Remote Path With Deterministic Test Provider
 
@@ -225,6 +225,11 @@ Update during implementation:
 - 2026-03-08: Milestone 3 implementation plan written.
 - 2026-03-08: First remote adapter slice constrained to a provider-neutral
   boundary plus deterministic test provider before Pantograph transport.
+- 2026-03-08: Milestone 3A provider boundary implemented in commit `6b069f7`.
+- 2026-03-08: Provider-boundary verification passed with:
+  - `cargo fmt --manifest-path emily-membrane/Cargo.toml`
+  - `cargo clippy --manifest-path emily-membrane/Cargo.toml --all-targets --offline -- -D warnings`
+  - `cargo test --manifest-path emily-membrane/Cargo.toml -q --offline`
 
 ## Commit Cadence Notes
 
