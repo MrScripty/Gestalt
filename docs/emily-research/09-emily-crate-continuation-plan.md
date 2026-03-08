@@ -333,6 +333,8 @@ Update during implementation:
   - `e1ce9e8` `feat(emily): persist sovereign runtime records`
 - 2026-03-08: Follow-on sovereign query slice completed through one commit:
   - `cae97c7` `feat(emily): expose sovereign record queries`
+- 2026-03-08: Follow-on automatic sovereign audit slice completed through one commit:
+  - `ff1db62` `feat(emily): auto-generate sovereign audits`
 
 ## Commit Cadence Notes
 
@@ -380,8 +382,9 @@ Update during implementation:
 ### Follow-Ups
 
 - Decide whether the next sovereign slice belongs inside `emily` as richer policy/runtime behavior or in a sibling membrane crate.
-- Decide whether route, validation, or remote-episode writes should start producing automatic audit trails instead of relying on explicit host calls.
-- Decide whether Emily should expose sovereign records through generic query primitives or keep the current explicit facade methods.
+- Decide whether automatic sovereign audits should remain limited to write-side lifecycle events or also cover future read/query-side boundary events.
+- Decide whether future sovereign record types should inherit automatic audit generation by default inside `emily`.
+- Decide whether Emily should keep the current explicit sovereign query facade or later add generic query primitives above the same persisted records.
 
 ### Verification Summary
 
@@ -428,6 +431,11 @@ Update during implementation:
   - `cargo test --manifest-path emily/Cargo.toml -q`
   - `cargo clippy --manifest-path emily/Cargo.toml --all-targets -- -D warnings`
   - Runtime query coverage in `emily/src/runtime/sovereign_tests.rs`
+- Automatic sovereign audit slice verification:
+  - `cargo fmt --manifest-path emily/Cargo.toml`
+  - `cargo test --manifest-path emily/Cargo.toml -q`
+  - `cargo clippy --manifest-path emily/Cargo.toml --all-targets -- -D warnings`
+  - Runtime replay/idempotency coverage in `emily/src/runtime/sovereign_tests.rs`
 - Plan reviewed against:
   - `PLAN-STANDARDS.md`
   - `ARCHITECTURE-PATTERNS.md`
