@@ -255,10 +255,22 @@ This keeps the early loop testable while still moving toward real usage.
 terminal-history persistence.
 
 **Tasks:**
-- [ ] Define first real episode-producing host flow
-- [ ] Link relevant text/context to those episodes
-- [ ] Add optional seeded `EARL` scenarios for caution and reject cases
-- [ ] Verify host behavior against episode state and latest `EARL`
+- [x] Define first real episode-producing host flow
+- [x] Link relevant text/context to those episodes
+- [x] Add optional seeded `EARL` scenarios for caution and reject cases
+- [x] Verify host behavior against episode state and latest `EARL`
+
+**Execution Notes:**
+- Extended the local-agent send flow so successful dispatch attempts now also
+  create a real Emily episode through `EmilyBridge`, using the attributed run id
+  when present and anchoring the episode to the chosen terminal stream.
+- Linked the exact Emily context object ids used during prompt assembly back
+  into the new episode as `Context` trace links.
+- Added a narrow host-side gate interpreter in `gestalt::local_agent_episode`
+  that maps episode state plus latest `EARL` into `Proceed`, `Caution`, and
+  `Blocked` host-facing states without inventing new runtime policy math.
+- Reused the existing seeded risk dataset to verify cautioned and blocked host
+  episode behavior through the same bridge surface used by Gestalt.
 
 **Verification:**
 - `cargo fmt`
