@@ -221,6 +221,58 @@ impl<S: EmilyStore + 'static> EmilyApi for EmilyRuntime<S> {
         self.append_sovereign_audit_record_internal(request).await
     }
 
+    async fn routing_decision(
+        &self,
+        decision_id: &str,
+    ) -> Result<Option<RoutingDecision>, EmilyError> {
+        self.routing_decision_internal(decision_id).await
+    }
+
+    async fn routing_decisions_for_episode(
+        &self,
+        episode_id: &str,
+    ) -> Result<Vec<RoutingDecision>, EmilyError> {
+        self.routing_decisions_for_episode_internal(episode_id)
+            .await
+    }
+
+    async fn remote_episode(
+        &self,
+        remote_episode_id: &str,
+    ) -> Result<Option<RemoteEpisodeRecord>, EmilyError> {
+        self.remote_episode_internal(remote_episode_id).await
+    }
+
+    async fn remote_episodes_for_episode(
+        &self,
+        episode_id: &str,
+    ) -> Result<Vec<RemoteEpisodeRecord>, EmilyError> {
+        self.remote_episodes_for_episode_internal(episode_id).await
+    }
+
+    async fn validation_outcome(
+        &self,
+        validation_id: &str,
+    ) -> Result<Option<ValidationOutcome>, EmilyError> {
+        self.validation_outcome_internal(validation_id).await
+    }
+
+    async fn validation_outcomes_for_episode(
+        &self,
+        episode_id: &str,
+    ) -> Result<Vec<ValidationOutcome>, EmilyError> {
+        self.validation_outcomes_for_episode_internal(episode_id)
+            .await
+    }
+
+    async fn sovereign_audit_records_for_episode(
+        &self,
+        episode_id: &str,
+    ) -> Result<Vec<AuditRecord>, EmilyError> {
+        self.sovereign_audit_records_for_episode_internal(episode_id)
+            .await
+    }
+
     async fn evaluate_episode_risk(
         &self,
         request: EarlEvaluationRequest,

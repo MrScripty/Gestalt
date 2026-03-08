@@ -9,6 +9,16 @@ use crate::store::EmilyStore;
 use serde_json::json;
 
 impl<S: EmilyStore + 'static> EmilyRuntime<S> {
+    fn is_sovereign_audit_kind(kind: crate::model::AuditRecordKind) -> bool {
+        matches!(
+            kind,
+            crate::model::AuditRecordKind::RoutingDecided
+                | crate::model::AuditRecordKind::RemoteEpisodeRecorded
+                | crate::model::AuditRecordKind::ValidationRecorded
+                | crate::model::AuditRecordKind::BoundaryEvent
+        )
+    }
+
     fn routing_targets_are_valid(
         kind: RoutingDecisionKind,
         targets: &[RoutingTarget],
@@ -282,5 +292,65 @@ impl<S: EmilyStore + 'static> EmilyRuntime<S> {
             metadata: Self::sovereign_metadata_value(request.metadata),
         })
         .await
+    }
+
+    pub(super) async fn routing_decision_internal(
+        &self,
+        decision_id: &str,
+    ) -> Result<Option<RoutingDecision>, EmilyError> {
+        Self::validate_required_text("decision_id", decision_id)?;
+        self.store.get_routing_decision(decision_id).await
+    }
+
+    pub(super) async fn routing_decisions_for_episode_internal(
+        &self,
+        episode_id: &str,
+    ) -> Result<Vec<RoutingDecision>, EmilyError> {
+        Self::validate_required_text("episode_id", episode_id)?;
+        self.store.list_routing_decisions(episode_id).await
+    }
+
+    pub(super) async fn remote_episode_internal(
+        &self,
+        remote_episode_id: &str,
+    ) -> Result<Option<RemoteEpisodeRecord>, EmilyError> {
+        Self::validate_required_text("remote_episode_id", remote_episode_id)?;
+        self.store.get_remote_episode(remote_episode_id).await
+    }
+
+    pub(super) async fn remote_episodes_for_episode_internal(
+        &self,
+        episode_id: &str,
+    ) -> Result<Vec<RemoteEpisodeRecord>, EmilyError> {
+        Self::validate_required_text("episode_id", episode_id)?;
+        self.store.list_remote_episodes(episode_id).await
+    }
+
+    pub(super) async fn validation_outcome_internal(
+        &self,
+        validation_id: &str,
+    ) -> Result<Option<ValidationOutcome>, EmilyError> {
+        Self::validate_required_text("validation_id", validation_id)?;
+        self.store.get_validation_outcome(validation_id).await
+    }
+
+    pub(super) async fn validation_outcomes_for_episode_internal(
+        &self,
+        episode_id: &str,
+    ) -> Result<Vec<ValidationOutcome>, EmilyError> {
+        Self::validate_required_text("episode_id", episode_id)?;
+        self.store.list_validation_outcomes(episode_id).await
+    }
+
+    pub(super) async fn sovereign_audit_records_for_episode_internal(
+        &self,
+        episode_id: &str,
+    ) -> Result<Vec<AuditRecord>, EmilyError> {
+        Self::validate_required_text("episode_id", episode_id)?;
+        let records = self.store.list_audit_records(episode_id).await?;
+        Ok(records
+            .into_iter()
+            .filter(|record| Self::is_sovereign_audit_kind(record.kind))
+            .collect())
     }
 }

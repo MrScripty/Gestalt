@@ -73,6 +73,48 @@ pub trait EmilyApi: Send + Sync {
         request: AppendSovereignAuditRecordRequest,
     ) -> Result<AuditRecord, EmilyError>;
 
+    /// Read one durable routing decision by id.
+    async fn routing_decision(
+        &self,
+        decision_id: &str,
+    ) -> Result<Option<RoutingDecision>, EmilyError>;
+
+    /// List durable routing decisions for one host episode.
+    async fn routing_decisions_for_episode(
+        &self,
+        episode_id: &str,
+    ) -> Result<Vec<RoutingDecision>, EmilyError>;
+
+    /// Read one durable remote episode by id.
+    async fn remote_episode(
+        &self,
+        remote_episode_id: &str,
+    ) -> Result<Option<RemoteEpisodeRecord>, EmilyError>;
+
+    /// List durable remote episodes for one host episode.
+    async fn remote_episodes_for_episode(
+        &self,
+        episode_id: &str,
+    ) -> Result<Vec<RemoteEpisodeRecord>, EmilyError>;
+
+    /// Read one durable validation outcome by id.
+    async fn validation_outcome(
+        &self,
+        validation_id: &str,
+    ) -> Result<Option<ValidationOutcome>, EmilyError>;
+
+    /// List durable validation outcomes for one host episode.
+    async fn validation_outcomes_for_episode(
+        &self,
+        episode_id: &str,
+    ) -> Result<Vec<ValidationOutcome>, EmilyError>;
+
+    /// List sovereign audit records for one host episode.
+    async fn sovereign_audit_records_for_episode(
+        &self,
+        episode_id: &str,
+    ) -> Result<Vec<AuditRecord>, EmilyError>;
+
     /// Evaluate one episode with the current EARL gate.
     async fn evaluate_episode_risk(
         &self,

@@ -11,6 +11,7 @@ Current scope is the memory and embedding-integrity core. This crate does not ye
 - `EmilyApi`: open/switch/close database, ingest text, query context, page history
 - Episode contract surface: create episodes, link traces, record outcomes, append audits
 - Sovereign record surface: record routing decisions, remote episodes, validation outcomes, and structured sovereign audits
+- Sovereign query surface: read routing decisions, remote episodes, validation outcomes, and sovereign audits by episode
 - `EARL` control surface: evaluate episode risk and receive `OK / CAUTION / REFLEX` results
 - Integrity surface: read the latest durable cognitive-integrity snapshot
 - Retrieval policy surface: read/update `MemoryPolicy`
