@@ -6,6 +6,7 @@
 ## Contents
 | File/Folder | Description |
 | ----------- | ----------- |
+| `emily_seed.rs` | Deterministic Emily seed corpus runner for local diagnostics and host acceptance prep |
 | `profile_terminal.rs` | PTY input latency profiling utility |
 
 ## Problem
@@ -37,4 +38,5 @@ None.
 ## Usage Examples
 ```bash
 cargo run --bin profile_terminal
+cargo run --bin emily_seed -- --reset
 ```
