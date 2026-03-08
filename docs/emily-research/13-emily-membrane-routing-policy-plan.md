@@ -291,6 +291,8 @@ explanation outputs.
 - `cargo test -q`
 - unit tests for rejection, caution, ranking, and deterministic ties
 
+**Status:** Completed on 2026-03-08 in commit `fbe7a89`
+
 ### Milestone 3: Emily-Informed Gating
 
 **Goal:** Use Emily state as policy input without moving routing into the core
@@ -364,6 +366,23 @@ Update during implementation:
   - Feature-gated Pantograph checks still emit upstream warnings from the
     Pantograph workspace, but `emily-membrane` itself passes under
     `-D warnings`.
+- 2026-03-08: Milestone 2 completed in commit `fbe7a89`.
+- 2026-03-08: Milestone 2 scope:
+  - Added a deterministic routing-policy evaluator under
+    `emily-membrane/src/runtime/policy.rs`.
+  - Added explicit pre-dispatch gates for `allow_remote = false` and
+    `RoutingSensitivity::Critical`.
+  - Added named scoring constants for provider/profile hints, required
+    capability coverage, additional capability coverage, and model presence.
+  - Added typed findings and stable route rationale generation.
+  - Added deterministic tie-breaking over matching registered targets.
+  - Exposed policy evaluation through `MembraneRuntime::evaluate_routing_policy`.
+- 2026-03-08: Milestone 2 verification passed with:
+  - `cargo fmt --manifest-path emily-membrane/Cargo.toml`
+  - `cargo test --manifest-path emily-membrane/Cargo.toml -q --offline`
+  - `cargo clippy --manifest-path emily-membrane/Cargo.toml --all-targets --offline -- -D warnings`
+  - `cargo test --manifest-path emily-membrane/Cargo.toml -q --offline --features pantograph`
+  - `cargo clippy --manifest-path emily-membrane/Cargo.toml --all-targets --offline --features pantograph -- -D warnings`
 
 ## Recommendations
 
