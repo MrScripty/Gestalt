@@ -1,7 +1,12 @@
 .file-browser-card {
-  background: linear-gradient(180deg, #f4fbf3 0%, #e7f1e6 100%);
+  background:
+    linear-gradient(
+      180deg,
+      var(--tool-panel-surface-start) 0%,
+      var(--tool-panel-surface-end) 100%
+    );
   border-radius: 12px;
-  border: 1px solid #9cc09b;
+  border: 1px solid var(--tool-panel-border);
   box-shadow: 0 10px 26px #0f1b1d14;
   height: 100%;
   min-height: 0;
@@ -13,19 +18,19 @@
 
 .file-browser-head {
   padding: 10px 12px 6px;
-  border-bottom: 1px solid #c7dcc4;
+  border-bottom: 1px solid var(--tool-panel-divider);
 }
 
 .file-browser-head h3 {
   margin: 0;
   font-size: calc(0.9rem * var(--font-scale));
-  color: #234322;
+  color: var(--tool-panel-heading);
 }
 
 .file-browser-head p {
   margin: 4px 0 0;
   font-size: calc(0.72rem * var(--font-scale));
-  color: #4e6f4c;
+  color: var(--tool-panel-text-muted);
   line-break: anywhere;
 }
 
@@ -35,19 +40,33 @@
   gap: 6px;
   align-items: center;
   padding: 8px 12px;
-  border-bottom: 1px solid #c7dcc4;
+  border-bottom: 1px solid var(--tool-panel-divider);
 }
 
 .file-browser-action-btn {
-  border: 1px solid #8fb08d;
+  border: 1px solid var(--tool-panel-control-border);
   border-radius: 8px;
-  background: #e1efdf;
-  color: #234021;
+  background: var(--tool-panel-control-bg);
+  color: var(--tool-panel-control-text);
   font: inherit;
   font-size: calc(0.7rem * var(--font-scale));
   font-weight: 700;
   padding: 5px 8px;
   cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.file-browser-action-btn:hover:not(:disabled) {
+  border-color: var(--tool-panel-control-border-hover);
+  background: var(--tool-panel-control-bg-hover);
+}
+
+.file-browser-action-btn:focus-visible {
+  outline: 2px solid var(--tool-panel-selected-border);
+  outline-offset: 2px;
 }
 
 .file-browser-action-btn:disabled {
@@ -59,7 +78,7 @@
   margin: 0;
   text-align: right;
   font-size: calc(0.66rem * var(--font-scale));
-  color: #496a47;
+  color: var(--tool-panel-text-muted);
   line-break: anywhere;
 }
 
@@ -69,26 +88,41 @@
   align-items: center;
   flex-wrap: wrap;
   padding: 8px 12px;
-  border-bottom: 1px solid #c7dcc4;
+  border-bottom: 1px solid var(--tool-panel-divider);
 }
 
 .file-browser-crumb {
-  border: 1px solid #a5c3a2;
+  border: 1px solid var(--tool-panel-control-border);
   border-radius: 999px;
-  background: #f6fbf5;
-  color: #2f4d2d;
+  background: var(--tool-panel-surface-strong);
+  color: var(--tool-panel-control-text);
   font: inherit;
   font-size: calc(0.64rem * var(--font-scale));
   font-weight: 700;
   padding: 3px 8px;
   cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease,
+    transform 120ms ease;
+}
+
+.file-browser-crumb:hover {
+  border-color: var(--tool-panel-control-border-hover);
+  background: var(--tool-panel-control-bg-hover);
+  transform: translateY(-1px);
+}
+
+.file-browser-crumb:focus-visible {
+  outline: 2px solid var(--tool-panel-selected-border);
+  outline-offset: 2px;
 }
 
 .file-browser-loading {
   margin: 0;
   padding: 7px 12px;
   font-size: calc(0.7rem * var(--font-scale));
-  color: #476745;
+  color: var(--tool-panel-text);
 }
 
 .file-browser-body {
@@ -102,7 +136,7 @@
 .file-browser-empty {
   margin: 0;
   font-size: calc(0.72rem * var(--font-scale));
-  color: #4b6a49;
+  color: var(--tool-panel-text-muted);
 }
 
 .file-browser-list {
@@ -116,10 +150,10 @@
 }
 
 .file-browser-row {
-  border: 1px solid #b4ceb1;
+  border: 1px solid var(--tool-panel-divider-strong);
   border-radius: 8px;
-  background: #f4fbf4;
-  color: #20391e;
+  background: var(--tool-panel-surface-strong);
+  color: var(--tool-panel-text-strong);
   text-align: left;
   padding: 6px 8px;
   cursor: pointer;
@@ -127,20 +161,41 @@
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
   align-items: center;
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease,
+    box-shadow 120ms ease;
 }
 
-.file-browser-row.selected {
-  border-color: #2f6fe4;
-  box-shadow: inset 0 0 0 1px #2f6fe455;
+.file-browser-row:hover {
+  border-color: var(--tool-panel-border);
+  background: var(--tool-panel-surface-muted);
+}
+
+.file-browser-row:focus-visible {
+  outline: 2px solid var(--tool-panel-selected-border);
+  outline-offset: 2px;
 }
 
 .file-browser-row.modified {
-  border-color: #a57f2d;
+  border-color: var(--tool-panel-warning-text);
 }
 
 .file-browser-row.ignored {
-  background: #edf2ed;
-  color: #506350;
+  border-color: var(--tool-panel-divider);
+  background: var(--tool-panel-surface-disabled);
+  color: var(--tool-panel-text-muted);
+}
+
+.file-browser-row.ignored:hover {
+  background: var(--tool-panel-surface-disabled);
+}
+
+.file-browser-row.selected,
+.file-browser-row.selected.modified,
+.file-browser-row.selected.ignored {
+  border-color: var(--tool-panel-selected-border);
+  box-shadow: inset 0 0 0 1px var(--tool-panel-selected-shadow);
 }
 
 .file-browser-row-main {
@@ -177,45 +232,46 @@
 }
 
 .file-browser-badge.modified {
-  background: #f2e2ba;
-  color: #5a4314;
+  background: var(--tool-panel-warning-bg);
+  color: var(--tool-panel-warning-text);
 }
 
 .file-browser-badge.ignored {
-  background: #d7e1d7;
-  color: #425442;
+  background: var(--tool-panel-muted-tag-bg);
+  color: var(--tool-panel-muted-tag-text);
 }
 
 .file-browser-stats {
   padding: 8px 12px;
-  border-top: 1px solid #c7dcc4;
+  border-top: 1px solid var(--tool-panel-divider);
 }
 
 .file-browser-stats-head {
   margin: 0;
   font-size: calc(0.7rem * var(--font-scale));
   font-weight: 700;
-  color: #234322;
+  color: var(--tool-panel-heading);
 }
 
 .file-browser-stats-line {
   margin: 4px 0 0;
   font-size: calc(0.68rem * var(--font-scale));
-  color: #426540;
+  color: var(--tool-panel-text);
   line-break: anywhere;
 }
 
 .file-browser-tip {
   margin: 0;
   padding: 6px 12px;
-  border-top: 1px solid #c7dcc4;
+  border-top: 1px solid var(--tool-panel-divider);
+  background: var(--tool-panel-surface-muted);
   font-size: calc(0.66rem * var(--font-scale));
-  color: #466845;
+  color: var(--tool-panel-text);
 }
 
 .file-browser-feedback {
   margin: 0;
   padding: 6px 12px 10px;
   font-size: calc(0.68rem * var(--font-scale));
-  color: #3f613d;
+  color: var(--tool-panel-text);
 }
