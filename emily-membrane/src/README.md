@@ -117,6 +117,8 @@ async fn run_local(api: Arc<dyn EmilyApi>) {
   assessments, and severities for the first stronger local-validation slice.
 - `contracts/retry.rs` now exposes bounded retry and mutation contracts for
   request-scoped remote retries.
+- `contracts/multi_remote.rs` now exposes bounded multi-target execution,
+  reconciliation, and persistence contracts.
 - `contracts.rs` now also carries typed routing-policy request/result contracts
   for the next membrane policy layer.
 - Those routing-policy contracts now include typed provider-class,
@@ -127,6 +129,8 @@ async fn run_local(api: Arc<dyn EmilyApi>) {
 - `runtime.rs` now exposes both the local-only facade and the first
   provider-backed remote path above `EmilyApi`, including host-supplied
   provider registry support.
+- `runtime/multi_remote.rs` now exposes the first sequential multi-target
+  fanout path above the same Emily-owned durability boundary.
 - `contracts.rs` now also exposes a small registry-backed remote routing
   preference contract for host-facing target selection.
 - `runtime.rs` now also exposes deterministic routing-policy evaluation over
@@ -150,6 +154,8 @@ async fn run_local(api: Arc<dyn EmilyApi>) {
   coherence, relevance, confidence, and provenance sufficiency.
 - It now also includes bounded retry policy and per-attempt persistence
   contracts for deterministic remote retries.
+- It now also includes bounded multi-target fanout, per-target attempt, and
+  reconciliation contracts for sequential multi-remote execution.
 - The provider-selection path now uses typed registry metadata plus optional
   owned telemetry snapshots for deterministic ranking rather than opaque JSON
   heuristics alone.

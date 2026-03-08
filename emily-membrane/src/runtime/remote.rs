@@ -156,8 +156,15 @@ where
         let compile = self.compile(request).await?;
         let route = self.route_remote(&compile, &target).await?;
 
-        let expected_routing_decision =
-            build_remote_routing_decision(&compile, &route, &target, &persistence);
+        let expected_routing_decision = build_remote_routing_decision(
+            &compile,
+            &route,
+            std::slice::from_ref(&target),
+            persistence.route_decision_id.clone(),
+            persistence.route_decided_at_unix_ms,
+            RoutingDecisionKind::SingleRemote,
+            "single-remote",
+        );
         let routing_decision = match self
             .emily
             .routing_decision(&expected_routing_decision.decision_id)
@@ -176,8 +183,13 @@ where
             }
         };
 
-        let expected_remote_request =
-            build_remote_episode_request(&compile, &routing_decision, &target, &persistence);
+        let expected_remote_request = build_remote_episode_request(
+            &compile,
+            &routing_decision,
+            &target,
+            &persistence,
+            "single-remote",
+        );
         let remote_episode = match self
             .emily
             .remote_episode(&expected_remote_request.remote_episode_id)
@@ -200,7 +212,8 @@ where
             }
         };
 
-        let provider_request = build_provider_dispatch_request(&compile, &target, &persistence);
+        let provider_request =
+            build_provider_dispatch_request(&compile, &target, &persistence, "single-remote");
         let provider_result = match provider.dispatch(provider_request).await {
             Ok(result) => result,
             Err(error) => {
@@ -208,16 +221,27 @@ where
                     &remote_episode.id,
                     persistence.validated_at_unix_ms,
                     error.to_string(),
+                    "single-remote",
                 )
                 .await?;
                 return Err(error.into());
             }
         };
 
-        let dispatch = build_remote_dispatch_result(&compile, &remote_episode, &provider_result);
+        let dispatch = build_remote_dispatch_result(
+            &compile,
+            &remote_episode,
+            &provider_result,
+            MembraneRouteKind::SingleRemote,
+        );
         let validation = build_remote_validation_envelope(&dispatch, &provider_result);
-        let expected_validation =
-            build_remote_validation_outcome(&compile, &validation, &persistence, &remote_episode);
+        let expected_validation = build_remote_validation_outcome(
+            &compile,
+            &validation,
+            &persistence,
+            &remote_episode,
+            "single-remote",
+        );
         let validation_outcome = match self
             .emily
             .validation_outcome(&expected_validation.validation_id)
@@ -258,11 +282,12 @@ where
         })
     }
 
-    async fn fail_remote_episode(
+    pub(super) async fn fail_remote_episode(
         &self,
         remote_episode_id: &str,
         transitioned_at_unix_ms: i64,
         summary: String,
+        mode: &str,
     ) -> Result<(), MembraneRuntimeError> {
         self.emily
             .update_remote_episode_state(UpdateRemoteEpisodeStateRequest {
@@ -270,7 +295,7 @@ where
                 next_state: emily::RemoteEpisodeState::Failed,
                 transitioned_at_unix_ms,
                 summary: Some(summary),
-                metadata: json!({"source": "emily-membrane", "mode": "single-remote"}),
+                metadata: json!({"source": "emily-membrane", "mode": mode}),
             })
             .await?;
         Ok(())
@@ -322,7 +347,7 @@ fn validate_policy_task_alignment(
     Ok(())
 }
 
-fn validate_remote_persistence(
+pub(super) fn validate_remote_persistence(
     persistence: &RemoteExecutionPersistence,
 ) -> Result<(), MembraneRuntimeError> {
     for (field, value) in [
@@ -380,7 +405,9 @@ fn registered_target_matches_preference(
     })
 }
 
-fn validate_provider_target(target: &ProviderTarget) -> Result<(), MembraneRuntimeError> {
+pub(super) fn validate_provider_target(
+    target: &ProviderTarget,
+) -> Result<(), MembraneRuntimeError> {
     if target.provider_id.trim().is_empty() {
         return Err(MembraneRuntimeError::InvalidRequest(
             "provider_id must not be empty".to_string(),
@@ -396,7 +423,7 @@ fn validate_provider_target(target: &ProviderTarget) -> Result<(), MembraneRunti
     Ok(())
 }
 
-fn build_membrane_target_id(target: &ProviderTarget) -> String {
+pub(super) fn build_membrane_target_id(target: &ProviderTarget) -> String {
     match target.model_id.as_deref() {
         Some(model_id) if !model_id.trim().is_empty() => {
             format!("{}:{model_id}", target.provider_id)
@@ -405,38 +432,45 @@ fn build_membrane_target_id(target: &ProviderTarget) -> String {
     }
 }
 
-fn build_remote_routing_decision(
+pub(super) fn build_remote_routing_decision(
     compile: &CompileResult,
     route: &RoutingPlan,
-    target: &ProviderTarget,
-    persistence: &RemoteExecutionPersistence,
+    targets: &[ProviderTarget],
+    route_decision_id: String,
+    route_decided_at_unix_ms: i64,
+    kind: RoutingDecisionKind,
+    mode: &str,
 ) -> RoutingDecision {
     RoutingDecision {
-        decision_id: persistence.route_decision_id.clone(),
+        decision_id: route_decision_id,
         episode_id: compile.compiled_task.episode_id.clone(),
-        kind: RoutingDecisionKind::SingleRemote,
-        decided_at_unix_ms: persistence.route_decided_at_unix_ms,
+        kind,
+        decided_at_unix_ms: route_decided_at_unix_ms,
         rationale: route.rationale.clone(),
-        targets: vec![EmilyRoutingTarget {
-            provider_id: target.provider_id.clone(),
-            model_id: target.model_id.clone(),
-            profile_id: target.profile_id.clone(),
-            capability_tags: target.capability_tags.clone(),
-            metadata: target.metadata.clone(),
-        }],
+        targets: targets
+            .iter()
+            .map(|target| EmilyRoutingTarget {
+                provider_id: target.provider_id.clone(),
+                model_id: target.model_id.clone(),
+                profile_id: target.profile_id.clone(),
+                capability_tags: target.capability_tags.clone(),
+                metadata: target.metadata.clone(),
+            })
+            .collect(),
         metadata: json!({
             "source": "emily-membrane",
-            "mode": "single-remote",
+            "mode": mode,
             "task_id": compile.compiled_task.task_id.clone(),
         }),
     }
 }
 
-fn build_remote_episode_request(
+pub(super) fn build_remote_episode_request(
     compile: &CompileResult,
     routing_decision: &RoutingDecision,
     target: &ProviderTarget,
     persistence: &RemoteExecutionPersistence,
+    mode: &str,
 ) -> RemoteEpisodeRequest {
     RemoteEpisodeRequest {
         remote_episode_id: persistence.remote_episode_id.clone(),
@@ -449,11 +483,12 @@ fn build_remote_episode_request(
             "provider_request_id": persistence.provider_request_id,
             "provider_id": target.provider_id,
             "model_id": target.model_id,
+            "mode": mode,
         }),
     }
 }
 
-fn remote_episode_matches_request(
+pub(super) fn remote_episode_matches_request(
     existing: &RemoteEpisodeRecord,
     request: &RemoteEpisodeRequest,
 ) -> bool {
@@ -465,10 +500,11 @@ fn remote_episode_matches_request(
         && existing.metadata == request.metadata
 }
 
-fn build_provider_dispatch_request(
+pub(super) fn build_provider_dispatch_request(
     compile: &CompileResult,
     target: &ProviderTarget,
     persistence: &RemoteExecutionPersistence,
+    mode: &str,
 ) -> ProviderDispatchRequest {
     ProviderDispatchRequest {
         provider_request_id: persistence.provider_request_id.clone(),
@@ -481,19 +517,20 @@ fn build_provider_dispatch_request(
         context_fragment_ids: compile.compiled_task.context_fragment_ids.clone(),
         metadata: json!({
             "source": "emily-membrane",
-            "mode": "single-remote",
+            "mode": mode,
         }),
     }
 }
 
-fn build_remote_dispatch_result(
+pub(super) fn build_remote_dispatch_result(
     compile: &CompileResult,
     remote_episode: &RemoteEpisodeRecord,
     provider_result: &ProviderDispatchResult,
+    route_kind: MembraneRouteKind,
 ) -> DispatchResult {
     DispatchResult {
         task_id: compile.compiled_task.task_id.clone(),
-        route: MembraneRouteKind::SingleRemote,
+        route: route_kind,
         status: match provider_result.status {
             ProviderDispatchStatus::Completed => DispatchStatus::RemoteCompleted,
             ProviderDispatchStatus::Failed | ProviderDispatchStatus::Rejected => {
@@ -505,7 +542,7 @@ fn build_remote_dispatch_result(
     }
 }
 
-fn build_remote_validation_envelope(
+pub(super) fn build_remote_validation_envelope(
     dispatch: &DispatchResult,
     provider_result: &ProviderDispatchResult,
 ) -> ValidationEnvelope {
@@ -630,11 +667,12 @@ fn remote_assessment(
     }
 }
 
-fn build_remote_validation_outcome(
+pub(super) fn build_remote_validation_outcome(
     compile: &CompileResult,
     validation: &ValidationEnvelope,
     persistence: &RemoteExecutionPersistence,
     remote_episode: &RemoteEpisodeRecord,
+    mode: &str,
 ) -> ValidationOutcome {
     ValidationOutcome {
         validation_id: persistence.validation_id.clone(),
@@ -653,7 +691,7 @@ fn build_remote_validation_outcome(
             .collect(),
         metadata: json!({
             "source": "emily-membrane",
-            "mode": "single-remote",
+            "mode": mode,
             "task_id": validation.task_id.clone(),
             "validated_text": validation.validated_text.clone(),
             "assessments": validation

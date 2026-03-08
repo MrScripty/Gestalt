@@ -132,6 +132,9 @@ async fn compile_locally(api: Arc<dyn EmilyApi>) {
 - Provider scoring now also uses typed registry factors for provider metadata
   class, latency class, cost class, validation compatibility, and optional
   owned telemetry snapshots instead of relying on opaque JSON-only heuristics.
+- The runtime now also exposes a bounded multi-target remote path with one
+  shared `MultiRemote` route decision, per-target remote/validation records,
+  explicit stop conditions, and deterministic reconciliation.
 - The preferred host-facing remote path can now evaluate routing policy and,
   when a single remote target is selected, execute the existing sovereign write
   path through one helper call.

@@ -11,6 +11,7 @@ focused files.
 
 | File/Folder | Description |
 | ----------- | ----------- |
+| `multi_remote.rs` | Sequential multi-target remote execution and deterministic reconciliation |
 | `policy.rs` | Deterministic routing-policy evaluation over registered membrane targets |
 | `retry.rs` | Request-scoped retry helpers layered over the existing remote write path |
 | `remote.rs` | Remote execution helpers and provider-registry-backed runtime methods |
@@ -48,6 +49,8 @@ runtime type in `runtime.rs`.
 - That policy slice now ranks targets using typed provider metadata class,
   latency/cost limits, validation compatibility, and optional owned telemetry
   snapshots while preserving deterministic tie-breaking.
+- `multi_remote.rs` owns the first bounded sequential fanout path and its
+  deterministic reconciliation rules.
 - `retry.rs` owns bounded request-scoped retry and mutation behavior for
   remote execution.
 - `remote.rs` owns provider-registry-backed remote execution helpers.
@@ -102,6 +105,9 @@ runtime type in `runtime.rs`.
 - Validation results now include typed assessments for coherence, relevance,
   confidence, and provenance sufficiency before mapping back into Emily
   validation outcomes.
+- The runtime now also exposes a bounded multi-target remote path with one
+  shared `MultiRemote` route decision, per-target remote/validation writes,
+  and deterministic reconciliation.
 - The runtime now also exposes bounded request-scoped retry helpers with
   explicit retry and mutation audits, without adding background workers.
 - This directory does not expose a separate public facade.

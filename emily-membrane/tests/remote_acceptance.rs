@@ -7,10 +7,11 @@ use emily::{
     EarlSignalVector, EpisodeState, RemoteEpisodeState, ValidationDecision,
 };
 use emily_membrane::contracts::{
-    MembraneTaskRequest, PolicyExecutionPersistence, RemoteExecutionPersistence,
-    RemoteRetryAttemptPersistence, RemoteRetryExecutionPersistence, RemoteRetryPolicy,
-    RemoteRoutingPreference, RetryMutationStrategy, RoutingPolicyOutcome, RoutingPolicyRequest,
-    RoutingSensitivity,
+    MembraneTaskRequest, MultiRemoteExecutionPersistence, MultiRemoteExecutionPolicy,
+    MultiRemoteReconciliationDecision, MultiRemoteStopCondition, PolicyExecutionPersistence,
+    RemoteExecutionPersistence, RemoteRetryAttemptPersistence, RemoteRetryExecutionPersistence,
+    RemoteRetryPolicy, RemoteRoutingPreference, RetryMutationStrategy, RoutingPolicyOutcome,
+    RoutingPolicyRequest, RoutingSensitivity,
 };
 use emily_membrane::providers::{
     InMemoryProviderRegistry, MembraneProvider, MembraneProviderError, ProviderCostClass,
@@ -107,6 +108,14 @@ struct ErrorThenErrorProvider {
     attempt: Mutex<u8>,
 }
 
+struct ReviewStatusProvider;
+
+struct AcceptedProvider {
+    provider_id: &'static str,
+}
+
+struct PanicIfCalledProvider;
+
 #[async_trait]
 impl MembraneProvider for DeterministicTestProvider {
     fn provider_id(&self) -> &str {
@@ -193,6 +202,60 @@ impl MembraneProvider for ErrorThenErrorProvider {
     }
 }
 
+#[async_trait]
+impl MembraneProvider for ReviewStatusProvider {
+    fn provider_id(&self) -> &str {
+        "review-provider"
+    }
+
+    async fn dispatch(
+        &self,
+        request: ProviderDispatchRequest,
+    ) -> Result<ProviderDispatchResult, MembraneProviderError> {
+        Ok(ProviderDispatchResult {
+            provider_request_id: request.provider_request_id,
+            provider_id: self.provider_id().to_string(),
+            status: ProviderDispatchStatus::Failed,
+            output_text: "review this remote result".to_string(),
+            metadata: json!({"mode": "review"}),
+        })
+    }
+}
+
+#[async_trait]
+impl MembraneProvider for AcceptedProvider {
+    fn provider_id(&self) -> &str {
+        self.provider_id
+    }
+
+    async fn dispatch(
+        &self,
+        request: ProviderDispatchRequest,
+    ) -> Result<ProviderDispatchResult, MembraneProviderError> {
+        Ok(ProviderDispatchResult {
+            provider_request_id: request.provider_request_id,
+            provider_id: self.provider_id().to_string(),
+            status: ProviderDispatchStatus::Completed,
+            output_text: format!("REMOTE({}): {}", self.provider_id, request.bounded_payload),
+            metadata: json!({"mode": "accepted"}),
+        })
+    }
+}
+
+#[async_trait]
+impl MembraneProvider for PanicIfCalledProvider {
+    fn provider_id(&self) -> &str {
+        "panic-provider"
+    }
+
+    async fn dispatch(
+        &self,
+        _request: ProviderDispatchRequest,
+    ) -> Result<ProviderDispatchResult, MembraneProviderError> {
+        panic!("panic-provider should have been skipped");
+    }
+}
+
 fn caution_earl_request() -> EarlEvaluationRequest {
     EarlEvaluationRequest {
         evaluation_id: "earl-caution-1".to_string(),
@@ -264,6 +327,68 @@ fn retry_persistence() -> RemoteRetryExecutionPersistence {
                 mutation_audit_at_unix_ms: Some(40),
             },
         ],
+    }
+}
+
+fn multi_remote_targets() -> Vec<ProviderTarget> {
+    vec![
+        ProviderTarget {
+            provider_id: "review-provider".to_string(),
+            model_id: Some("review-v1".to_string()),
+            profile_id: Some("reasoning".to_string()),
+            capability_tags: vec!["analysis".to_string()],
+            metadata: json!({"origin": "test"}),
+        },
+        ProviderTarget {
+            provider_id: "accept-provider".to_string(),
+            model_id: Some("accept-v1".to_string()),
+            profile_id: Some("reasoning".to_string()),
+            capability_tags: vec!["analysis".to_string()],
+            metadata: json!({"origin": "test"}),
+        },
+    ]
+}
+
+fn multi_remote_policy_exhaust() -> MultiRemoteExecutionPolicy {
+    MultiRemoteExecutionPolicy {
+        max_targets: 2,
+        stop_condition: MultiRemoteStopCondition::ExhaustTargets,
+        reconciliation:
+            emily_membrane::contracts::MultiRemoteReconciliationMode::FirstAcceptedElseNeedsReview,
+    }
+}
+
+fn multi_remote_policy_stop_on_accepted() -> MultiRemoteExecutionPolicy {
+    MultiRemoteExecutionPolicy {
+        max_targets: 2,
+        stop_condition: MultiRemoteStopCondition::StopOnAccepted,
+        reconciliation:
+            emily_membrane::contracts::MultiRemoteReconciliationMode::FirstAcceptedElseNeedsReview,
+    }
+}
+
+fn multi_remote_persistence() -> MultiRemoteExecutionPersistence {
+    MultiRemoteExecutionPersistence {
+        route_decision_id: "route-multi-1".to_string(),
+        route_decided_at_unix_ms: 60,
+        attempts: vec![
+            emily_membrane::contracts::MultiRemoteAttemptPersistence {
+                provider_request_id: "provider-request-multi-1".to_string(),
+                remote_episode_id: "remote-multi-1".to_string(),
+                remote_dispatched_at_unix_ms: 61,
+                validation_id: "validation-multi-1".to_string(),
+                validated_at_unix_ms: 62,
+            },
+            emily_membrane::contracts::MultiRemoteAttemptPersistence {
+                provider_request_id: "provider-request-multi-2".to_string(),
+                remote_episode_id: "remote-multi-2".to_string(),
+                remote_dispatched_at_unix_ms: 63,
+                validation_id: "validation-multi-2".to_string(),
+                validated_at_unix_ms: 64,
+            },
+        ],
+        reconciliation_audit_id: "audit-multi-reconcile-1".to_string(),
+        reconciled_at_unix_ms: 65,
     }
 }
 
@@ -782,6 +907,214 @@ async fn remote_retry_execution_exhausts_after_provider_errors() {
             .count(),
         4
     );
+
+    emily.close_db().await.expect("close db");
+    let _ = std::fs::remove_dir_all(locator.storage_path);
+}
+
+#[tokio::test]
+async fn multi_remote_execution_reconciles_review_then_accepted_result() {
+    let store = Arc::new(SurrealEmilyStore::new());
+    let emily = Arc::new(EmilyRuntime::new(store));
+    let registry = Arc::new(InMemoryProviderRegistry::with_targets([
+        (
+            default_registered_provider_target(ProviderTarget {
+                provider_id: "review-provider".to_string(),
+                model_id: Some("review-v1".to_string()),
+                profile_id: Some("reasoning".to_string()),
+                capability_tags: vec!["analysis".to_string()],
+                metadata: json!({"origin": "test"}),
+            }),
+            Arc::new(ReviewStatusProvider) as Arc<dyn MembraneProvider>,
+        ),
+        (
+            default_registered_provider_target(ProviderTarget {
+                provider_id: "accept-provider".to_string(),
+                model_id: Some("accept-v1".to_string()),
+                profile_id: Some("reasoning".to_string()),
+                capability_tags: vec!["analysis".to_string()],
+                metadata: json!({"origin": "test"}),
+            }),
+            Arc::new(AcceptedProvider {
+                provider_id: "accept-provider",
+            }) as Arc<dyn MembraneProvider>,
+        ),
+    ]));
+    let runtime = MembraneRuntime::with_provider_registry(emily.clone(), registry);
+    let locator = locator();
+
+    emily.open_db(locator.clone()).await.expect("open db");
+    emily
+        .create_episode(episode_request())
+        .await
+        .expect("create episode");
+
+    let result = runtime
+        .execute_multi_remote_and_record(
+            task_request(),
+            multi_remote_targets(),
+            multi_remote_policy_exhaust(),
+            multi_remote_persistence(),
+        )
+        .await
+        .expect("execute multi remote flow");
+
+    assert_eq!(
+        result.route.decision,
+        emily_membrane::contracts::MembraneRouteKind::MultiRemote
+    );
+    assert_eq!(result.attempts.len(), 2);
+    assert_eq!(
+        result.attempts[0].validation_disposition,
+        Some(emily_membrane::contracts::MembraneValidationDisposition::NeedsReview)
+    );
+    assert_eq!(
+        result.attempts[1].validation_disposition,
+        Some(emily_membrane::contracts::MembraneValidationDisposition::Accepted)
+    );
+    assert_eq!(
+        result.reconciliation.decision,
+        MultiRemoteReconciliationDecision::Accepted
+    );
+    assert_eq!(
+        result.reconciliation.selected_target_id.as_deref(),
+        Some("accept-provider:accept-v1")
+    );
+    assert!(
+        result
+            .reconciliation
+            .reconstruction
+            .as_ref()
+            .expect("reconstruction")
+            .output_text
+            .contains("accept-provider")
+    );
+
+    let routes = emily
+        .routing_decisions_for_episode("ep-membrane-remote")
+        .await
+        .expect("list routes");
+    let remote_episodes = emily
+        .remote_episodes_for_episode("ep-membrane-remote")
+        .await
+        .expect("list remote episodes");
+    let validations = emily
+        .validation_outcomes_for_episode("ep-membrane-remote")
+        .await
+        .expect("list validations");
+    let audits = emily
+        .sovereign_audit_records_for_episode("ep-membrane-remote")
+        .await
+        .expect("list audits");
+
+    assert_eq!(routes.len(), 1);
+    assert_eq!(routes[0].kind, emily::RoutingDecisionKind::MultiRemote);
+    assert_eq!(routes[0].targets.len(), 2);
+    assert_eq!(remote_episodes.len(), 2);
+    assert_eq!(validations.len(), 2);
+    assert_eq!(
+        audits
+            .iter()
+            .filter(|audit| audit.kind == AuditRecordKind::BoundaryEvent)
+            .count(),
+        1
+    );
+
+    emily.close_db().await.expect("close db");
+    let _ = std::fs::remove_dir_all(locator.storage_path);
+}
+
+#[tokio::test]
+async fn multi_remote_execution_stops_after_first_accepted_result() {
+    let store = Arc::new(SurrealEmilyStore::new());
+    let emily = Arc::new(EmilyRuntime::new(store));
+    let registry = Arc::new(InMemoryProviderRegistry::with_targets([
+        (
+            default_registered_provider_target(ProviderTarget {
+                provider_id: "accept-provider".to_string(),
+                model_id: Some("accept-v1".to_string()),
+                profile_id: Some("reasoning".to_string()),
+                capability_tags: vec!["analysis".to_string()],
+                metadata: json!({"origin": "test"}),
+            }),
+            Arc::new(AcceptedProvider {
+                provider_id: "accept-provider",
+            }) as Arc<dyn MembraneProvider>,
+        ),
+        (
+            default_registered_provider_target(ProviderTarget {
+                provider_id: "panic-provider".to_string(),
+                model_id: Some("panic-v1".to_string()),
+                profile_id: Some("reasoning".to_string()),
+                capability_tags: vec!["analysis".to_string()],
+                metadata: json!({"origin": "test"}),
+            }),
+            Arc::new(PanicIfCalledProvider) as Arc<dyn MembraneProvider>,
+        ),
+    ]));
+    let runtime = MembraneRuntime::with_provider_registry(emily.clone(), registry);
+    let locator = locator();
+
+    emily.open_db(locator.clone()).await.expect("open db");
+    emily
+        .create_episode(episode_request())
+        .await
+        .expect("create episode");
+
+    let result = runtime
+        .execute_multi_remote_and_record(
+            task_request(),
+            vec![
+                ProviderTarget {
+                    provider_id: "accept-provider".to_string(),
+                    model_id: Some("accept-v1".to_string()),
+                    profile_id: Some("reasoning".to_string()),
+                    capability_tags: vec!["analysis".to_string()],
+                    metadata: json!({"origin": "test"}),
+                },
+                ProviderTarget {
+                    provider_id: "panic-provider".to_string(),
+                    model_id: Some("panic-v1".to_string()),
+                    profile_id: Some("reasoning".to_string()),
+                    capability_tags: vec!["analysis".to_string()],
+                    metadata: json!({"origin": "test"}),
+                },
+            ],
+            multi_remote_policy_stop_on_accepted(),
+            multi_remote_persistence(),
+        )
+        .await
+        .expect("execute multi remote stop flow");
+
+    assert_eq!(result.attempts.len(), 2);
+    assert_eq!(
+        result.attempts[0].validation_disposition,
+        Some(emily_membrane::contracts::MembraneValidationDisposition::Accepted)
+    );
+    assert_eq!(
+        result.attempts[1].status,
+        emily_membrane::contracts::MultiRemoteAttemptStatus::Skipped
+    );
+    assert_eq!(
+        result.attempts[1].skip_reason,
+        Some(emily_membrane::contracts::MultiRemoteSkipReason::StopConditionSatisfied)
+    );
+    assert_eq!(
+        result.reconciliation.decision,
+        MultiRemoteReconciliationDecision::Accepted
+    );
+
+    let remote_episodes = emily
+        .remote_episodes_for_episode("ep-membrane-remote")
+        .await
+        .expect("list remote episodes");
+    let validations = emily
+        .validation_outcomes_for_episode("ep-membrane-remote")
+        .await
+        .expect("list validations");
+
+    assert_eq!(remote_episodes.len(), 1);
+    assert_eq!(validations.len(), 1);
 
     emily.close_db().await.expect("close db");
     let _ = std::fs::remove_dir_all(locator.storage_path);

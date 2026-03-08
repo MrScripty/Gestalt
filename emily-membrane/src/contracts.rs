@@ -7,10 +7,12 @@ use crate::providers::{
 use serde::{Deserialize, Serialize};
 
 mod ir;
+mod multi_remote;
 mod retry;
 mod validation;
 
 pub use ir::*;
+pub use multi_remote::*;
 pub use retry::*;
 pub use validation::*;
 

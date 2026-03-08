@@ -22,6 +22,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 
+mod multi_remote;
 mod policy;
 mod remote;
 mod retry;
