@@ -13,7 +13,7 @@ This source tree currently covers the memory-side runtime, not the full Emily so
 | `lib.rs` | Library exports |
 | `api.rs` | Public Emily API trait |
 | `runtime.rs` | Default runtime facade and API implementation |
-| `runtime/` | Runtime submodules for vectorization jobs and runtime tests |
+| `runtime/` | Runtime submodules for retrieval, vectorization jobs, and runtime tests |
 | `model.rs` | Shared request/response and domain models |
 | `error.rs` | Typed Emily error types |
 | `inference.rs` | Embedding provider facade and feature gating |
@@ -33,7 +33,7 @@ Provide a modular memory layer that can ingest terminal text, persist text/vecto
 
 ## Decision
 
-Use trait-based API/store abstractions with a default runtime wiring focused on persistence, retrieval, vectorization, and runtime diagnostics.
+Use trait-based API/store abstractions with a default runtime wiring focused on persistence, semantic retrieval, vectorization, and runtime diagnostics.
 
 ## What This Layer Does Not Yet Cover
 

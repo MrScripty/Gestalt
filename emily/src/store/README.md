@@ -7,10 +7,12 @@
 | File/Folder | Description |
 | ----------- | ----------- |
 | `mod.rs` | `EmilyStore` trait and module exports |
-| `surreal.rs` | Embedded SurrealDB-backed store implementation |
+| `surreal/` | Embedded SurrealDB-backed store implementation and backend tests |
 
 ## Problem
 Emily runtime needs persistence operations without coupling runtime logic to one database API.
+
+This is the storage boundary for the current memory runtime. It does not attempt to model broader sovereign-dispatch concerns such as membrane budgets, provider routing, or local reconstruction state.
 
 ## Constraints
 - Async-safe trait methods.
@@ -31,6 +33,7 @@ Define `EmilyStore` as the storage boundary and keep backend details inside impl
 ## Revisit Triggers
 - Additional backend support is required.
 - Query/index performance requires backend-specific capability flags.
+- Emily storage needs to represent broader audit objects such as remote-episode records or membrane-boundary telemetry.
 
 ## Dependencies
 **Internal:** `model`, `error`  

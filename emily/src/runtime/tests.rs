@@ -1,5 +1,5 @@
 use super::*;
-use crate::model::{TextObjectKind, VectorizationConfig, VectorizationJobState};
+use crate::model::{TextEdge, TextObjectKind, VectorizationConfig, VectorizationJobState};
 use crate::store::EmilyStore;
 use serde_json::json;
 use std::sync::Arc;
@@ -9,6 +9,7 @@ use tokio::time::{Duration, sleep};
 #[derive(Default)]
 struct MockStore {
     objects: Mutex<Vec<TextObject>>,
+    edges: Mutex<Vec<TextEdge>>,
     vectors: Mutex<Vec<TextVector>>,
     config: Mutex<Option<VectorizationConfig>>,
     insert_started: Option<Arc<Notify>>,
@@ -36,6 +37,16 @@ impl EmilyStore for MockStore {
         Ok(())
     }
 
+    async fn upsert_text_edge(&self, edge: &TextEdge) -> Result<(), EmilyError> {
+        let mut edges = self.edges.lock().await;
+        if let Some(index) = edges.iter().position(|item| item.id == edge.id) {
+            edges[index] = edge.clone();
+        } else {
+            edges.push(edge.clone());
+        }
+        Ok(())
+    }
+
     async fn upsert_text_vector(&self, vector: &TextVector) -> Result<(), EmilyError> {
         let mut vectors = self.vectors.lock().await;
         if let Some(index) = vectors.iter().position(|item| item.id == vector.id) {
@@ -54,6 +65,18 @@ impl EmilyStore for MockStore {
             .cloned())
     }
 
+    async fn list_text_vectors(
+        &self,
+        stream_id: Option<&str>,
+    ) -> Result<Vec<TextVector>, EmilyError> {
+        let mut vectors = self.vectors.lock().await.clone();
+        if let Some(stream_id) = stream_id {
+            vectors.retain(|item| item.stream_id == stream_id);
+        }
+        vectors.sort_by(|left, right| left.sequence.cmp(&right.sequence));
+        Ok(vectors)
+    }
+
     async fn list_text_objects(
         &self,
         stream_id: Option<&str>,
@@ -64,6 +87,57 @@ impl EmilyStore for MockStore {
         }
         objects.sort_by(|left, right| left.sequence.cmp(&right.sequence));
         Ok(objects)
+    }
+
+    async fn list_text_edges(
+        &self,
+        object_ids: &[String],
+        max_depth: u8,
+    ) -> Result<Vec<TextEdge>, EmilyError> {
+        if object_ids.is_empty() || max_depth == 0 {
+            return Ok(Vec::new());
+        }
+
+        let edges = self.edges.lock().await.clone();
+        let mut frontier = object_ids
+            .iter()
+            .cloned()
+            .map(|id| (id, 0_u8))
+            .collect::<std::collections::VecDeque<_>>();
+        let mut visited_nodes = object_ids
+            .iter()
+            .cloned()
+            .collect::<std::collections::HashSet<_>>();
+        let mut seen_edges = std::collections::HashSet::<String>::new();
+        let mut collected = Vec::new();
+
+        while let Some((node_id, depth)) = frontier.pop_front() {
+            if depth >= max_depth {
+                continue;
+            }
+            for edge in &edges {
+                let next_node = if edge.from_id == node_id {
+                    Some(edge.to_id.clone())
+                } else if edge.to_id == node_id {
+                    Some(edge.from_id.clone())
+                } else {
+                    None
+                };
+
+                let Some(next_node) = next_node else {
+                    continue;
+                };
+
+                if seen_edges.insert(edge.id.clone()) {
+                    collected.push(edge.clone());
+                }
+                if visited_nodes.insert(next_node.clone()) {
+                    frontier.push_back((next_node, depth.saturating_add(1)));
+                }
+            }
+        }
+
+        Ok(collected)
     }
 
     async fn get_vectorization_config(&self) -> Result<Option<VectorizationConfig>, EmilyError> {
@@ -94,14 +168,19 @@ impl EmilyStore for MockStore {
 }
 
 struct FixedEmbeddingProvider {
-    vector: Vec<f32>,
+    vectors_by_text: std::collections::HashMap<String, Vec<f32>>,
+    default_vector: Vec<f32>,
     shutdown_calls: Mutex<u64>,
 }
 
 #[async_trait]
 impl EmbeddingProvider for FixedEmbeddingProvider {
-    async fn embed_text(&self, _text: &str) -> Result<Vec<f32>, EmilyError> {
-        Ok(self.vector.clone())
+    async fn embed_text(&self, text: &str) -> Result<Vec<f32>, EmilyError> {
+        Ok(self
+            .vectors_by_text
+            .get(text)
+            .cloned()
+            .unwrap_or_else(|| self.default_vector.clone()))
     }
 
     async fn shutdown(&self) -> Result<(), EmilyError> {
@@ -135,7 +214,8 @@ fn ingest_request(sequence: u64) -> IngestTextRequest {
 async fn ingest_text_persists_vector_record_when_enabled_and_embedding_is_1024() {
     let store = Arc::new(MockStore::default());
     let provider = Arc::new(FixedEmbeddingProvider {
-        vector: vec![0.25; 1024],
+        vectors_by_text: std::collections::HashMap::new(),
+        default_vector: vec![0.25; 1024],
         shutdown_calls: Mutex::new(0),
     });
     let runtime = EmilyRuntime::with_embedding_provider(store.clone(), Some(provider));
@@ -163,7 +243,8 @@ async fn ingest_text_persists_vector_record_when_enabled_and_embedding_is_1024()
 async fn ingest_text_skips_embedding_when_vectorization_disabled() {
     let store = Arc::new(MockStore::default());
     let provider = Arc::new(FixedEmbeddingProvider {
-        vector: vec![0.25; 1024],
+        vectors_by_text: std::collections::HashMap::new(),
+        default_vector: vec![0.25; 1024],
         shutdown_calls: Mutex::new(0),
     });
     let runtime = EmilyRuntime::with_embedding_provider(store.clone(), Some(provider));
@@ -240,7 +321,8 @@ async fn backfill_job_vectors_missing_rows() {
         .expect("insert 2");
 
     let provider = Arc::new(FixedEmbeddingProvider {
-        vector: vec![0.4; 1024],
+        vectors_by_text: std::collections::HashMap::new(),
+        default_vector: vec![0.4; 1024],
         shutdown_calls: Mutex::new(0),
     });
     let runtime = EmilyRuntime::with_embedding_provider(store.clone(), Some(provider));
@@ -281,11 +363,86 @@ async fn backfill_job_vectors_missing_rows() {
 async fn close_db_invokes_provider_shutdown() {
     let store = Arc::new(MockStore::default());
     let provider = Arc::new(FixedEmbeddingProvider {
-        vector: vec![0.25; 1024],
+        vectors_by_text: std::collections::HashMap::new(),
+        default_vector: vec![0.25; 1024],
         shutdown_calls: Mutex::new(0),
     });
     let runtime = EmilyRuntime::with_embedding_provider(store, Some(provider.clone()));
     runtime.open_db(locator()).await.expect("open");
     runtime.close_db().await.expect("close");
     assert_eq!(*provider.shutdown_calls.lock().await, 1);
+}
+
+#[tokio::test]
+async fn query_context_prefers_semantic_hits_and_expands_neighbors() {
+    let store = Arc::new(MockStore::default());
+    let mut vectors_by_text = std::collections::HashMap::new();
+    vectors_by_text.insert("alpha memory".to_string(), vec![1.0, 0.0, 0.0]);
+    vectors_by_text.insert("beta memory".to_string(), vec![0.9, 0.1, 0.0]);
+    vectors_by_text.insert("gamma memory".to_string(), vec![0.0, 1.0, 0.0]);
+    vectors_by_text.insert("alpha question".to_string(), vec![1.0, 0.0, 0.0]);
+    let provider = Arc::new(FixedEmbeddingProvider {
+        vectors_by_text,
+        default_vector: vec![0.0, 0.0, 1.0],
+        shutdown_calls: Mutex::new(0),
+    });
+    let runtime = EmilyRuntime::with_embedding_provider(store.clone(), Some(provider));
+    runtime.open_db(locator()).await.expect("open");
+    runtime
+        .update_vectorization_config(VectorizationConfigPatch {
+            enabled: Some(true),
+            expected_dimensions: Some(3),
+            ..VectorizationConfigPatch::default()
+        })
+        .await
+        .expect("enable vectorization");
+
+    runtime
+        .ingest_text(IngestTextRequest {
+            text: "alpha memory".to_string(),
+            ..ingest_request(1)
+        })
+        .await
+        .expect("ingest alpha");
+    runtime
+        .ingest_text(IngestTextRequest {
+            text: "beta memory".to_string(),
+            ..ingest_request(2)
+        })
+        .await
+        .expect("ingest beta");
+    runtime
+        .ingest_text(IngestTextRequest {
+            text: "gamma memory".to_string(),
+            ..ingest_request(3)
+        })
+        .await
+        .expect("ingest gamma");
+
+    runtime
+        .update_vectorization_config(VectorizationConfigPatch {
+            enabled: Some(false),
+            ..VectorizationConfigPatch::default()
+        })
+        .await
+        .expect("disable vectorization for lexical query");
+
+    let packet = runtime
+        .query_context(ContextQuery {
+            stream_id: Some("stream-a".to_string()),
+            query_text: "alpha".to_string(),
+            top_k: 2,
+            neighbor_depth: 1,
+        })
+        .await
+        .expect("query context");
+
+    assert_eq!(packet.items.len(), 2);
+    assert_eq!(packet.items[0].object.text, "alpha memory");
+    assert_eq!(packet.items[1].object.text, "beta memory");
+    assert_eq!(packet.items[0].provenance, vec!["stream-a:1".to_string()]);
+    assert!(
+        packet.items[1].provenance.len() >= 2,
+        "neighbor expansion should include provenance path"
+    );
 }

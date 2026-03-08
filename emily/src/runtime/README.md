@@ -8,12 +8,13 @@ This directory contains the runtime-specific implementation slices for the Emily
 
 | File/Folder | Description |
 | ----------- | ----------- |
+| `retrieval.rs` | Semantic retrieval, ranking, provenance, and semantic-edge linking logic. |
 | `vectorization.rs` | Background job orchestration for backfill and revectorize runs. |
 | `tests.rs` | Runtime-focused integration-style tests using in-memory test doubles. |
 
 ## Problem
 
-`emily/src/runtime.rs` owns both host-facing runtime behavior and long-lived async maintenance workflows. Without a dedicated split, vectorization job logic and runtime tests would continue to expand a single file past the repo's decomposition threshold.
+`emily/src/runtime.rs` owns host-facing runtime behavior while runtime subdomains own retrieval and maintenance workflows. Without a dedicated split, semantic retrieval, vectorization jobs, and runtime tests would continue to expand a single file past the repo's decomposition threshold.
 
 ## Constraints
 
@@ -23,7 +24,7 @@ This directory contains the runtime-specific implementation slices for the Emily
 
 ## Decision
 
-Keep `runtime.rs` as the public runtime entrypoint and move focused subdomains under `runtime/` for job orchestration and tests.
+Keep `runtime.rs` as the public runtime entrypoint and move focused subdomains under `runtime/` for retrieval, job orchestration, and tests.
 
 ## Alternatives Rejected
 
@@ -33,6 +34,7 @@ Keep `runtime.rs` as the public runtime entrypoint and move focused subdomains u
 ## Invariants
 
 - `EmilyRuntime` remains the public runtime type.
+- Retrieval logic remains internal to the runtime implementation rather than a host-facing helper API.
 - Vectorization job logic remains an internal implementation detail.
 - Runtime tests continue to exercise the public facade rather than private helpers only.
 
@@ -73,5 +75,6 @@ let runtime = EmilyRuntime::new(Arc::new(SurrealEmilyStore::new()));
 ## Structured Producer Contract
 
 - `tests.rs` produces no persisted artifacts.
+- `retrieval.rs` produces semantic edges and context packets through existing Emily contracts.
 - `vectorization.rs` updates runtime job snapshots and vector records through existing crate contracts.
 - Compatibility expectations for those records remain defined by `emily/src/model.rs` and store implementations.

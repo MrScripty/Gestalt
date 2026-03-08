@@ -13,6 +13,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use tokio::sync::{Mutex, RwLock, broadcast};
 
+mod retrieval;
 #[cfg(test)]
 mod tests;
 mod vectorization;
@@ -245,6 +246,7 @@ impl<S: EmilyStore + 'static> EmilyRuntime<S> {
             vector,
         };
         self.store.upsert_text_vector(&record).await?;
+        self.maybe_link_semantic_edges(object, &record).await?;
         Ok(())
     }
 
@@ -319,7 +321,7 @@ impl<S: EmilyStore + 'static> EmilyApi for EmilyRuntime<S> {
     }
 
     async fn query_context(&self, query: ContextQuery) -> Result<ContextPacket, EmilyError> {
-        self.store.query_context(&query).await
+        self.query_context_internal(query).await
     }
 
     async fn page_history_before(
