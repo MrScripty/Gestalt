@@ -13,7 +13,8 @@
 | `tab_rail.rs` | Group/session tab strip behavior |
 | `commands_panel.rs` | Insert-command library UI |
 | `file_browser_panel.rs` | File browser and selection stats UI |
-| `git_panel.rs` | Git actions and metadata UI |
+| `git_panel.rs` | Graph-first Git panel UI with commit selection, details, and repo actions |
+| `git_commit_graph.rs` | Snapshot-driven commit-lane layout builder for the Git panel SVG tree |
 | `git_refresh.rs` | Git refresh coordination hook |
 | `git_helpers.rs` | Shared helper actions for Git UI |
 | `command_palette.rs` | Palette interactions |
@@ -40,7 +41,9 @@ root-shared transient interaction state in `UiState`; feature-local drafts remai
 Decomposition review on 2026-03-08 kept `local_agent_panel.rs` and `run_review_panel.rs` in their
 current files despite crossing the soft UI-component size threshold because each still owns one
 user-facing workflow and no additional responsibility boundary was introduced by the sidebar refresh
-contract fix.
+contract fix. The Git panel commit history is intentionally graph-first: the SVG lane tree is the
+primary history surface, while commit metadata stays attached to the same rows without changing Git
+data ownership or action routing.
 
 ## Alternatives Rejected
 - Single monolithic UI file: rejected due to scale.
@@ -62,11 +65,13 @@ contract fix.
 - Local-agent Emily episode creation and host-side gate interpretation stay in host helpers; the UI only renders the resulting feedback and dispatch counts.
 - Run review loads checkpoint-derived data on demand and refreshes from existing Git context signals instead of starting a separate polling loop.
 - Sidebar hosts forward the shared `git_refresh_nonce` into repo-aware child panels; refresh invalidation remains owned by the action-producing child surface rather than the container.
+- Git commit tree rendering stays snapshot-driven and presentation-only; lane geometry is derived from `RepoSnapshot.commits` without introducing a second Git state owner in UI.
 
 ## Revisit Triggers
 - Component files exceed maintainability limits.
 - `local_agent_panel.rs` or `run_review_panel.rs` gains another async workflow, background task owner, or persistence concern while already above the soft size threshold.
 - Polling loops can be replaced by event-driven updates.
+- Commit history density or interaction requirements exceed what the current graph-row layout can express without virtualization or a dedicated graph component boundary.
 
 ## Polling Exceptions
 The following loops are currently retained because upstream signal hooks are not yet available at the required boundary:
@@ -93,6 +98,7 @@ Resource polling is root-owned in `ui.rs`; child components consume the shared s
 - Autosave coordination may compute signatures and schedule work, but snapshot building and projection/workspace disk writes must remain background-owned.
 - Poll loops should project only the state they need; they must not clone full `AppState` snapshots on a fixed cadence when an ID/path projection is sufficient.
 - Compatibility note: synchronous bridge wrappers may remain for non-UI callers, but UI code must prefer async variants.
+- Git panel consumers may assume commit selection stays keyed by commit SHA across refreshes, while graph layout stays a pure function of the latest repo snapshot.
 
 ## Related ADRs
 None.
