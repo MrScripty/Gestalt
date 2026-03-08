@@ -20,6 +20,20 @@ const CONFLICT_REFLEX_THRESHOLD: f32 = 0.90;
 const CONSTRAINT_REFLEX_THRESHOLD: f32 = 0.92;
 
 impl<S: EmilyStore + 'static> EmilyRuntime<S> {
+    pub(super) async fn latest_earl_evaluation_for_episode_internal(
+        &self,
+        episode_id: &str,
+    ) -> Result<Option<EarlEvaluationRecord>, EmilyError> {
+        Self::validate_required_text("episode_id", episode_id)?;
+
+        let evaluations = self.store.list_earl_evaluations(episode_id).await?;
+        Ok(evaluations.into_iter().max_by(|left, right| {
+            left.evaluated_at_unix_ms
+                .cmp(&right.evaluated_at_unix_ms)
+                .then_with(|| left.id.cmp(&right.id))
+        }))
+    }
+
     fn validate_signal(field_name: &str, value: f32) -> Result<(), EmilyError> {
         if !(0.0..=1.0).contains(&value) {
             return Err(EmilyError::InvalidRequest(format!(

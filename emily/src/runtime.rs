@@ -292,6 +292,14 @@ impl<S: EmilyStore + 'static> EmilyApi for EmilyRuntime<S> {
         self.evaluate_episode_risk_internal(request).await
     }
 
+    async fn latest_earl_evaluation_for_episode(
+        &self,
+        episode_id: &str,
+    ) -> Result<Option<EarlEvaluationRecord>, EmilyError> {
+        self.latest_earl_evaluation_for_episode_internal(episode_id)
+            .await
+    }
+
     async fn latest_integrity_snapshot(&self) -> Result<Option<IntegritySnapshot>, EmilyError> {
         Ok(self.ecgl.read().await.last_snapshot.clone())
     }

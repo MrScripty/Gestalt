@@ -132,6 +132,12 @@ pub trait EmilyApi: Send + Sync {
         request: EarlEvaluationRequest,
     ) -> Result<EarlEvaluationRecord, EmilyError>;
 
+    /// Read the latest durable EARL evaluation for one episode.
+    async fn latest_earl_evaluation_for_episode(
+        &self,
+        episode_id: &str,
+    ) -> Result<Option<EarlEvaluationRecord>, EmilyError>;
+
     /// Return the latest durable cognitive integrity snapshot.
     async fn latest_integrity_snapshot(&self) -> Result<Option<IntegritySnapshot>, EmilyError>;
 

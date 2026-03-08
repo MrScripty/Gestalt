@@ -2,9 +2,13 @@ use async_trait::async_trait;
 use emily::api::EmilyApi;
 use emily::runtime::EmilyRuntime;
 use emily::store::surreal::SurrealEmilyStore;
-use emily::{CreateEpisodeRequest, DatabaseLocator, EpisodeState, RemoteEpisodeState};
+use emily::{
+    CreateEpisodeRequest, DatabaseLocator, EarlDecision, EarlEvaluationRequest, EarlSignalVector,
+    EpisodeState, RemoteEpisodeState,
+};
 use emily_membrane::contracts::{
-    MembraneTaskRequest, RemoteExecutionPersistence, RemoteRoutingPreference,
+    MembraneTaskRequest, RemoteExecutionPersistence, RemoteRoutingPreference, RoutingPolicyOutcome,
+    RoutingPolicyRequest, RoutingSensitivity,
 };
 use emily_membrane::providers::{
     InMemoryProviderRegistry, MembraneProvider, MembraneProviderError, ProviderDispatchRequest,
@@ -96,6 +100,40 @@ impl MembraneProvider for DeterministicTestProvider {
     }
 }
 
+fn caution_earl_request() -> EarlEvaluationRequest {
+    EarlEvaluationRequest {
+        evaluation_id: "earl-caution-1".to_string(),
+        episode_id: "ep-membrane-remote".to_string(),
+        evaluated_at_unix_ms: 5,
+        signals: EarlSignalVector {
+            uncertainty: 0.7,
+            conflict: 0.65,
+            continuity_drift: 0.5,
+            constraint_pressure: 0.2,
+            tool_instability: 0.1,
+            novelty_spike: 0.2,
+        },
+        metadata: json!({"origin": "integration-test"}),
+    }
+}
+
+fn reflex_earl_request() -> EarlEvaluationRequest {
+    EarlEvaluationRequest {
+        evaluation_id: "earl-reflex-1".to_string(),
+        episode_id: "ep-membrane-remote".to_string(),
+        evaluated_at_unix_ms: 5,
+        signals: EarlSignalVector {
+            uncertainty: 0.8,
+            conflict: 0.3,
+            continuity_drift: 0.95,
+            constraint_pressure: 0.2,
+            tool_instability: 0.1,
+            novelty_spike: 0.2,
+        },
+        metadata: json!({"origin": "integration-test"}),
+    }
+}
+
 #[tokio::test]
 async fn remote_execution_records_route_remote_episode_validation_and_audits_idempotently() {
     let store = Arc::new(SurrealEmilyStore::new());
@@ -172,6 +210,141 @@ async fn remote_execution_records_route_remote_episode_validation_and_audits_ide
     assert_eq!(validations.len(), 1);
     assert_eq!(audits.len(), 3);
     assert_eq!(episode.state, EpisodeState::Open);
+
+    emily.close_db().await.expect("close db");
+    let _ = std::fs::remove_dir_all(locator.storage_path);
+}
+
+#[tokio::test]
+async fn routing_policy_uses_earl_caution_before_remote_execution_and_persists_sovereign_records() {
+    let store = Arc::new(SurrealEmilyStore::new());
+    let emily = Arc::new(EmilyRuntime::new(store.clone()));
+    let registry = Arc::new(InMemoryProviderRegistry::single_target(
+        RegisteredProviderTarget {
+            target: ProviderTarget {
+                provider_id: "test-provider".to_string(),
+                model_id: Some("deterministic-v1".to_string()),
+                profile_id: Some("reasoning".to_string()),
+                capability_tags: vec!["analysis".to_string()],
+                metadata: json!({"origin": "test"}),
+            },
+        },
+        Arc::new(DeterministicTestProvider) as Arc<dyn MembraneProvider>,
+    ));
+    let runtime = MembraneRuntime::with_provider_registry(emily.clone(), registry);
+    let locator = locator();
+
+    emily.open_db(locator.clone()).await.expect("open db");
+    emily
+        .create_episode(episode_request())
+        .await
+        .expect("create episode");
+    let earl = emily
+        .evaluate_episode_risk(caution_earl_request())
+        .await
+        .expect("evaluate earl");
+
+    assert_eq!(earl.decision, EarlDecision::Caution);
+
+    let policy = runtime
+        .evaluate_routing_policy(RoutingPolicyRequest {
+            task_id: "task-remote-1".to_string(),
+            episode_id: "ep-membrane-remote".to_string(),
+            allow_remote: true,
+            sensitivity: RoutingSensitivity::Normal,
+            preference: routing_preference(),
+        })
+        .await
+        .expect("evaluate routing policy");
+
+    assert_eq!(policy.outcome, RoutingPolicyOutcome::SingleRemote);
+    assert!(policy.caution);
+    assert!(
+        policy
+            .findings
+            .iter()
+            .any(|finding| finding.code == "earl-caution-gate")
+    );
+
+    let target = policy.selected_target.expect("selected target");
+    let execution = runtime
+        .execute_remote_and_record(task_request(), target, persistence())
+        .await
+        .expect("execute remote");
+
+    let routes = emily
+        .routing_decisions_for_episode("ep-membrane-remote")
+        .await
+        .expect("list routes");
+    let remote_episodes = emily
+        .remote_episodes_for_episode("ep-membrane-remote")
+        .await
+        .expect("list remote episodes");
+    let validations = emily
+        .validation_outcomes_for_episode("ep-membrane-remote")
+        .await
+        .expect("list validations");
+
+    assert_eq!(execution.route_decision_id, "route-remote-1");
+    assert_eq!(routes.len(), 1);
+    assert_eq!(remote_episodes.len(), 1);
+    assert_eq!(validations.len(), 1);
+
+    emily.close_db().await.expect("close db");
+    let _ = std::fs::remove_dir_all(locator.storage_path);
+}
+
+#[tokio::test]
+async fn routing_policy_rejects_remote_dispatch_when_earl_reflex_blocks_episode() {
+    let store = Arc::new(SurrealEmilyStore::new());
+    let emily = Arc::new(EmilyRuntime::new(store.clone()));
+    let registry = Arc::new(InMemoryProviderRegistry::single_target(
+        RegisteredProviderTarget {
+            target: ProviderTarget {
+                provider_id: "test-provider".to_string(),
+                model_id: Some("deterministic-v1".to_string()),
+                profile_id: Some("reasoning".to_string()),
+                capability_tags: vec!["analysis".to_string()],
+                metadata: json!({"origin": "test"}),
+            },
+        },
+        Arc::new(DeterministicTestProvider) as Arc<dyn MembraneProvider>,
+    ));
+    let runtime = MembraneRuntime::with_provider_registry(emily.clone(), registry);
+    let locator = locator();
+
+    emily.open_db(locator.clone()).await.expect("open db");
+    emily
+        .create_episode(episode_request())
+        .await
+        .expect("create episode");
+    let earl = emily
+        .evaluate_episode_risk(reflex_earl_request())
+        .await
+        .expect("evaluate earl");
+
+    assert_eq!(earl.decision, EarlDecision::Reflex);
+
+    let policy = runtime
+        .evaluate_routing_policy(RoutingPolicyRequest {
+            task_id: "task-remote-1".to_string(),
+            episode_id: "ep-membrane-remote".to_string(),
+            allow_remote: true,
+            sensitivity: RoutingSensitivity::Normal,
+            preference: routing_preference(),
+        })
+        .await
+        .expect("evaluate routing policy");
+
+    assert_eq!(policy.outcome, RoutingPolicyOutcome::Rejected);
+    assert!(policy.selected_target.is_none());
+    assert_eq!(policy.findings[0].code, "earl-reflex-gate");
+
+    let routes = emily
+        .routing_decisions_for_episode("ep-membrane-remote")
+        .await
+        .expect("list routes");
+    assert!(routes.is_empty());
 
     emily.close_db().await.expect("close db");
     let _ = std::fs::remove_dir_all(locator.storage_path);

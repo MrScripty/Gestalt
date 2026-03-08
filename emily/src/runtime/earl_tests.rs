@@ -200,3 +200,45 @@ async fn earl_reflex_blocks_episode_and_prevents_outcomes() {
     runtime.close_db().await.expect("close runtime");
     let _ = std::fs::remove_dir_all(locator.storage_path);
 }
+
+#[tokio::test]
+async fn latest_earl_evaluation_for_episode_returns_most_recent_record() {
+    let store = Arc::new(MockStore::default());
+    let runtime = EmilyRuntime::new(store);
+    runtime.open_db(locator()).await.expect("open");
+    runtime
+        .create_episode(episode_request())
+        .await
+        .expect("create episode");
+
+    runtime
+        .evaluate_episode_risk(earl_request("earl-first", 0.1, 0.1, 0.1))
+        .await
+        .expect("evaluate first");
+    runtime
+        .evaluate_episode_risk(EarlEvaluationRequest {
+            evaluation_id: "earl-second".to_string(),
+            episode_id: "ep-earl".to_string(),
+            evaluated_at_unix_ms: 4,
+            signals: EarlSignalVector {
+                uncertainty: 0.7,
+                conflict: 0.65,
+                continuity_drift: 0.5,
+                constraint_pressure: 0.2,
+                tool_instability: 0.1,
+                novelty_spike: 0.2,
+            },
+            metadata: json!({"origin": "test"}),
+        })
+        .await
+        .expect("evaluate second");
+
+    let latest = runtime
+        .latest_earl_evaluation_for_episode("ep-earl")
+        .await
+        .expect("read latest earl")
+        .expect("latest earl exists");
+
+    assert_eq!(latest.id, "earl-second");
+    assert_eq!(latest.decision, EarlDecision::Caution);
+}

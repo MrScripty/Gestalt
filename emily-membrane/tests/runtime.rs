@@ -3,10 +3,11 @@ use emily::api::EmilyApi;
 use emily::{
     AppendAuditRecordRequest, AppendSovereignAuditRecordRequest, AuditRecord, ContextPacket,
     ContextQuery, CreateEpisodeRequest, DatabaseLocator, EarlEvaluationRecord,
-    EarlEvaluationRequest, EpisodeRecord, EpisodeTraceLink, HealthSnapshot, HistoryPage,
-    HistoryPageRequest, IngestTextRequest, IntegritySnapshot, MemoryPolicy, OutcomeRecord,
-    RecordOutcomeRequest, RemoteEpisodeRecord, RemoteEpisodeRequest, RoutingDecision, TextObject,
-    TraceLinkRequest, UpdateRemoteEpisodeStateRequest, ValidationOutcome, VectorizationConfig,
+    EarlEvaluationRequest, EarlHostAction, EarlSignalVector, EpisodeRecord, EpisodeState,
+    EpisodeTraceLink, HealthSnapshot, HistoryPage, HistoryPageRequest, IngestTextRequest,
+    IntegritySnapshot, MemoryPolicy, OutcomeRecord, RecordOutcomeRequest, RemoteEpisodeRecord,
+    RemoteEpisodeRequest, RoutingDecision, TextObject, TraceLinkRequest,
+    UpdateRemoteEpisodeStateRequest, ValidationOutcome, VectorizationConfig,
     VectorizationConfigPatch, VectorizationJobSnapshot, VectorizationRunRequest,
     VectorizationStatus,
 };
@@ -22,10 +23,89 @@ use emily_membrane::providers::{
 use emily_membrane::runtime::{MembraneRuntime, MembraneRuntimeError};
 use std::sync::Arc;
 
-struct StubEmilyApi;
+#[derive(Clone)]
+struct StubEmilyApi {
+    episode: Option<EpisodeRecord>,
+    latest_earl: Option<EarlEvaluationRecord>,
+}
 
 struct StubProvider {
     provider_id: &'static str,
+}
+
+impl Default for StubEmilyApi {
+    fn default() -> Self {
+        Self {
+            episode: Some(open_episode("episode-1")),
+            latest_earl: None,
+        }
+    }
+}
+
+impl StubEmilyApi {
+    fn with_episode_state(state: EpisodeState) -> Self {
+        Self {
+            episode: Some(open_episode("episode-1").with_state(state)),
+            latest_earl: None,
+        }
+    }
+
+    fn with_latest_earl(decision: emily::EarlDecision) -> Self {
+        Self {
+            episode: Some(open_episode("episode-1")),
+            latest_earl: Some(EarlEvaluationRecord {
+                id: format!("earl-{decision:?}").to_lowercase(),
+                episode_id: "episode-1".to_string(),
+                evaluated_at_unix_ms: 5,
+                signals: EarlSignalVector {
+                    uncertainty: 0.1,
+                    conflict: 0.1,
+                    continuity_drift: 0.1,
+                    constraint_pressure: 0.1,
+                    tool_instability: 0.1,
+                    novelty_spike: 0.1,
+                },
+                risk_score: 0.5,
+                decision,
+                host_action: match decision {
+                    emily::EarlDecision::Ok => EarlHostAction::Proceed,
+                    emily::EarlDecision::Caution => EarlHostAction::Clarify,
+                    emily::EarlDecision::Reflex => EarlHostAction::Abort,
+                },
+                retryable: decision == emily::EarlDecision::Caution,
+                rationale: "test earl state".to_string(),
+                metadata: serde_json::json!({}),
+            }),
+        }
+    }
+}
+
+trait StubEpisodeExt {
+    fn with_state(self, state: EpisodeState) -> Self;
+}
+
+impl StubEpisodeExt for EpisodeRecord {
+    fn with_state(mut self, state: EpisodeState) -> Self {
+        self.state = state;
+        self
+    }
+}
+
+fn open_episode(episode_id: &str) -> EpisodeRecord {
+    EpisodeRecord {
+        id: episode_id.to_string(),
+        stream_id: Some("stream-a".to_string()),
+        source_kind: "membrane-test".to_string(),
+        episode_kind: "routing".to_string(),
+        state: EpisodeState::Open,
+        started_at_unix_ms: 1,
+        closed_at_unix_ms: None,
+        intent: Some("test routing policy".to_string()),
+        metadata: serde_json::json!({}),
+        last_outcome_id: None,
+        created_at_unix_ms: 1,
+        updated_at_unix_ms: 1,
+    }
 }
 
 fn unused<T>() -> Result<T, EmilyError> {
@@ -57,8 +137,12 @@ impl EmilyApi for StubEmilyApi {
         unused()
     }
 
-    async fn episode(&self, _episode_id: &str) -> Result<Option<EpisodeRecord>, EmilyError> {
-        unused()
+    async fn episode(&self, episode_id: &str) -> Result<Option<EpisodeRecord>, EmilyError> {
+        Ok(self
+            .episode
+            .as_ref()
+            .filter(|episode| episode.id == episode_id)
+            .cloned())
     }
 
     async fn link_text_to_episode(
@@ -173,6 +257,17 @@ impl EmilyApi for StubEmilyApi {
         unused()
     }
 
+    async fn latest_earl_evaluation_for_episode(
+        &self,
+        episode_id: &str,
+    ) -> Result<Option<EarlEvaluationRecord>, EmilyError> {
+        Ok(self
+            .latest_earl
+            .as_ref()
+            .filter(|evaluation| evaluation.episode_id == episode_id)
+            .cloned())
+    }
+
     async fn latest_integrity_snapshot(&self) -> Result<Option<IntegritySnapshot>, EmilyError> {
         unused()
     }
@@ -252,7 +347,7 @@ impl MembraneProvider for StubProvider {
 
 #[tokio::test]
 async fn runtime_executes_deterministic_local_flow() {
-    let runtime = MembraneRuntime::new(Arc::new(StubEmilyApi));
+    let runtime = MembraneRuntime::new(Arc::new(StubEmilyApi::default()));
     let request = MembraneTaskRequest {
         task_id: "task-1".into(),
         episode_id: "episode-1".into(),
@@ -302,7 +397,7 @@ async fn runtime_executes_deterministic_local_flow() {
 
 #[tokio::test]
 async fn dispatch_local_rejects_remote_route_shapes() {
-    let runtime = MembraneRuntime::new(Arc::new(StubEmilyApi));
+    let runtime = MembraneRuntime::new(Arc::new(StubEmilyApi::default()));
     let compiled = runtime
         .compile(MembraneTaskRequest {
             task_id: "task-1".into(),
@@ -331,7 +426,7 @@ async fn dispatch_local_rejects_remote_route_shapes() {
 
 #[tokio::test]
 async fn reconstruct_rejects_rejected_validation() {
-    let runtime = MembraneRuntime::new(Arc::new(StubEmilyApi));
+    let runtime = MembraneRuntime::new(Arc::new(StubEmilyApi::default()));
     let error = runtime
         .reconstruct(&ValidationEnvelope {
             task_id: "task-1".into(),
@@ -347,7 +442,7 @@ async fn reconstruct_rejects_rejected_validation() {
 
 #[tokio::test]
 async fn execute_remote_and_record_requires_provider() {
-    let runtime = MembraneRuntime::new(Arc::new(StubEmilyApi));
+    let runtime = MembraneRuntime::new(Arc::new(StubEmilyApi::default()));
     let error = runtime
         .execute_remote_and_record(
             MembraneTaskRequest {
@@ -383,7 +478,8 @@ async fn execute_remote_and_record_requires_provider() {
 #[tokio::test]
 async fn execute_remote_and_record_rejects_missing_registered_provider() {
     let registry = Arc::new(InMemoryProviderRegistry::new([]));
-    let runtime = MembraneRuntime::with_provider_registry(Arc::new(StubEmilyApi), registry);
+    let runtime =
+        MembraneRuntime::with_provider_registry(Arc::new(StubEmilyApi::default()), registry);
     let error = runtime
         .execute_remote_and_record(
             MembraneTaskRequest {
@@ -448,7 +544,8 @@ async fn select_remote_target_matches_registry_metadata() {
             }) as Arc<dyn MembraneProvider>,
         ),
     ]));
-    let runtime = MembraneRuntime::with_provider_registry(Arc::new(StubEmilyApi), registry);
+    let runtime =
+        MembraneRuntime::with_provider_registry(Arc::new(StubEmilyApi::default()), registry);
 
     let target = runtime
         .select_remote_target(&RemoteRoutingPreference {
@@ -480,7 +577,8 @@ async fn evaluate_routing_policy_returns_local_only_when_remote_disabled() {
             provider_id: "provider-a",
         }) as Arc<dyn MembraneProvider>,
     )]));
-    let runtime = MembraneRuntime::with_provider_registry(Arc::new(StubEmilyApi), registry);
+    let runtime =
+        MembraneRuntime::with_provider_registry(Arc::new(StubEmilyApi::default()), registry);
 
     let result = runtime
         .evaluate_routing_policy(RoutingPolicyRequest {
@@ -518,7 +616,8 @@ async fn evaluate_routing_policy_rejects_critical_sensitivity() {
             provider_id: "provider-a",
         }) as Arc<dyn MembraneProvider>,
     )]));
-    let runtime = MembraneRuntime::with_provider_registry(Arc::new(StubEmilyApi), registry);
+    let runtime =
+        MembraneRuntime::with_provider_registry(Arc::new(StubEmilyApi::default()), registry);
 
     let result = runtime
         .evaluate_routing_policy(RoutingPolicyRequest {
@@ -575,7 +674,8 @@ async fn evaluate_routing_policy_prefers_best_matching_target() {
             }) as Arc<dyn MembraneProvider>,
         ),
     ]));
-    let runtime = MembraneRuntime::with_provider_registry(Arc::new(StubEmilyApi), registry);
+    let runtime =
+        MembraneRuntime::with_provider_registry(Arc::new(StubEmilyApi::default()), registry);
 
     let result = runtime
         .evaluate_routing_policy(RoutingPolicyRequest {
@@ -635,7 +735,8 @@ async fn evaluate_routing_policy_uses_deterministic_tie_breaking() {
             }) as Arc<dyn MembraneProvider>,
         ),
     ]));
-    let runtime = MembraneRuntime::with_provider_registry(Arc::new(StubEmilyApi), registry);
+    let runtime =
+        MembraneRuntime::with_provider_registry(Arc::new(StubEmilyApi::default()), registry);
 
     let result = runtime
         .evaluate_routing_policy(RoutingPolicyRequest {
@@ -659,5 +760,180 @@ async fn evaluate_routing_policy_uses_deterministic_tie_breaking() {
             .as_ref()
             .map(|target| target.provider_id.as_str()),
         Some("provider-a")
+    );
+}
+
+#[tokio::test]
+async fn evaluate_routing_policy_rejects_missing_episode_anchor() {
+    let registry = Arc::new(InMemoryProviderRegistry::with_targets([(
+        RegisteredProviderTarget {
+            target: ProviderTarget {
+                provider_id: "provider-a".into(),
+                model_id: Some("model-a".into()),
+                profile_id: Some("reasoning".into()),
+                capability_tags: vec!["analysis".into()],
+                metadata: serde_json::json!({}),
+            },
+        },
+        Arc::new(StubProvider {
+            provider_id: "provider-a",
+        }) as Arc<dyn MembraneProvider>,
+    )]));
+    let runtime = MembraneRuntime::with_provider_registry(
+        Arc::new(StubEmilyApi {
+            episode: None,
+            latest_earl: None,
+        }),
+        registry,
+    );
+
+    let result = runtime
+        .evaluate_routing_policy(RoutingPolicyRequest {
+            task_id: "task-1".into(),
+            episode_id: "episode-1".into(),
+            allow_remote: true,
+            sensitivity: RoutingSensitivity::Normal,
+            preference: RemoteRoutingPreference {
+                provider_id: None,
+                profile_id: Some("reasoning".into()),
+                required_capability_tags: vec!["analysis".into()],
+            },
+        })
+        .await
+        .expect("evaluate policy");
+
+    assert_eq!(result.outcome, RoutingPolicyOutcome::Rejected);
+    assert_eq!(result.findings[0].code, "episode-missing");
+}
+
+#[tokio::test]
+async fn evaluate_routing_policy_cautions_when_latest_earl_requires_clarification() {
+    let registry = Arc::new(InMemoryProviderRegistry::with_targets([(
+        RegisteredProviderTarget {
+            target: ProviderTarget {
+                provider_id: "provider-a".into(),
+                model_id: Some("model-a".into()),
+                profile_id: Some("reasoning".into()),
+                capability_tags: vec!["analysis".into()],
+                metadata: serde_json::json!({}),
+            },
+        },
+        Arc::new(StubProvider {
+            provider_id: "provider-a",
+        }) as Arc<dyn MembraneProvider>,
+    )]));
+    let runtime = MembraneRuntime::with_provider_registry(
+        Arc::new(StubEmilyApi::with_latest_earl(emily::EarlDecision::Caution)),
+        registry,
+    );
+
+    let result = runtime
+        .evaluate_routing_policy(RoutingPolicyRequest {
+            task_id: "task-1".into(),
+            episode_id: "episode-1".into(),
+            allow_remote: true,
+            sensitivity: RoutingSensitivity::Normal,
+            preference: RemoteRoutingPreference {
+                provider_id: None,
+                profile_id: Some("reasoning".into()),
+                required_capability_tags: vec!["analysis".into()],
+            },
+        })
+        .await
+        .expect("evaluate policy");
+
+    assert_eq!(result.outcome, RoutingPolicyOutcome::SingleRemote);
+    assert!(result.caution);
+    assert!(
+        result
+            .findings
+            .iter()
+            .any(|finding| finding.code == "earl-caution-gate")
+    );
+}
+
+#[tokio::test]
+async fn evaluate_routing_policy_rejects_latest_earl_reflex_gate() {
+    let registry = Arc::new(InMemoryProviderRegistry::with_targets([(
+        RegisteredProviderTarget {
+            target: ProviderTarget {
+                provider_id: "provider-a".into(),
+                model_id: Some("model-a".into()),
+                profile_id: Some("reasoning".into()),
+                capability_tags: vec!["analysis".into()],
+                metadata: serde_json::json!({}),
+            },
+        },
+        Arc::new(StubProvider {
+            provider_id: "provider-a",
+        }) as Arc<dyn MembraneProvider>,
+    )]));
+    let runtime = MembraneRuntime::with_provider_registry(
+        Arc::new(StubEmilyApi::with_latest_earl(emily::EarlDecision::Reflex)),
+        registry,
+    );
+
+    let result = runtime
+        .evaluate_routing_policy(RoutingPolicyRequest {
+            task_id: "task-1".into(),
+            episode_id: "episode-1".into(),
+            allow_remote: true,
+            sensitivity: RoutingSensitivity::Normal,
+            preference: RemoteRoutingPreference {
+                provider_id: None,
+                profile_id: Some("reasoning".into()),
+                required_capability_tags: vec!["analysis".into()],
+            },
+        })
+        .await
+        .expect("evaluate policy");
+
+    assert_eq!(result.outcome, RoutingPolicyOutcome::Rejected);
+    assert_eq!(result.findings[0].code, "earl-reflex-gate");
+}
+
+#[tokio::test]
+async fn evaluate_routing_policy_cautions_existing_cautioned_episode() {
+    let registry = Arc::new(InMemoryProviderRegistry::with_targets([(
+        RegisteredProviderTarget {
+            target: ProviderTarget {
+                provider_id: "provider-a".into(),
+                model_id: Some("model-a".into()),
+                profile_id: Some("reasoning".into()),
+                capability_tags: vec!["analysis".into()],
+                metadata: serde_json::json!({}),
+            },
+        },
+        Arc::new(StubProvider {
+            provider_id: "provider-a",
+        }) as Arc<dyn MembraneProvider>,
+    )]));
+    let runtime = MembraneRuntime::with_provider_registry(
+        Arc::new(StubEmilyApi::with_episode_state(EpisodeState::Cautioned)),
+        registry,
+    );
+
+    let result = runtime
+        .evaluate_routing_policy(RoutingPolicyRequest {
+            task_id: "task-1".into(),
+            episode_id: "episode-1".into(),
+            allow_remote: true,
+            sensitivity: RoutingSensitivity::Normal,
+            preference: RemoteRoutingPreference {
+                provider_id: None,
+                profile_id: Some("reasoning".into()),
+                required_capability_tags: vec!["analysis".into()],
+            },
+        })
+        .await
+        .expect("evaluate policy");
+
+    assert_eq!(result.outcome, RoutingPolicyOutcome::SingleRemote);
+    assert!(result.caution);
+    assert!(
+        result
+            .findings
+            .iter()
+            .any(|finding| finding.code == "episode-cautioned")
     );
 }

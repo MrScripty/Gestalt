@@ -4,12 +4,19 @@ use crate::contracts::{
     RoutingPolicyResult, RoutingSensitivity,
 };
 use crate::providers::{ProviderTarget, RegisteredProviderTarget};
+use emily::{EarlDecision, EarlEvaluationRecord, EpisodeRecord, EpisodeState};
 
 const SCORE_PROVIDER_HINT_MATCH: i32 = 100;
 const SCORE_PROFILE_HINT_MATCH: i32 = 50;
 const SCORE_REQUIRED_CAPABILITY_TAG: i32 = 20;
 const SCORE_ADDITIONAL_CAPABILITY_TAG: i32 = 2;
 const SCORE_MODEL_PRESENT: i32 = 1;
+
+#[derive(Debug, Clone)]
+struct EmilyRoutingPolicySnapshot {
+    episode: EpisodeRecord,
+    latest_earl: Option<EarlEvaluationRecord>,
+}
 
 impl<A> super::MembraneRuntime<A>
 where
@@ -51,6 +58,11 @@ where
                 }],
                 Some("critical sensitivity blocks remote dispatch".to_string()),
             ));
+        }
+
+        let snapshot = load_emily_policy_snapshot(self, &request).await?;
+        if let Some(gated_result) = apply_emily_policy_gates(&request, snapshot.as_ref()) {
+            return Ok(gated_result);
         }
 
         let Some(provider_registry) = self.provider_registry.as_ref() else {
@@ -102,6 +114,9 @@ where
             })?;
 
         let mut findings = Vec::new();
+        if let Some(snapshot) = snapshot.as_ref() {
+            findings.extend(emily_caution_findings(snapshot));
+        }
         if request.sensitivity == RoutingSensitivity::High {
             findings.push(RoutingPolicyFinding {
                 code: "high-sensitivity-caution".to_string(),
@@ -124,7 +139,8 @@ where
         Ok(build_policy_result(
             &request,
             RoutingPolicyOutcome::SingleRemote,
-            request.sensitivity == RoutingSensitivity::High,
+            request.sensitivity == RoutingSensitivity::High
+                || snapshot.as_ref().is_some_and(snapshot_requires_caution),
             Some(selected_target.clone()),
             findings,
             Some(format!(
@@ -133,6 +149,148 @@ where
             )),
         ))
     }
+}
+
+async fn load_emily_policy_snapshot<A>(
+    runtime: &super::MembraneRuntime<A>,
+    request: &RoutingPolicyRequest,
+) -> Result<Option<EmilyRoutingPolicySnapshot>, MembraneRuntimeError>
+where
+    A: emily::EmilyApi + ?Sized,
+{
+    let Some(episode) = runtime.emily().episode(&request.episode_id).await? else {
+        return Ok(None);
+    };
+    let latest_earl = runtime
+        .emily()
+        .latest_earl_evaluation_for_episode(&request.episode_id)
+        .await?;
+    Ok(Some(EmilyRoutingPolicySnapshot {
+        episode,
+        latest_earl,
+    }))
+}
+
+fn apply_emily_policy_gates(
+    request: &RoutingPolicyRequest,
+    snapshot: Option<&EmilyRoutingPolicySnapshot>,
+) -> Option<RoutingPolicyResult> {
+    let snapshot = match snapshot {
+        Some(snapshot) => snapshot,
+        None => {
+            return Some(build_policy_result(
+                request,
+                RoutingPolicyOutcome::Rejected,
+                false,
+                None,
+                vec![RoutingPolicyFinding {
+                    code: "episode-missing".to_string(),
+                    severity: RoutingPolicyFindingSeverity::Block,
+                    detail: "routing policy requires an existing Emily episode anchor before remote dispatch".to_string(),
+                }],
+                Some("missing Emily episode blocks remote dispatch".to_string()),
+            ));
+        }
+    };
+
+    if matches!(
+        snapshot.episode.state,
+        EpisodeState::Completed | EpisodeState::Cancelled
+    ) {
+        return Some(build_policy_result(
+            request,
+            RoutingPolicyOutcome::Rejected,
+            false,
+            None,
+            vec![RoutingPolicyFinding {
+                code: "episode-closed".to_string(),
+                severity: RoutingPolicyFindingSeverity::Block,
+                detail: format!(
+                    "episode '{}' is already closed and cannot route remotely",
+                    snapshot.episode.id
+                ),
+            }],
+            Some("closed episodes are not eligible for remote dispatch".to_string()),
+        ));
+    }
+
+    if let Some(latest_earl) = snapshot.latest_earl.as_ref()
+        && latest_earl.decision == EarlDecision::Reflex
+    {
+        return Some(build_policy_result(
+            request,
+            RoutingPolicyOutcome::Rejected,
+            false,
+            None,
+            vec![RoutingPolicyFinding {
+                code: "earl-reflex-gate".to_string(),
+                severity: RoutingPolicyFindingSeverity::Block,
+                detail: format!(
+                    "EARL evaluation '{}' reflex-gated episode '{}'",
+                    latest_earl.id, latest_earl.episode_id
+                ),
+            }],
+            Some("EARL reflex state blocks remote dispatch".to_string()),
+        ));
+    }
+
+    if snapshot.episode.state == EpisodeState::Blocked {
+        return Some(build_policy_result(
+            request,
+            RoutingPolicyOutcome::Rejected,
+            false,
+            None,
+            vec![RoutingPolicyFinding {
+                code: "episode-blocked".to_string(),
+                severity: RoutingPolicyFindingSeverity::Block,
+                detail: format!(
+                    "episode '{}' is blocked inside Emily and cannot route remotely",
+                    snapshot.episode.id
+                ),
+            }],
+            Some("blocked episodes are not eligible for remote dispatch".to_string()),
+        ));
+    }
+
+    None
+}
+
+fn snapshot_requires_caution(snapshot: &EmilyRoutingPolicySnapshot) -> bool {
+    snapshot.episode.state == EpisodeState::Cautioned
+        || snapshot
+            .latest_earl
+            .as_ref()
+            .is_some_and(|evaluation| evaluation.decision == EarlDecision::Caution)
+}
+
+fn emily_caution_findings(snapshot: &EmilyRoutingPolicySnapshot) -> Vec<RoutingPolicyFinding> {
+    let mut findings = Vec::new();
+
+    if let Some(latest_earl) = snapshot.latest_earl.as_ref()
+        && latest_earl.decision == EarlDecision::Caution
+    {
+        findings.push(RoutingPolicyFinding {
+            code: "earl-caution-gate".to_string(),
+            severity: RoutingPolicyFindingSeverity::Caution,
+            detail: format!(
+                "EARL evaluation '{}' requires caution before remote dispatch",
+                latest_earl.id
+            ),
+        });
+    }
+
+    if snapshot.episode.state == EpisodeState::Cautioned {
+        findings.push(RoutingPolicyFinding {
+            code: "episode-cautioned".to_string(),
+            severity: RoutingPolicyFindingSeverity::Caution,
+            detail: format!(
+                "episode '{}' is already cautioned inside Emily",
+                snapshot.episode.id
+            ),
+        });
+    }
+
+    findings
 }
 
 fn validate_routing_policy_request(
