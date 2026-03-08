@@ -196,13 +196,21 @@ This keeps the early loop testable while still moving toward real usage.
 **Goal:** Let developers see what Emily contains and what it returns.
 
 **Tasks:**
-- [ ] Add a narrow inspection path for:
+- [x] Add a narrow inspection path for:
   - episodes
   - latest `EARL`
   - context query results
   - routing / validation records
-- [ ] Add deterministic debug output for seeded DBs
-- [ ] Add reset / recreate workflow for local test databases
+- [x] Add deterministic debug output for seeded DBs
+- [x] Add reset / recreate workflow for local test databases
+
+**Execution Notes:**
+- Implemented in `gestalt::emily_inspect` with a deterministic inspection
+  snapshot model built only on Emily public reads.
+- Added the `emily_inspect` binary for local debug loops, with optional reseed
+  support against the same built-in datasets used by `gestalt::emily_seed`.
+- Added host-level acceptance coverage that seeds an agent-round dataset, writes
+  routing and validation records, and verifies the inspection snapshot.
 
 **Verification:**
 - `cargo fmt`
