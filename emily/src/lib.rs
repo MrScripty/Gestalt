@@ -20,8 +20,9 @@ pub use inference::{
 };
 pub use model::{
     AppendAuditRecordRequest, AuditRecord, AuditRecordKind, ContextItem, ContextPacket,
-    ContextQuery, CreateEpisodeRequest, DatabaseLocator, EmbeddingProviderStatus, EpisodeRecord,
-    EpisodeState, EpisodeTraceKind, EpisodeTraceLink, HealthSnapshot, HistoryPage,
+    ContextQuery, CreateEpisodeRequest, DatabaseLocator, EarlDecision, EarlEvaluationRecord,
+    EarlEvaluationRequest, EarlHostAction, EarlSignalVector, EmbeddingProviderStatus,
+    EpisodeRecord, EpisodeState, EpisodeTraceKind, EpisodeTraceLink, HealthSnapshot, HistoryPage,
     HistoryPageRequest, IngestTextRequest, MemoryPolicy, OutcomeRecord, OutcomeStatus,
     RecordOutcomeRequest, TextEdge, TextEdgeType, TextObject, TextObjectKind, TextVector,
     TraceLinkRequest, VectorizationConfig, VectorizationConfigPatch, VectorizationJobKind,

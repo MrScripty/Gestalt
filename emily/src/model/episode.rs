@@ -34,6 +34,8 @@ pub struct EpisodeRecord {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EpisodeState {
     Open,
+    Cautioned,
+    Blocked,
     Completed,
     Cancelled,
 }
@@ -129,6 +131,7 @@ pub struct AuditRecord {
 pub enum AuditRecordKind {
     EpisodeCreated,
     TraceLinked,
+    EarlEvaluated,
     OutcomeRecorded,
     Other,
 }

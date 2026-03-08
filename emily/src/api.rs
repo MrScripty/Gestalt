@@ -1,10 +1,11 @@
 use crate::error::EmilyError;
 use crate::model::{
     AppendAuditRecordRequest, AuditRecord, ContextPacket, ContextQuery, CreateEpisodeRequest,
-    DatabaseLocator, EpisodeRecord, EpisodeTraceLink, HealthSnapshot, HistoryPage,
-    HistoryPageRequest, IngestTextRequest, MemoryPolicy, OutcomeRecord, RecordOutcomeRequest,
-    TextObject, TraceLinkRequest, VectorizationConfig, VectorizationConfigPatch,
-    VectorizationJobSnapshot, VectorizationRunRequest, VectorizationStatus,
+    DatabaseLocator, EarlEvaluationRecord, EarlEvaluationRequest, EpisodeRecord, EpisodeTraceLink,
+    HealthSnapshot, HistoryPage, HistoryPageRequest, IngestTextRequest, MemoryPolicy,
+    OutcomeRecord, RecordOutcomeRequest, TextObject, TraceLinkRequest, VectorizationConfig,
+    VectorizationConfigPatch, VectorizationJobSnapshot, VectorizationRunRequest,
+    VectorizationStatus,
 };
 use async_trait::async_trait;
 
@@ -46,6 +47,12 @@ pub trait EmilyApi: Send + Sync {
         &self,
         request: AppendAuditRecordRequest,
     ) -> Result<AuditRecord, EmilyError>;
+
+    /// Evaluate one episode with the current EARL gate.
+    async fn evaluate_episode_risk(
+        &self,
+        request: EarlEvaluationRequest,
+    ) -> Result<EarlEvaluationRecord, EmilyError>;
 
     /// Retrieve ranked context items for the given query.
     async fn query_context(&self, query: ContextQuery) -> Result<ContextPacket, EmilyError>;

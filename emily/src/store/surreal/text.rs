@@ -11,6 +11,19 @@ use surrealdb::Surreal;
 use surrealdb::engine::local::{Db, SurrealKv};
 
 impl SurrealEmilyStore {
+    fn normalize_text_record_id(value: &str, table: &str) -> String {
+        let prefix = format!("{table}:`");
+        value
+            .strip_prefix(&prefix)
+            .and_then(|rest| rest.strip_suffix('`'))
+            .map_or_else(|| value.to_string(), ToString::to_string)
+    }
+
+    fn normalize_text_object(mut object: TextObject) -> TextObject {
+        object.id = Self::normalize_text_record_id(&object.id, "text_objects");
+        object
+    }
+
     fn parse_query_tokens(value: &str) -> HashMap<String, usize> {
         let mut freq = HashMap::<String, usize>::new();
         for token in value
@@ -127,6 +140,15 @@ impl SurrealEmilyStore {
         let client = self.active_client().await?;
         self.append_linear_edge(&client, object).await?;
 
+        self.upsert_text_object_internal(object).await
+    }
+
+    pub(super) async fn upsert_text_object_internal(
+        &self,
+        object: &TextObject,
+    ) -> Result<(), EmilyError> {
+        let client = self.active_client().await?;
+
         client
             .query("UPSERT type::thing('text_objects', $id) CONTENT $object")
             .bind(("id", object.id.clone()))
@@ -157,7 +179,7 @@ impl SurrealEmilyStore {
                 "surreal result decode failed (text_object): {error}"
             ))
         })?;
-        Ok(objects.into_iter().next())
+        Ok(objects.into_iter().next().map(Self::normalize_text_object))
     }
 
     pub(super) async fn upsert_text_edge_internal(
@@ -250,6 +272,10 @@ impl SurrealEmilyStore {
                 "surreal result decode failed (text_objects): {error}"
             ))
         })?;
+        objects = objects
+            .into_iter()
+            .map(Self::normalize_text_object)
+            .collect();
         if let Some(stream_id) = stream_id {
             objects.retain(|object| object.stream_id == stream_id);
         }

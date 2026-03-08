@@ -3,10 +3,11 @@ use crate::error::EmilyError;
 use crate::inference::EmbeddingProvider;
 use crate::model::{
     AppendAuditRecordRequest, AuditRecord, ContextPacket, ContextQuery, CreateEpisodeRequest,
-    DatabaseLocator, EpisodeRecord, EpisodeTraceLink, HealthSnapshot, HistoryPage,
-    HistoryPageRequest, IngestTextRequest, MemoryPolicy, OutcomeRecord, RecordOutcomeRequest,
-    TextObject, TextVector, TraceLinkRequest, VectorizationConfig, VectorizationConfigPatch,
-    VectorizationJobKind, VectorizationJobSnapshot, VectorizationRunRequest, VectorizationStatus,
+    DatabaseLocator, EarlEvaluationRecord, EarlEvaluationRequest, EpisodeRecord, EpisodeTraceLink,
+    HealthSnapshot, HistoryPage, HistoryPageRequest, IngestTextRequest, MemoryPolicy,
+    OutcomeRecord, RecordOutcomeRequest, TextObject, TextVector, TraceLinkRequest,
+    VectorizationConfig, VectorizationConfigPatch, VectorizationJobKind, VectorizationJobSnapshot,
+    VectorizationRunRequest, VectorizationStatus,
 };
 use crate::store::EmilyStore;
 use async_trait::async_trait;
@@ -14,6 +15,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use tokio::sync::{Mutex, RwLock, broadcast};
 
+mod earl;
+#[cfg(test)]
+mod earl_tests;
 #[cfg(test)]
 mod episode_tests;
 mod episodes;
@@ -352,6 +356,13 @@ impl<S: EmilyStore + 'static> EmilyApi for EmilyRuntime<S> {
         request: AppendAuditRecordRequest,
     ) -> Result<AuditRecord, EmilyError> {
         self.append_audit_record_internal(request).await
+    }
+
+    async fn evaluate_episode_risk(
+        &self,
+        request: EarlEvaluationRequest,
+    ) -> Result<EarlEvaluationRecord, EmilyError> {
+        self.evaluate_episode_risk_internal(request).await
     }
 
     async fn query_context(&self, query: ContextQuery) -> Result<ContextPacket, EmilyError> {

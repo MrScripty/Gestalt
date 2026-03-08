@@ -1,8 +1,8 @@
 use crate::error::EmilyError;
 use crate::model::{
-    AuditRecord, ContextPacket, ContextQuery, DatabaseLocator, EpisodeRecord, EpisodeTraceLink,
-    HistoryPage, HistoryPageRequest, OutcomeRecord, TextEdge, TextObject, TextVector,
-    VectorizationConfig,
+    AuditRecord, ContextPacket, ContextQuery, DatabaseLocator, EarlEvaluationRecord, EpisodeRecord,
+    EpisodeTraceLink, HistoryPage, HistoryPageRequest, OutcomeRecord, TextEdge, TextObject,
+    TextVector, VectorizationConfig,
 };
 use crate::store::EmilyStore;
 use async_trait::async_trait;
@@ -10,6 +10,7 @@ use surrealdb::Surreal;
 use surrealdb::engine::local::Db;
 use tokio::sync::RwLock;
 
+mod earl;
 mod episodes;
 #[cfg(test)]
 mod tests;
@@ -58,6 +59,10 @@ impl EmilyStore for SurrealEmilyStore {
 
     async fn insert_text_object(&self, object: &TextObject) -> Result<(), EmilyError> {
         self.insert_text_object_internal(object).await
+    }
+
+    async fn upsert_text_object(&self, object: &TextObject) -> Result<(), EmilyError> {
+        self.upsert_text_object_internal(object).await
     }
 
     async fn get_text_object(&self, object_id: &str) -> Result<Option<TextObject>, EmilyError> {
@@ -145,6 +150,27 @@ impl EmilyStore for SurrealEmilyStore {
 
     async fn list_outcomes(&self, episode_id: &str) -> Result<Vec<OutcomeRecord>, EmilyError> {
         self.list_outcomes_internal(episode_id).await
+    }
+
+    async fn upsert_earl_evaluation(
+        &self,
+        evaluation: &EarlEvaluationRecord,
+    ) -> Result<(), EmilyError> {
+        self.upsert_earl_evaluation_internal(evaluation).await
+    }
+
+    async fn get_earl_evaluation(
+        &self,
+        evaluation_id: &str,
+    ) -> Result<Option<EarlEvaluationRecord>, EmilyError> {
+        self.get_earl_evaluation_internal(evaluation_id).await
+    }
+
+    async fn list_earl_evaluations(
+        &self,
+        episode_id: &str,
+    ) -> Result<Vec<EarlEvaluationRecord>, EmilyError> {
+        self.list_earl_evaluations_internal(episode_id).await
     }
 
     async fn upsert_audit_record(&self, audit: &AuditRecord) -> Result<(), EmilyError> {

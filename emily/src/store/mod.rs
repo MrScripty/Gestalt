@@ -1,8 +1,8 @@
 use crate::error::EmilyError;
 use crate::model::{
-    AuditRecord, ContextPacket, ContextQuery, DatabaseLocator, EpisodeRecord, EpisodeTraceLink,
-    HistoryPage, HistoryPageRequest, OutcomeRecord, TextEdge, TextObject, TextVector,
-    VectorizationConfig,
+    AuditRecord, ContextPacket, ContextQuery, DatabaseLocator, EarlEvaluationRecord, EpisodeRecord,
+    EpisodeTraceLink, HistoryPage, HistoryPageRequest, OutcomeRecord, TextEdge, TextObject,
+    TextVector, VectorizationConfig,
 };
 use async_trait::async_trait;
 
@@ -12,6 +12,7 @@ pub trait EmilyStore: Send + Sync {
     async fn open(&self, locator: &DatabaseLocator) -> Result<(), EmilyError>;
     async fn close(&self) -> Result<(), EmilyError>;
     async fn insert_text_object(&self, object: &TextObject) -> Result<(), EmilyError>;
+    async fn upsert_text_object(&self, object: &TextObject) -> Result<(), EmilyError>;
     async fn get_text_object(&self, object_id: &str) -> Result<Option<TextObject>, EmilyError>;
     async fn upsert_text_edge(&self, edge: &TextEdge) -> Result<(), EmilyError>;
     async fn upsert_text_vector(&self, vector: &TextVector) -> Result<(), EmilyError>;
@@ -48,6 +49,18 @@ pub trait EmilyStore: Send + Sync {
     async fn upsert_outcome(&self, outcome: &OutcomeRecord) -> Result<(), EmilyError>;
     async fn get_outcome(&self, outcome_id: &str) -> Result<Option<OutcomeRecord>, EmilyError>;
     async fn list_outcomes(&self, episode_id: &str) -> Result<Vec<OutcomeRecord>, EmilyError>;
+    async fn upsert_earl_evaluation(
+        &self,
+        evaluation: &EarlEvaluationRecord,
+    ) -> Result<(), EmilyError>;
+    async fn get_earl_evaluation(
+        &self,
+        evaluation_id: &str,
+    ) -> Result<Option<EarlEvaluationRecord>, EmilyError>;
+    async fn list_earl_evaluations(
+        &self,
+        episode_id: &str,
+    ) -> Result<Vec<EarlEvaluationRecord>, EmilyError>;
     async fn upsert_audit_record(&self, audit: &AuditRecord) -> Result<(), EmilyError>;
     async fn get_audit_record(&self, audit_id: &str) -> Result<Option<AuditRecord>, EmilyError>;
     async fn list_audit_records(&self, episode_id: &str) -> Result<Vec<AuditRecord>, EmilyError>;

@@ -9,6 +9,8 @@ pub enum EmilyError {
     InvalidDatabaseLocator(String),
     #[error("invalid request: {0}")]
     InvalidRequest(String),
+    #[error("episode is gated: {0}")]
+    EpisodeGated(String),
     #[error("store error: {0}")]
     Store(String),
     #[error("embedding provider error: {0}")]

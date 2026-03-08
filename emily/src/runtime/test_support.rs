@@ -1,7 +1,7 @@
 use super::*;
 use crate::model::{
-    AuditRecord, EpisodeRecord, EpisodeTraceLink, OutcomeRecord, TextEdge, TextObjectKind,
-    VectorizationConfig,
+    AuditRecord, EarlEvaluationRecord, EpisodeRecord, EpisodeTraceLink, OutcomeRecord, TextEdge,
+    TextObjectKind, VectorizationConfig,
 };
 use crate::store::EmilyStore;
 use serde_json::json;
@@ -16,6 +16,7 @@ pub(super) struct MockStore {
     pub(super) episodes: Mutex<Vec<EpisodeRecord>>,
     pub(super) trace_links: Mutex<Vec<EpisodeTraceLink>>,
     pub(super) outcomes: Mutex<Vec<OutcomeRecord>>,
+    pub(super) earl_evaluations: Mutex<Vec<EarlEvaluationRecord>>,
     pub(super) audits: Mutex<Vec<AuditRecord>>,
     pub(super) config: Mutex<Option<VectorizationConfig>>,
     pub(super) insert_started: Option<Arc<Notify>>,
@@ -39,7 +40,16 @@ impl EmilyStore for MockStore {
         if let Some(release_insert) = self.release_insert.as_ref() {
             release_insert.notified().await;
         }
-        self.objects.lock().await.push(object.clone());
+        self.upsert_text_object(object).await
+    }
+
+    async fn upsert_text_object(&self, object: &TextObject) -> Result<(), EmilyError> {
+        let mut objects = self.objects.lock().await;
+        if let Some(index) = objects.iter().position(|item| item.id == object.id) {
+            objects[index] = object.clone();
+        } else {
+            objects.push(object.clone());
+        }
         Ok(())
     }
 
@@ -226,6 +236,41 @@ impl EmilyStore for MockStore {
         outcomes.retain(|item| item.episode_id == episode_id);
         outcomes.sort_by(|left, right| left.recorded_at_unix_ms.cmp(&right.recorded_at_unix_ms));
         Ok(outcomes)
+    }
+
+    async fn upsert_earl_evaluation(
+        &self,
+        evaluation: &EarlEvaluationRecord,
+    ) -> Result<(), EmilyError> {
+        let mut evaluations = self.earl_evaluations.lock().await;
+        if let Some(index) = evaluations.iter().position(|item| item.id == evaluation.id) {
+            evaluations[index] = evaluation.clone();
+        } else {
+            evaluations.push(evaluation.clone());
+        }
+        Ok(())
+    }
+
+    async fn get_earl_evaluation(
+        &self,
+        evaluation_id: &str,
+    ) -> Result<Option<EarlEvaluationRecord>, EmilyError> {
+        let evaluations = self.earl_evaluations.lock().await;
+        Ok(evaluations
+            .iter()
+            .find(|item| item.id == evaluation_id)
+            .cloned())
+    }
+
+    async fn list_earl_evaluations(
+        &self,
+        episode_id: &str,
+    ) -> Result<Vec<EarlEvaluationRecord>, EmilyError> {
+        let mut evaluations = self.earl_evaluations.lock().await.clone();
+        evaluations.retain(|item| item.episode_id == episode_id);
+        evaluations
+            .sort_by(|left, right| left.evaluated_at_unix_ms.cmp(&right.evaluated_at_unix_ms));
+        Ok(evaluations)
     }
 
     async fn upsert_audit_record(&self, audit: &AuditRecord) -> Result<(), EmilyError> {

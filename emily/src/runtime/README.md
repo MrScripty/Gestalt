@@ -8,6 +8,8 @@ This directory contains the runtime-specific implementation slices for the Emily
 
 | File/Folder | Description |
 | ----------- | ----------- |
+| `earl.rs` | Deterministic EARL evaluator, projection updates, and durable audit writes. |
+| `earl_tests.rs` | EARL unit and acceptance tests through the public runtime facade. |
 | `episodes.rs` | Episode, outcome, and audit write-path validation and idempotency logic. |
 | `retrieval.rs` | Semantic retrieval, ranking, provenance, and semantic-edge linking logic. |
 | `test_support.rs` | Shared async test doubles and fixtures for runtime tests. |
@@ -27,7 +29,7 @@ This directory contains the runtime-specific implementation slices for the Emily
 
 ## Decision
 
-Keep `runtime.rs` as the public runtime entrypoint and move focused subdomains under `runtime/` for retrieval, episode/outcome persistence rules, job orchestration, and tests.
+Keep `runtime.rs` as the public runtime entrypoint and move focused subdomains under `runtime/` for retrieval, EARL gating, episode/outcome persistence rules, job orchestration, and tests.
 
 ## Alternatives Rejected
 
@@ -37,6 +39,7 @@ Keep `runtime.rs` as the public runtime entrypoint and move focused subdomains u
 ## Invariants
 
 - `EmilyRuntime` remains the public runtime type.
+- EARL evaluation logic remains internal to the runtime implementation rather than a host-facing helper API.
 - Retrieval logic remains internal to the runtime implementation rather than a host-facing helper API.
 - Episode, outcome, and audit writes remain host-agnostic runtime behavior behind `EmilyApi`.
 - Vectorization job logic remains an internal implementation detail.
@@ -78,9 +81,11 @@ let runtime = EmilyRuntime::new(Arc::new(SurrealEmilyStore::new()));
 
 ## Structured Producer Contract
 
+- `earl_tests.rs` validates `OK / CAUTION / REFLEX` behavior and blocked-episode enforcement through the public runtime facade.
 - `tests.rs` and `test_support.rs` produce no persisted artifacts.
 - `episode_tests.rs` validates episode, outcome, and audit persistence through the public runtime facade.
 - `retrieval.rs` produces semantic edges and context packets through existing Emily contracts.
 - `vectorization.rs` updates runtime job snapshots and vector records through existing crate contracts.
 - `episodes.rs` produces episode records, trace links, outcome records, and audit records through existing crate contracts.
+- `earl.rs` produces EARL evaluations, guarded episode states, and durable EARL audit records through existing crate contracts.
 - Compatibility expectations for those records remain defined by `emily/src/model.rs` and store implementations.

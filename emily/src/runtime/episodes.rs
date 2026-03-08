@@ -8,7 +8,7 @@ use crate::model::{
 use crate::store::EmilyStore;
 
 impl<S: EmilyStore + 'static> EmilyRuntime<S> {
-    fn validate_required_text(field_name: &str, value: &str) -> Result<(), EmilyError> {
+    pub(super) fn validate_required_text(field_name: &str, value: &str) -> Result<(), EmilyError> {
         if value.trim().is_empty() {
             return Err(EmilyError::InvalidRequest(format!(
                 "{field_name} cannot be empty"
@@ -17,7 +17,10 @@ impl<S: EmilyStore + 'static> EmilyRuntime<S> {
         Ok(())
     }
 
-    fn validate_optional_text(field_name: &str, value: Option<&str>) -> Result<(), EmilyError> {
+    pub(super) fn validate_optional_text(
+        field_name: &str,
+        value: Option<&str>,
+    ) -> Result<(), EmilyError> {
         if let Some(value) = value
             && value.trim().is_empty()
         {
@@ -214,6 +217,12 @@ impl<S: EmilyStore + 'static> EmilyRuntime<S> {
                 request.episode_id
             )));
         };
+        if matches!(existing_episode.state, EpisodeState::Blocked) {
+            return Err(EmilyError::EpisodeGated(format!(
+                "episode '{}' is blocked by EARL",
+                request.episode_id
+            )));
+        }
 
         let outcome = Self::build_outcome_record(request);
         match self.store.get_outcome(&outcome.id).await? {

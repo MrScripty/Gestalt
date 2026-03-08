@@ -10,6 +10,7 @@ Current scope is the memory and embedding-integrity core. This crate does not ye
 
 - `EmilyApi`: open/switch/close database, ingest text, query context, page history
 - Episode contract surface: create episodes, link traces, record outcomes, append audits
+- `EARL` control surface: evaluate episode risk and receive `OK / CAUTION / REFLEX` results
 - Retrieval policy surface: read/update `MemoryPolicy`
 - Vectorization control surface: config updates, status, backfill/revectorize jobs, cancellation
 - Generic DTOs in `model.rs` (no Gestalt-specific types)
@@ -30,9 +31,13 @@ Current policy fields on stored objects are provisional. Until active `EARL` and
 `ECGL` runtimes exist, the crate should not imply that stored confidence,
 learning, or integration values are the result of a real policy engine.
 
-Episode, outcome, and audit records are now part of the reusable crate boundary.
+Episode, outcome, audit, and `EARL` evaluation records are now part of the reusable crate boundary.
 Those persisted artifacts are additive extensions to existing Emily storage and
 do not require breaking changes for databases that only contain text/vector data.
+
+The current `EARL` runtime is a deterministic first slice. It gives hosts a
+typed pre-cognitive gate and durable decision trail without yet claiming the
+full learned manifold or Mahalanobis implementation described in the papers.
 
 ## Internal Modules
 

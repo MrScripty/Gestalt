@@ -2,8 +2,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::PathBuf;
 
+mod earl;
 mod episode;
 
+pub use earl::{
+    EarlDecision, EarlEvaluationRecord, EarlEvaluationRequest, EarlHostAction, EarlSignalVector,
+};
 pub use episode::{
     AppendAuditRecordRequest, AuditRecord, AuditRecordKind, CreateEpisodeRequest, EpisodeRecord,
     EpisodeState, EpisodeTraceKind, EpisodeTraceLink, OutcomeRecord, OutcomeStatus,
