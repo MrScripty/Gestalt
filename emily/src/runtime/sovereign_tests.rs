@@ -60,6 +60,7 @@ async fn record_routing_decision_persists_and_is_idempotent() {
 
     assert_eq!(first, second);
     assert_eq!(store.routing_decisions.lock().await.len(), 1);
+    assert_eq!(store.audits.lock().await.len(), 1);
 }
 
 #[tokio::test]
@@ -90,7 +91,7 @@ async fn create_remote_episode_requires_matching_route_decision() {
 #[tokio::test]
 async fn record_validation_outcome_requires_matching_remote_episode() {
     let store = Arc::new(MockStore::default());
-    let runtime = EmilyRuntime::new(store);
+    let runtime = EmilyRuntime::new(store.clone());
     runtime.open_db(locator()).await.expect("open");
     runtime
         .create_episode(episode_request())
@@ -130,6 +131,7 @@ async fn record_validation_outcome_requires_matching_remote_episode() {
         .expect("record validation");
 
     assert_eq!(outcome.validation_id, "validation-1");
+    assert_eq!(store.audits.lock().await.len(), 3);
 }
 
 #[tokio::test]
@@ -169,7 +171,7 @@ async fn append_sovereign_audit_record_persists_structured_metadata() {
         audit.metadata["sovereign"]["route_decision_id"],
         json!("route-1")
     );
-    assert_eq!(store.audits.lock().await.len(), 1);
+    assert_eq!(store.audits.lock().await.len(), 2);
 }
 
 #[tokio::test]
@@ -287,6 +289,88 @@ async fn sovereign_read_api_returns_persisted_records() {
             .await
             .expect("list sovereign audits")
             .len(),
-        1
+        4
     );
+}
+
+#[tokio::test]
+async fn automatic_sovereign_audits_are_replay_safe() {
+    let store = Arc::new(MockStore::default());
+    let runtime = EmilyRuntime::new(store.clone());
+    runtime.open_db(locator()).await.expect("open");
+    runtime
+        .create_episode(episode_request())
+        .await
+        .expect("create episode");
+
+    runtime
+        .record_routing_decision(routing_decision())
+        .await
+        .expect("record route");
+    runtime
+        .record_routing_decision(routing_decision())
+        .await
+        .expect("record route replay");
+
+    runtime
+        .create_remote_episode(RemoteEpisodeRequest {
+            remote_episode_id: "remote-1".to_string(),
+            episode_id: "ep-sovereign".to_string(),
+            route_decision_id: Some("route-1".to_string()),
+            dispatch_kind: "bounded_program".to_string(),
+            dispatched_at_unix_ms: 3,
+            metadata: json!({"provider": "provider-a"}),
+        })
+        .await
+        .expect("create remote episode");
+    runtime
+        .create_remote_episode(RemoteEpisodeRequest {
+            remote_episode_id: "remote-1".to_string(),
+            episode_id: "ep-sovereign".to_string(),
+            route_decision_id: Some("route-1".to_string()),
+            dispatch_kind: "bounded_program".to_string(),
+            dispatched_at_unix_ms: 3,
+            metadata: json!({"provider": "provider-a"}),
+        })
+        .await
+        .expect("replay remote episode");
+
+    runtime
+        .record_validation_outcome(ValidationOutcome {
+            validation_id: "validation-1".to_string(),
+            episode_id: "ep-sovereign".to_string(),
+            remote_episode_id: Some("remote-1".to_string()),
+            decision: ValidationDecision::AcceptedWithCaution,
+            validated_at_unix_ms: 4,
+            findings: vec![ValidationFinding {
+                code: "uncertain_reference".to_string(),
+                severity: ValidationFindingSeverity::Warning,
+                message: "cross-check before use".to_string(),
+            }],
+            metadata: json!({"checker": "eccr"}),
+        })
+        .await
+        .expect("record validation");
+    runtime
+        .record_validation_outcome(ValidationOutcome {
+            validation_id: "validation-1".to_string(),
+            episode_id: "ep-sovereign".to_string(),
+            remote_episode_id: Some("remote-1".to_string()),
+            decision: ValidationDecision::AcceptedWithCaution,
+            validated_at_unix_ms: 4,
+            findings: vec![ValidationFinding {
+                code: "uncertain_reference".to_string(),
+                severity: ValidationFindingSeverity::Warning,
+                message: "cross-check before use".to_string(),
+            }],
+            metadata: json!({"checker": "eccr"}),
+        })
+        .await
+        .expect("replay validation");
+
+    let audits = runtime
+        .sovereign_audit_records_for_episode("ep-sovereign")
+        .await
+        .expect("list sovereign audits");
+    assert_eq!(audits.len(), 3);
 }

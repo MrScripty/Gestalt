@@ -53,6 +53,10 @@ routing decisions, validation outcomes, and structured sovereign audit metadata.
 Those contracts prepare later sovereign Emily work without committing the core
 crate to one membrane or transport runtime.
 
+Routing, remote-episode, and validation writes now generate deterministic
+sovereign audit records automatically. Hosts can still append explicit
+sovereign audits for additional boundary events or annotations.
+
 ## Host Responsibilities
 
 Host applications remain responsible for:

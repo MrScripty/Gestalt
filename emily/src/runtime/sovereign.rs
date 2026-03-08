@@ -9,6 +9,17 @@ use crate::store::EmilyStore;
 use serde_json::json;
 
 impl<S: EmilyStore + 'static> EmilyRuntime<S> {
+    fn sovereign_audit_id(kind: crate::model::AuditRecordKind, record_id: &str) -> String {
+        let prefix = match kind {
+            crate::model::AuditRecordKind::RoutingDecided => "routing",
+            crate::model::AuditRecordKind::RemoteEpisodeRecorded => "remote",
+            crate::model::AuditRecordKind::ValidationRecorded => "validation",
+            crate::model::AuditRecordKind::BoundaryEvent => "boundary",
+            _ => "other",
+        };
+        format!("audit:sovereign:{prefix}:{record_id}")
+    }
+
     fn is_sovereign_audit_kind(kind: crate::model::AuditRecordKind) -> bool {
         matches!(
             kind,
@@ -95,6 +106,26 @@ impl<S: EmilyStore + 'static> EmilyRuntime<S> {
         json!({ "sovereign": metadata })
     }
 
+    async fn append_generated_sovereign_audit(
+        &self,
+        episode_id: &str,
+        kind: crate::model::AuditRecordKind,
+        ts_unix_ms: i64,
+        summary: String,
+        metadata: SovereignAuditMetadata,
+        record_id: &str,
+    ) -> Result<AuditRecord, EmilyError> {
+        self.append_sovereign_audit_record_internal(AppendSovereignAuditRecordRequest {
+            audit_id: Self::sovereign_audit_id(kind, record_id),
+            episode_id: episode_id.to_string(),
+            kind,
+            ts_unix_ms,
+            summary,
+            metadata,
+        })
+        .await
+    }
+
     pub(super) async fn record_routing_decision_internal(
         &self,
         decision: RoutingDecision,
@@ -116,22 +147,41 @@ impl<S: EmilyStore + 'static> EmilyRuntime<S> {
             )));
         }
 
-        if let Some(existing) = self
+        let persisted = if let Some(existing) = self
             .store
             .get_routing_decision(&decision.decision_id)
             .await?
         {
             if existing == decision {
-                return Ok(existing);
+                existing
+            } else {
+                return Err(Self::conflict_error(
+                    "routing decision",
+                    &decision.decision_id,
+                ));
             }
-            return Err(Self::conflict_error(
-                "routing decision",
-                &decision.decision_id,
-            ));
-        }
+        } else {
+            self.store.upsert_routing_decision(&decision).await?;
+            decision
+        };
 
-        self.store.upsert_routing_decision(&decision).await?;
-        Ok(decision)
+        self.append_generated_sovereign_audit(
+            &persisted.episode_id,
+            crate::model::AuditRecordKind::RoutingDecided,
+            persisted.decided_at_unix_ms,
+            format!("routing decision '{}' recorded", persisted.decision_id),
+            SovereignAuditMetadata {
+                remote_episode_id: None,
+                route_decision_id: Some(persisted.decision_id.clone()),
+                validation_id: None,
+                boundary_profile: None,
+                metadata: json!({"kind": persisted.kind, "targets": persisted.targets.len()}),
+            },
+            &persisted.decision_id,
+        )
+        .await?;
+
+        Ok(persisted)
     }
 
     pub(super) async fn create_remote_episode_internal(
@@ -165,23 +215,42 @@ impl<S: EmilyStore + 'static> EmilyRuntime<S> {
             }
         }
 
-        if let Some(existing) = self
+        let persisted = if let Some(existing) = self
             .store
             .get_remote_episode(&request.remote_episode_id)
             .await?
         {
             if Self::remote_episode_matches_request(&existing, &request) {
-                return Ok(existing);
+                existing
+            } else {
+                return Err(Self::conflict_error(
+                    "remote episode",
+                    &request.remote_episode_id,
+                ));
             }
-            return Err(Self::conflict_error(
-                "remote episode",
-                &request.remote_episode_id,
-            ));
-        }
+        } else {
+            let record = Self::build_remote_episode_record(request);
+            self.store.upsert_remote_episode(&record).await?;
+            record
+        };
 
-        let record = Self::build_remote_episode_record(request);
-        self.store.upsert_remote_episode(&record).await?;
-        Ok(record)
+        self.append_generated_sovereign_audit(
+            &persisted.episode_id,
+            crate::model::AuditRecordKind::RemoteEpisodeRecorded,
+            persisted.dispatched_at_unix_ms,
+            format!("remote episode '{}' recorded", persisted.id),
+            SovereignAuditMetadata {
+                remote_episode_id: Some(persisted.id.clone()),
+                route_decision_id: persisted.route_decision_id.clone(),
+                validation_id: None,
+                boundary_profile: None,
+                metadata: json!({"dispatch_kind": persisted.dispatch_kind}),
+            },
+            &persisted.id,
+        )
+        .await?;
+
+        Ok(persisted)
     }
 
     pub(super) async fn record_validation_outcome_internal(
@@ -215,22 +284,42 @@ impl<S: EmilyStore + 'static> EmilyRuntime<S> {
             }
         }
 
-        if let Some(existing) = self
+        let persisted = if let Some(existing) = self
             .store
             .get_validation_outcome(&outcome.validation_id)
             .await?
         {
             if existing == outcome {
-                return Ok(existing);
+                existing
+            } else {
+                return Err(Self::conflict_error(
+                    "validation outcome",
+                    &outcome.validation_id,
+                ));
             }
-            return Err(Self::conflict_error(
-                "validation outcome",
-                &outcome.validation_id,
-            ));
-        }
+        } else {
+            self.store.upsert_validation_outcome(&outcome).await?;
+            outcome
+        };
 
-        self.store.upsert_validation_outcome(&outcome).await?;
-        Ok(outcome)
+        self
+            .append_generated_sovereign_audit(
+                &persisted.episode_id,
+                crate::model::AuditRecordKind::ValidationRecorded,
+                persisted.validated_at_unix_ms,
+                format!("validation outcome '{}' recorded", persisted.validation_id),
+                SovereignAuditMetadata {
+                    remote_episode_id: persisted.remote_episode_id.clone(),
+                    route_decision_id: None,
+                    validation_id: Some(persisted.validation_id.clone()),
+                    boundary_profile: None,
+                    metadata: json!({"decision": persisted.decision, "findings": persisted.findings.len()}),
+                },
+                &persisted.validation_id,
+            )
+            .await?;
+
+        Ok(persisted)
     }
 
     pub(super) async fn append_sovereign_audit_record_internal(
