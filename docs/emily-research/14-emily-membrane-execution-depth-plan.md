@@ -313,16 +313,18 @@ behavior.
 pass-through.
 
 **Tasks:**
-- [ ] Add explicit reconstruction handles and provenance references
-- [ ] Add local rendering rules for remote outputs and validation findings
-- [ ] Keep reconstruction host-agnostic
-- [ ] Add audit-relevant provenance for final rendered outputs
+- [x] Add explicit reconstruction handles and provenance references
+- [x] Add local rendering rules for remote outputs and validation findings
+- [x] Keep reconstruction host-agnostic
+- [x] Add audit-relevant provenance for final rendered outputs
 
 **Verification:**
 - `cargo fmt`
 - `cargo clippy --all-targets -- -D warnings`
 - `cargo test -q`
 - acceptance tests for provenance-aware reconstruction
+
+**Status:** Completed on 2026-03-08 via `feat(emily-membrane): deepen reconstruction provenance`.
 
 ## Re-Plan Triggers
 

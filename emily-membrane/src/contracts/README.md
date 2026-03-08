@@ -13,6 +13,7 @@ one file.
 | ---- | ----------- |
 | `ir.rs` | Typed membrane IR contracts and render-mode metadata |
 | `multi_remote.rs` | Sequential multi-target fanout, reconciliation, and persistence contracts |
+| `reconstruction.rs` | Host-agnostic reconstruction results, provenance references, and handle metadata |
 | `retry.rs` | Request-scoped retry and mutation contracts for bounded remote retries |
 | `validation.rs` | Typed membrane validation contracts and category assessments |
 
@@ -29,6 +30,7 @@ rendering.
 - DTOs in this directory must remain transport-agnostic.
 - IR contracts must be append-only.
 - Multi-target contracts must stay request-scoped and bounded.
+- Reconstruction contracts must stay host-agnostic and explainable.
 - Retry contracts must stay request-scoped and deterministic.
 - Validation contracts must stay membrane-owned and modest in their claims.
 - Provider adapters must translate from membrane IR rather than inventing their
@@ -42,6 +44,8 @@ surface stable.
 ## Invariants
 
 - The typed IR is the primary compile representation.
+- Reconstruction results carry typed provenance references rather than only raw
+  rendered text.
 - Multi-target contracts describe bounded sequential fanout, not background
   orchestration or unbounded swarm behavior.
 - Retry contracts describe bounded per-request retries; they do not imply

@@ -13,6 +13,7 @@ focused files.
 | ----------- | ----------- |
 | `multi_remote.rs` | Sequential multi-target remote execution and deterministic reconciliation |
 | `policy.rs` | Deterministic routing-policy evaluation over registered membrane targets |
+| `reconstruction.rs` | Context-aware local reconstruction and provenance rendering rules |
 | `retry.rs` | Request-scoped retry helpers layered over the existing remote write path |
 | `remote.rs` | Remote execution helpers and provider-registry-backed runtime methods |
 | `validation.rs` | Deterministic local validation rules and disposition derivation |
@@ -51,6 +52,8 @@ runtime type in `runtime.rs`.
   snapshots while preserving deterministic tie-breaking.
 - `multi_remote.rs` owns the first bounded sequential fanout path and its
   deterministic reconciliation rules.
+- `reconstruction.rs` owns host-agnostic local rendering rules plus provenance
+  references derived from compile, dispatch, and validation state.
 - `retry.rs` owns bounded request-scoped retry and mutation behavior for
   remote execution.
 - `remote.rs` owns provider-registry-backed remote execution helpers.
@@ -105,6 +108,9 @@ runtime type in `runtime.rs`.
 - Validation results now include typed assessments for coherence, relevance,
   confidence, and provenance sufficiency before mapping back into Emily
   validation outcomes.
+- Reconstruction now has a contextual path that emits explicit reconstruction
+  handles, admitted context references, remote-result provenance, and
+  validation-policy references instead of returning raw validated text alone.
 - The runtime now also exposes a bounded multi-target remote path with one
   shared `MultiRemote` route decision, per-target remote/validation writes,
   and deterministic reconciliation.

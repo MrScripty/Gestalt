@@ -104,6 +104,7 @@ async fn run_local(api: Arc<dyn EmilyApi>) {
         .await
         .expect("execute");
     assert!(result.reconstruction.output_text.starts_with("LOCAL: "));
+    assert!(!result.reconstruction.references.is_empty());
 }
 ```
 
@@ -115,6 +116,8 @@ async fn run_local(api: Arc<dyn EmilyApi>) {
   that IR as the primary pre-render boundary representation.
 - `contracts/validation.rs` now exposes typed validation categories,
   assessments, and severities for the first stronger local-validation slice.
+- `contracts/reconstruction.rs` now exposes reconstruction handles and
+  provenance references for final rendered output envelopes.
 - `contracts/retry.rs` now exposes bounded retry and mutation contracts for
   request-scoped remote retries.
 - `contracts/multi_remote.rs` now exposes bounded multi-target execution,
@@ -131,6 +134,9 @@ async fn run_local(api: Arc<dyn EmilyApi>) {
   provider registry support.
 - `runtime/multi_remote.rs` now exposes the first sequential multi-target
   fanout path above the same Emily-owned durability boundary.
+- `runtime/reconstruction.rs` now exposes contextual reconstruction that uses
+  compile, dispatch, and validation state to render final host output with
+  provenance references.
 - `contracts.rs` now also exposes a small registry-backed remote routing
   preference contract for host-facing target selection.
 - `runtime.rs` now also exposes deterministic routing-policy evaluation over
@@ -152,6 +158,8 @@ async fn run_local(api: Arc<dyn EmilyApi>) {
   view derived from it.
 - That artifact set now also includes structured validation assessments for
   coherence, relevance, confidence, and provenance sufficiency.
+- It now also includes explicit reconstruction handles and provenance
+  references for host-facing rendered outputs.
 - It now also includes bounded retry policy and per-attempt persistence
   contracts for deterministic remote retries.
 - It now also includes bounded multi-target fanout, per-target attempt, and
