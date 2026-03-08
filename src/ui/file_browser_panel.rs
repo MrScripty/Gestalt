@@ -4,6 +4,7 @@ use crate::ui::file_browser_scan::{
     FileBrowserListing, ScanRequest, can_navigate_up, canonical_dir, compute_recursive_dir_stats,
     parent_within_root, scan_directory,
 };
+use crate::ui::host_open::open_path_in_host;
 use dioxus::prelude::*;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -227,7 +228,8 @@ pub(crate) fn FileBrowserPanel(
                                     button {
                                         class: "{row_class}",
                                         r#type: "button",
-                                        onclick: move |_| {
+                                        onclick: move |event| {
+                                            let open_in_host = event.data().modifiers().ctrl();
                                             selected_path.set(Some(entry_for_click.path.clone()));
                                             selected_stats.set(Some(SelectedEntryStats {
                                                 relative_path: path_relative_to_root(
@@ -288,6 +290,25 @@ pub(crate) fn FileBrowserPanel(
                                                 });
                                             } else {
                                                 selected_stats_loading.set(false);
+                                            }
+
+                                            if open_in_host {
+                                                let path_for_host_open =
+                                                    PathBuf::from(entry_for_click.path.clone());
+                                                spawn(async move {
+                                                    let open_result = tokio::task::spawn_blocking(
+                                                        move || open_path_in_host(&path_for_host_open),
+                                                    )
+                                                    .await;
+
+                                                    match open_result {
+                                                        Ok(Ok(message)) => panel_feedback.set(message),
+                                                        Ok(Err(error)) => panel_feedback.set(error),
+                                                        Err(error) => panel_feedback.set(format!(
+                                                            "Host app launch task failed: {error}"
+                                                        )),
+                                                    }
+                                                });
                                             }
                                         },
                                         ondoubleclick: move |_| {
@@ -434,7 +455,10 @@ pub(crate) fn FileBrowserPanel(
                 }
             }
 
-            p { class: "file-browser-tip", "Double click: open file in terminal editor or enter directory." }
+            p {
+                class: "file-browser-tip",
+                "Double click: open file in terminal editor or enter directory. Ctrl+click: open in host app."
+            }
 
             if !panel_feedback_value.trim().is_empty() {
                 p { class: "file-browser-feedback", "{panel_feedback_value}" }
