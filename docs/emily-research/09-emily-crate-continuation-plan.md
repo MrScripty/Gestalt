@@ -245,7 +245,7 @@ In practice that means:
 - integration test proving gate results flow through the public API without host-specific coupling
 - acceptance check showing blocked episodes do not become integrated memory
 
-**Status:** Not started
+**Status:** Complete
 
 ### Milestone 5: ECGL Runtime
 
@@ -321,6 +321,8 @@ Update during implementation:
   - `04a3d45` `feat(emily): add semantic retrieval and edge traversal`
 - 2026-03-08: Milestone 3 completed through one commit:
   - `ef520e0` `feat(emily): add episode and outcome contracts`
+- 2026-03-08: Milestone 4 completed through one commit:
+  - `bbea8df` `feat(emily): add EARL episode gating`
 
 ## Commit Cadence Notes
 
@@ -356,6 +358,7 @@ Update during implementation:
 - Milestone 1: Baseline Alignment And Boundary Cleanup
 - Milestone 2: Retrieval Core
 - Milestone 3: Episode And Outcome Contracts
+- Milestone 4: EARL Runtime
 
 ### Deviations
 
@@ -363,8 +366,8 @@ Update during implementation:
 
 ### Follow-Ups
 
-- Start Milestone 4 `EARL` runtime work.
-- Decide which first host flow should exercise `EARL` gating through the new episode model.
+- Start Milestone 5 `ECGL` runtime work.
+- Decide which persisted state transitions should move from provisional text fields into explicit ECGL memory states first.
 - Decide whether sovereign-dispatch contracts belong in `emily` or a sibling crate.
 
 ### Verification Summary
@@ -378,6 +381,10 @@ Update during implementation:
   - `cargo test --manifest-path emily/Cargo.toml -q`
   - `cargo clippy --manifest-path emily/Cargo.toml --all-targets -- -D warnings`
 - Milestone 3 verification:
+  - `cargo fmt --manifest-path emily/Cargo.toml`
+  - `cargo test --manifest-path emily/Cargo.toml -q`
+  - `cargo clippy --manifest-path emily/Cargo.toml --all-targets -- -D warnings`
+- Milestone 4 verification:
   - `cargo fmt --manifest-path emily/Cargo.toml`
   - `cargo test --manifest-path emily/Cargo.toml -q`
   - `cargo clippy --manifest-path emily/Cargo.toml --all-targets -- -D warnings`
