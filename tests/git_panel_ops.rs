@@ -121,6 +121,66 @@ fn stage_unstage_and_commit_flow() {
 }
 
 #[test]
+fn repo_context_tracks_untracked_and_staged_transitions() {
+    let _db_guard = OrchestrationDbGuard::new("git-panel-flags");
+    let repo = TestRepo::new("git-panel-flags");
+    let repo_path = repo.path().to_string_lossy().to_string();
+
+    write_file(&repo.path().join("notes.txt"), "hello\n");
+
+    let context =
+        orchestrator::git::load_repo_context(&repo_path).expect("repo context should load");
+    let snapshot = match context {
+        RepoContext::Available(snapshot) => snapshot,
+        RepoContext::NotRepo { .. } => panic!("expected repo context"),
+    };
+    let untracked = snapshot
+        .changes
+        .iter()
+        .find(|change| change.path == "notes.txt")
+        .expect("untracked file should be present");
+    assert!(untracked.is_untracked);
+    assert!(untracked.is_unstaged);
+    assert!(!untracked.is_staged);
+
+    let stage_results = orchestrator::git::stage_files(&repo_path, &["notes.txt".to_string()]);
+    assert!(stage_results.iter().all(|result| result.error.is_none()));
+
+    let context =
+        orchestrator::git::load_repo_context(&repo_path).expect("repo context should load");
+    let snapshot = match context {
+        RepoContext::Available(snapshot) => snapshot,
+        RepoContext::NotRepo { .. } => panic!("expected repo context"),
+    };
+    let staged = snapshot
+        .changes
+        .iter()
+        .find(|change| change.path == "notes.txt")
+        .expect("staged file should be present");
+    assert!(staged.is_staged);
+    assert!(!staged.is_unstaged);
+    assert!(!staged.is_untracked);
+
+    let unstage_results = orchestrator::git::unstage_files(&repo_path, &["notes.txt".to_string()]);
+    assert!(unstage_results.iter().all(|result| result.error.is_none()));
+
+    let context =
+        orchestrator::git::load_repo_context(&repo_path).expect("repo context should load");
+    let snapshot = match context {
+        RepoContext::Available(snapshot) => snapshot,
+        RepoContext::NotRepo { .. } => panic!("expected repo context"),
+    };
+    let restored = snapshot
+        .changes
+        .iter()
+        .find(|change| change.path == "notes.txt")
+        .expect("unstaged file should be present");
+    assert!(restored.is_untracked);
+    assert!(restored.is_unstaged);
+    assert!(!restored.is_staged);
+}
+
+#[test]
 fn tag_checkout_and_worktree_flow() {
     let _db_guard = OrchestrationDbGuard::new("git-panel-tag");
     let repo = TestRepo::new("git-panel-tag");
