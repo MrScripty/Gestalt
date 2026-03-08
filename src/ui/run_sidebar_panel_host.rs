@@ -1,15 +1,18 @@
+use crate::git::RepoContext;
 use crate::orchestrator::GroupOrchestratorSnapshot;
 use crate::state::{AppState, GroupId};
 use crate::terminal::TerminalManager;
 use crate::ui::UiState;
 use crate::ui::local_agent_panel::LocalAgentPanel;
 use crate::ui::notes_panel::NotesPanel;
+use crate::ui::run_review_panel::RunReviewPanel;
 use dioxus::prelude::*;
 use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RunSidebarPanelKind {
     LocalAgent,
+    RunReview,
     Notes,
 }
 
@@ -19,7 +22,10 @@ pub(crate) fn RunSidebarPanelHost(
     ui_state: Signal<UiState>,
     terminal_manager: Signal<Arc<TerminalManager>>,
     group_id: GroupId,
+    active_group_path: String,
     group_orchestrator: Option<GroupOrchestratorSnapshot>,
+    repo_context: Signal<Option<RepoContext>>,
+    git_refresh_nonce: Signal<u64>,
     run_sidebar_panel: Signal<RunSidebarPanelKind>,
 ) -> Element {
     let active_panel = *run_sidebar_panel.read();
@@ -41,6 +47,23 @@ pub(crate) fn RunSidebarPanelHost(
                             aria_selected: active_panel == RunSidebarPanelKind::LocalAgent,
                             onclick: move |_| run_sidebar_panel.set(RunSidebarPanelKind::LocalAgent),
                             "Local Agent"
+                        }
+                    }
+                }
+                {
+                    let class = if active_panel == RunSidebarPanelKind::RunReview {
+                        "run-sidebar-tab active"
+                    } else {
+                        "run-sidebar-tab"
+                    };
+                    rsx! {
+                        button {
+                            class: "{class}",
+                            r#type: "button",
+                            role: "tab",
+                            aria_selected: active_panel == RunSidebarPanelKind::RunReview,
+                            onclick: move |_| run_sidebar_panel.set(RunSidebarPanelKind::RunReview),
+                            "Run Review"
                         }
                     }
                 }
@@ -70,12 +93,19 @@ pub(crate) fn RunSidebarPanelHost(
                             ui_state: ui_state,
                             terminal_manager: terminal_manager,
                             group_id: group_id,
+                            git_refresh_nonce: git_refresh_nonce,
                             group_orchestrator: group_orchestrator,
                         }
                     } else {
                         div { class: "sidebar-panel-empty",
                             p { "Local agent context is not available." }
                         }
+                    }
+                } else if active_panel == RunSidebarPanelKind::RunReview {
+                    RunReviewPanel {
+                        active_group_path: active_group_path,
+                        repo_context: repo_context,
+                        git_refresh_nonce: git_refresh_nonce,
                     }
                 } else {
                     NotesPanel {

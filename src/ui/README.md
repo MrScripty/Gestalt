@@ -19,6 +19,7 @@
 | `command_palette.rs` | Palette interactions |
 | `insert_command_mode.rs` | Insert mode state and controls |
 | `local_agent_panel.rs` | Local agent control panel and run-start dispatch surface |
+| `run_review_panel.rs` | Latest run checkpoint review UI |
 | `sidebar_panel_host.rs` | Sidebar container selection |
 
 ## Problem
@@ -53,6 +54,7 @@ root-shared transient interaction state in `UiState`; feature-local drafts remai
 - Startup/session lifecycle coordination is consumed from orchestrator facades rather than duplicated across UI surfaces.
 - Autosave feedback is rendered in UI, but debounce/inflight worker coordination is consumed from orchestrator.
 - Local-agent send actions start attributed runs through orchestrator facades; UI does not persist run checkpoints directly.
+- Run review loads checkpoint-derived data on demand and refreshes from existing Git context signals instead of starting a separate polling loop.
 
 ## Revisit Triggers
 - Component files exceed maintainability limits.

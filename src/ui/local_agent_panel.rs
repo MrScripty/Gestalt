@@ -5,6 +5,7 @@ use crate::orchestrator::{self, GroupOrchestratorSnapshot, SessionWriteResult};
 use crate::state::{AppState, GroupId, SessionStatus};
 use crate::terminal::TerminalManager;
 use crate::ui::UiState;
+use crate::ui::git_helpers::bump_refresh_nonce;
 use dioxus::prelude::*;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -15,6 +16,7 @@ pub(crate) fn LocalAgentPanel(
     ui_state: Signal<UiState>,
     terminal_manager: Signal<Arc<TerminalManager>>,
     group_id: GroupId,
+    git_refresh_nonce: Signal<u64>,
     group_orchestrator: GroupOrchestratorSnapshot,
 ) -> Element {
     let terminal_manager_for_agent = terminal_manager.read().clone();
@@ -97,6 +99,7 @@ pub(crate) fn LocalAgentPanel(
                             let fail_count = results.len().saturating_sub(ok_count);
                             if ok_count > 0 {
                                 ui_state.write().local_agent_command.clear();
+                                bump_refresh_nonce(git_refresh_nonce);
                             }
                             ui_state.write().local_agent_feedback = format!(
                                 "Broadcast complete: {ok_count} success, {fail_count} failed."

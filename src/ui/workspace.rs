@@ -699,7 +699,10 @@ pub(crate) fn WorkspaceMain(
                                     ui_state: ui_state,
                                     terminal_manager: terminal_manager,
                                     group_id: group_id,
+                                    active_group_path: active_path.clone(),
                                     group_orchestrator: orchestrator_snapshot.clone(),
+                                    repo_context: git_context,
+                                    git_refresh_nonce: git_refresh_nonce,
                                     run_sidebar_panel: run_sidebar_panel,
                                 }
                             }

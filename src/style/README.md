@@ -11,16 +11,17 @@
 | `git_panel.css` | Git panel component styles |
 | `commands_panel.css` | Command library panel styles |
 | `file_browser_panel.css` | File browser panel styles |
+| `run_review_panel.css` | Run checkpoint review panel styles |
 
 ## Problem
-The desktop UI needs cohesive styling with clear ownership per panel.
+The desktop UI needs cohesive styling with clear ownership per panel, including read-only review surfaces for orchestrated runs.
 
 ## Constraints
 - Must work in Dioxus desktop rendering context.
 - Needs maintainable selectors and theme variables.
 
 ## Decision
-Partition CSS by feature panel plus a base stylesheet for shared primitives.
+Partition CSS by feature panel plus a base stylesheet for shared primitives so new sidebar surfaces can be added without growing one catch-all stylesheet.
 
 ## Alternatives Rejected
 - Inline style strings in components: rejected due to readability and reuse limits.
@@ -29,6 +30,7 @@ Partition CSS by feature panel plus a base stylesheet for shared primitives.
 ## Invariants
 - Shared variables live in `base.css`.
 - Feature files scope panel-specific classes.
+- Run review styling stays in its own file instead of expanding `workspace.css` further.
 
 ## Revisit Triggers
 - Styling duplication grows across files.
@@ -45,6 +47,7 @@ None.
 ```rust
 const STYLE: &str = concat!(
     include_str!("style/base.css"),
-    include_str!("style/workspace.css")
+    include_str!("style/workspace.css"),
+    include_str!("style/run_review_panel.css")
 );
 ```

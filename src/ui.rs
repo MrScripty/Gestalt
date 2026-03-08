@@ -8,6 +8,7 @@ mod git_refresh;
 mod insert_command_mode;
 mod local_agent_panel;
 mod notes_panel;
+mod run_review_panel;
 mod run_sidebar_panel_host;
 mod sidebar_panel_host;
 mod state;
@@ -41,7 +42,8 @@ const STYLE: &str = concat!(
     include_str!("style/workspace.css"),
     include_str!("style/git_panel.css"),
     include_str!("style/commands_panel.css"),
-    include_str!("style/file_browser_panel.css")
+    include_str!("style/file_browser_panel.css"),
+    include_str!("style/run_review_panel.css")
 );
 const TERMINAL_REFRESH_POLL_MS: u64 = 33;
 const TERMINAL_RESIZE_POLL_MS: u64 = 180;
