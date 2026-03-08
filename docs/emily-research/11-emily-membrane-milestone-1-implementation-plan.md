@@ -227,7 +227,7 @@ proves the crate shape.
 - `cargo test -q`
 - unit tests for local-only routing and reconstruction behavior
 
-**Status:** Not started
+**Status:** Completed on 2026-03-08 in commit `bab8c90`
 
 ### Milestone 1D: Emily Write Path Acceptance
 
@@ -264,6 +264,12 @@ Update during implementation:
   - `cargo test --manifest-path emily-membrane/Cargo.toml -q --offline`
 - 2026-03-08: Milestone 1B minimal contracts implemented in commit `a629856`.
 - 2026-03-08: DTO verification passed with:
+  - `cargo fmt --manifest-path emily-membrane/Cargo.toml`
+  - `cargo clippy --manifest-path emily-membrane/Cargo.toml --all-targets --offline -- -D warnings`
+  - `cargo test --manifest-path emily-membrane/Cargo.toml -q --offline`
+- 2026-03-08: Milestone 1C runtime facade and internal test adapter implemented
+  in commit `bab8c90`.
+- 2026-03-08: Runtime verification passed with:
   - `cargo fmt --manifest-path emily-membrane/Cargo.toml`
   - `cargo clippy --manifest-path emily-membrane/Cargo.toml --all-targets --offline -- -D warnings`
   - `cargo test --manifest-path emily-membrane/Cargo.toml -q --offline`
