@@ -12,7 +12,8 @@ use emily::{
 };
 use emily_membrane::contracts::{
     ContextFragment, MembraneRouteKind, MembraneTaskRequest, MembraneValidationDisposition,
-    RemoteExecutionPersistence, RemoteRoutingPreference, RoutingPlan, ValidationEnvelope,
+    RemoteExecutionPersistence, RemoteRoutingPreference, RoutingPlan, RoutingPolicyFindingSeverity,
+    RoutingPolicyOutcome, RoutingPolicyRequest, RoutingSensitivity, ValidationEnvelope,
 };
 use emily_membrane::providers::{
     InMemoryProviderRegistry, MembraneProvider, MembraneProviderError, ProviderDispatchRequest,
@@ -461,4 +462,202 @@ async fn select_remote_target_matches_registry_metadata() {
     assert_eq!(target.provider_id, "provider-a");
     assert_eq!(target.profile_id.as_deref(), Some("reasoning"));
     assert_eq!(target.model_id.as_deref(), Some("model-a"));
+}
+
+#[tokio::test]
+async fn evaluate_routing_policy_returns_local_only_when_remote_disabled() {
+    let registry = Arc::new(InMemoryProviderRegistry::with_targets([(
+        RegisteredProviderTarget {
+            target: ProviderTarget {
+                provider_id: "provider-a".into(),
+                model_id: Some("model-a".into()),
+                profile_id: Some("reasoning".into()),
+                capability_tags: vec!["analysis".into()],
+                metadata: serde_json::json!({}),
+            },
+        },
+        Arc::new(StubProvider {
+            provider_id: "provider-a",
+        }) as Arc<dyn MembraneProvider>,
+    )]));
+    let runtime = MembraneRuntime::with_provider_registry(Arc::new(StubEmilyApi), registry);
+
+    let result = runtime
+        .evaluate_routing_policy(RoutingPolicyRequest {
+            task_id: "task-1".into(),
+            episode_id: "episode-1".into(),
+            allow_remote: false,
+            sensitivity: RoutingSensitivity::Normal,
+            preference: RemoteRoutingPreference {
+                provider_id: None,
+                profile_id: None,
+                required_capability_tags: Vec::new(),
+            },
+        })
+        .await
+        .expect("evaluate policy");
+
+    assert_eq!(result.outcome, RoutingPolicyOutcome::LocalOnly);
+    assert!(result.selected_target.is_none());
+    assert_eq!(result.findings[0].code, "remote-disabled");
+}
+
+#[tokio::test]
+async fn evaluate_routing_policy_rejects_critical_sensitivity() {
+    let registry = Arc::new(InMemoryProviderRegistry::with_targets([(
+        RegisteredProviderTarget {
+            target: ProviderTarget {
+                provider_id: "provider-a".into(),
+                model_id: Some("model-a".into()),
+                profile_id: Some("reasoning".into()),
+                capability_tags: vec!["analysis".into()],
+                metadata: serde_json::json!({}),
+            },
+        },
+        Arc::new(StubProvider {
+            provider_id: "provider-a",
+        }) as Arc<dyn MembraneProvider>,
+    )]));
+    let runtime = MembraneRuntime::with_provider_registry(Arc::new(StubEmilyApi), registry);
+
+    let result = runtime
+        .evaluate_routing_policy(RoutingPolicyRequest {
+            task_id: "task-1".into(),
+            episode_id: "episode-1".into(),
+            allow_remote: true,
+            sensitivity: RoutingSensitivity::Critical,
+            preference: RemoteRoutingPreference {
+                provider_id: None,
+                profile_id: None,
+                required_capability_tags: Vec::new(),
+            },
+        })
+        .await
+        .expect("evaluate policy");
+
+    assert_eq!(result.outcome, RoutingPolicyOutcome::Rejected);
+    assert!(result.selected_target.is_none());
+    assert_eq!(
+        result.findings[0].severity,
+        RoutingPolicyFindingSeverity::Block
+    );
+}
+
+#[tokio::test]
+async fn evaluate_routing_policy_prefers_best_matching_target() {
+    let registry = Arc::new(InMemoryProviderRegistry::with_targets([
+        (
+            RegisteredProviderTarget {
+                target: ProviderTarget {
+                    provider_id: "provider-a".into(),
+                    model_id: Some("model-a".into()),
+                    profile_id: Some("reasoning".into()),
+                    capability_tags: vec!["analysis".into(), "synthesis".into()],
+                    metadata: serde_json::json!({}),
+                },
+            },
+            Arc::new(StubProvider {
+                provider_id: "provider-a",
+            }) as Arc<dyn MembraneProvider>,
+        ),
+        (
+            RegisteredProviderTarget {
+                target: ProviderTarget {
+                    provider_id: "provider-b".into(),
+                    model_id: Some("model-b".into()),
+                    profile_id: Some("reasoning".into()),
+                    capability_tags: vec!["analysis".into()],
+                    metadata: serde_json::json!({}),
+                },
+            },
+            Arc::new(StubProvider {
+                provider_id: "provider-b",
+            }) as Arc<dyn MembraneProvider>,
+        ),
+    ]));
+    let runtime = MembraneRuntime::with_provider_registry(Arc::new(StubEmilyApi), registry);
+
+    let result = runtime
+        .evaluate_routing_policy(RoutingPolicyRequest {
+            task_id: "task-1".into(),
+            episode_id: "episode-1".into(),
+            allow_remote: true,
+            sensitivity: RoutingSensitivity::High,
+            preference: RemoteRoutingPreference {
+                provider_id: None,
+                profile_id: Some("reasoning".into()),
+                required_capability_tags: vec!["analysis".into()],
+            },
+        })
+        .await
+        .expect("evaluate policy");
+
+    assert_eq!(result.outcome, RoutingPolicyOutcome::SingleRemote);
+    assert!(result.caution);
+    assert_eq!(
+        result
+            .selected_target
+            .as_ref()
+            .map(|target| target.provider_id.as_str()),
+        Some("provider-a")
+    );
+}
+
+#[tokio::test]
+async fn evaluate_routing_policy_uses_deterministic_tie_breaking() {
+    let registry = Arc::new(InMemoryProviderRegistry::with_targets([
+        (
+            RegisteredProviderTarget {
+                target: ProviderTarget {
+                    provider_id: "provider-b".into(),
+                    model_id: Some("model-b".into()),
+                    profile_id: Some("reasoning".into()),
+                    capability_tags: vec!["analysis".into()],
+                    metadata: serde_json::json!({}),
+                },
+            },
+            Arc::new(StubProvider {
+                provider_id: "provider-b",
+            }) as Arc<dyn MembraneProvider>,
+        ),
+        (
+            RegisteredProviderTarget {
+                target: ProviderTarget {
+                    provider_id: "provider-a".into(),
+                    model_id: Some("model-a".into()),
+                    profile_id: Some("reasoning".into()),
+                    capability_tags: vec!["analysis".into()],
+                    metadata: serde_json::json!({}),
+                },
+            },
+            Arc::new(StubProvider {
+                provider_id: "provider-a",
+            }) as Arc<dyn MembraneProvider>,
+        ),
+    ]));
+    let runtime = MembraneRuntime::with_provider_registry(Arc::new(StubEmilyApi), registry);
+
+    let result = runtime
+        .evaluate_routing_policy(RoutingPolicyRequest {
+            task_id: "task-1".into(),
+            episode_id: "episode-1".into(),
+            allow_remote: true,
+            sensitivity: RoutingSensitivity::Normal,
+            preference: RemoteRoutingPreference {
+                provider_id: None,
+                profile_id: Some("reasoning".into()),
+                required_capability_tags: vec!["analysis".into()],
+            },
+        })
+        .await
+        .expect("evaluate policy");
+
+    assert_eq!(result.outcome, RoutingPolicyOutcome::SingleRemote);
+    assert_eq!(
+        result
+            .selected_target
+            .as_ref()
+            .map(|target| target.provider_id.as_str()),
+        Some("provider-a")
+    );
 }

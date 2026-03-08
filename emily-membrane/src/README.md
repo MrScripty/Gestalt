@@ -119,6 +119,8 @@ async fn run_local(api: Arc<dyn EmilyApi>) {
   provider registry support.
 - `contracts.rs` now also exposes a small registry-backed remote routing
   preference contract for host-facing target selection.
+- `runtime.rs` now also exposes deterministic routing-policy evaluation over
+  the provider registry.
 - Revisit trigger: the first provider-backed runtime path lands.
 
 ## Structured Producer Contract

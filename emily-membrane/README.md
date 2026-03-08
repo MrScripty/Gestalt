@@ -123,6 +123,8 @@ async fn compile_locally(api: Arc<dyn EmilyApi>) {
   injected membrane provider or host-supplied provider registry.
 - Registry-backed runtimes can now select remote targets from registered
   provider metadata through a small routing-preference contract.
+- The runtime now also exposes a deterministic routing-policy evaluator above
+  the registered-target layer.
 - Compatibility policy for this crate will be append-only while the initial
   membrane boundary is stabilized.
 - Revisit trigger: the first provider-backed adapter lands.

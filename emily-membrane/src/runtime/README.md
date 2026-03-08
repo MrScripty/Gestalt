@@ -11,6 +11,7 @@ focused files.
 
 | File/Folder | Description |
 | ----------- | ----------- |
+| `policy.rs` | Deterministic routing-policy evaluation over registered membrane targets |
 | `remote.rs` | Remote execution helpers and provider-registry-backed runtime methods |
 
 ## Problem
@@ -40,6 +41,8 @@ runtime type in `runtime.rs`.
 ## Invariants
 
 - `runtime.rs` owns the public runtime type and core local path.
+- `policy.rs` owns deterministic routing-policy evaluation for the first
+  sovereign routing slice.
 - `remote.rs` owns provider-registry-backed remote execution helpers.
 - Remote execution remains synchronous and request-scoped in this milestone.
 
@@ -74,6 +77,8 @@ runtime type in `runtime.rs`.
   provider registry.
 - Registry-backed runtimes can now resolve `ProviderTarget` values from
   `RemoteRoutingPreference` instead of requiring the host to prebuild targets.
+- Registry-backed runtimes can now evaluate typed routing-policy requests
+  before provider dispatch.
 - This directory does not expose a separate public facade.
 - Revisit trigger: a separate runtime builder or worker owner becomes necessary.
 

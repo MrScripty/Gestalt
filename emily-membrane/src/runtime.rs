@@ -19,6 +19,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 
+mod policy;
 mod remote;
 
 /// Minimal membrane runtime error surface for Milestone 1.
