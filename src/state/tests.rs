@@ -216,6 +216,23 @@ fn move_session_to_group_end_places_session_after_group_tail() {
 }
 
 #[test]
+fn move_session_to_group_end_places_session_into_empty_group() {
+    let mut state = seeded_state();
+    let source = state.sessions()[0].id;
+    let empty_group = state.add_group_with_path("/tmp/empty-group".to_string());
+
+    state.move_session_to_group_end(source, empty_group);
+
+    let moved_idx = state
+        .sessions()
+        .iter()
+        .position(|session| session.id == source)
+        .expect("moved session to exist");
+    assert_eq!(state.sessions()[moved_idx].group_id, empty_group);
+    assert_eq!(moved_idx, state.sessions().len() - 1);
+}
+
+#[test]
 fn session_status_cycle_changes_state() {
     let mut state = seeded_state();
     let id = state.sessions()[0].id;
@@ -344,6 +361,15 @@ fn remove_group_updates_selected_session_when_selection_is_removed() {
             .iter()
             .all(|session| session.group_id == initial_group_id)
     );
+    assert_eq!(state.active_group_id(), Some(initial_group_id));
+}
+
+#[test]
+fn active_group_falls_back_to_first_group_when_selected_session_is_invalid() {
+    let mut state = seeded_state();
+    state.select_session(u32::MAX);
+
+    assert_eq!(state.active_group_id(), state.groups().first().map(|group| group.id));
 }
 
 #[test]

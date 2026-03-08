@@ -38,6 +38,7 @@ live in the owning module, and purely transient note selection stays in UI.
 
 ## Invariants
 - Workspace state remains serializable and repairable from persisted JSON.
+- Active group resolution falls back to the first durable group when selection is missing or invalid.
 - Knowledge objects never own runtime resources, UI handles, or editor selection state.
 - Command CRUD remains durable and restore-safe.
 - `AppState` revision tracks durable mutations only.
