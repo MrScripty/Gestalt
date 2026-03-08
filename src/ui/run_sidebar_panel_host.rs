@@ -1,7 +1,7 @@
 use crate::emily_bridge::EmilyBridge;
 use crate::git::RepoContext;
 use crate::orchestrator::GroupOrchestratorSnapshot;
-use crate::state::{AppState, AuxiliaryPanelHost, GroupId};
+use crate::state::{AppState, AuxiliaryPanelHost, AuxiliaryPanelKind, GroupId};
 use crate::terminal::TerminalManager;
 use crate::ui::UiState;
 use crate::ui::auxiliary_panel_host::DockedAuxiliaryPanelHost;
@@ -20,6 +20,7 @@ pub(crate) fn RunSidebarPanelHost(
     repo_context: Signal<Option<RepoContext>>,
     repo_loading: Signal<bool>,
     git_refresh_nonce: Signal<u64>,
+    dragging_panel: Signal<Option<AuxiliaryPanelKind>>,
 ) -> Element {
     rsx! {
         DockedAuxiliaryPanelHost {
@@ -34,6 +35,7 @@ pub(crate) fn RunSidebarPanelHost(
             repo_context: repo_context,
             repo_loading: repo_loading,
             git_refresh_nonce: git_refresh_nonce,
+            dragging_panel: dragging_panel,
         }
     }
 }

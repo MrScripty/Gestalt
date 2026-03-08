@@ -26,23 +26,50 @@ pub(crate) fn DockedAuxiliaryPanelHost(
     repo_context: Signal<Option<RepoContext>>,
     repo_loading: Signal<bool>,
     git_refresh_nonce: Signal<u64>,
+    mut dragging_panel: Signal<Option<AuxiliaryPanelKind>>,
 ) -> Element {
     let snapshot = app_state.read().clone();
     let tabs = snapshot.auxiliary_panel_tabs(host);
+    let has_tabs = !tabs.is_empty();
     let active_panel = snapshot.active_auxiliary_panel(host);
+    let is_drop_target_active = dragging_panel.read().is_some();
     let tablist_aria_label = match host {
         AuxiliaryPanelHost::RunSidebar => "Run sidebar tabs",
         AuxiliaryPanelHost::SidePanel => "Right sidebar tabs",
     };
+    let tablist_class = if is_drop_target_active {
+        "aux-panel-tabs drag-target"
+    } else {
+        "aux-panel-tabs"
+    };
 
     rsx! {
         div { class: "aux-panel-host",
-            div { class: "aux-panel-tabs", role: "tablist", aria_label: "{tablist_aria_label}",
+            div {
+                class: "{tablist_class}",
+                role: "tablist",
+                aria_label: "{tablist_aria_label}",
+                ondragover: move |event| {
+                    event.prevent_default();
+                },
+                ondrop: move |event| {
+                    event.prevent_default();
+                    if let Some(source_panel) = *dragging_panel.read() {
+                        app_state
+                            .write()
+                            .move_auxiliary_panel_to_host_end(source_panel, host);
+                    }
+                    dragging_panel.set(None);
+                },
+                ondragleave: move |_| {},
                 for panel in tabs {
                     {
                         let panel_id = panel;
                         let is_active = active_panel == Some(panel_id);
-                        let class = if is_active {
+                        let is_dragging = *dragging_panel.read() == Some(panel_id);
+                        let class = if is_dragging {
+                            "aux-panel-tab dragging"
+                        } else if is_active {
                             "aux-panel-tab active"
                         } else {
                             "aux-panel-tab"
@@ -55,13 +82,37 @@ pub(crate) fn DockedAuxiliaryPanelHost(
                                 r#type: "button",
                                 role: "tab",
                                 aria_selected: is_active,
+                                draggable: "true",
                                 onclick: move |_| {
                                     app_state.write().set_active_auxiliary_panel(host, panel_id);
+                                },
+                                ondragstart: move |_| {
+                                    dragging_panel.set(Some(panel_id));
+                                },
+                                ondragend: move |_| {
+                                    dragging_panel.set(None);
+                                },
+                                ondragover: move |event| {
+                                    event.stop_propagation();
+                                    event.prevent_default();
+                                },
+                                ondrop: move |event| {
+                                    event.stop_propagation();
+                                    event.prevent_default();
+                                    if let Some(source_panel) = *dragging_panel.read() {
+                                        app_state
+                                            .write()
+                                            .move_auxiliary_panel_before(source_panel, panel_id);
+                                    }
+                                    dragging_panel.set(None);
                                 },
                                 "{panel_id.label()}"
                             }
                         }
                     }
+                }
+                if !has_tabs {
+                    span { class: "aux-panel-drop-hint", "Drop a tab here" }
                 }
             }
 

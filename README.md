@@ -16,7 +16,7 @@ It is built with Dioxus Desktop (`0.7.x`) and uses real PTY sessions + VT100 par
 - Inline tab renaming
 - Round-aware selection helpers (`Ctrl+A` for command/output block selection)
 - Insert command mode (`Insert` opens autocomplete, `Enter` inserts prompt text without running it)
-- Sidebar panel switcher in the run sidebar (`Agent`, `Commands`, `Git`)
+- Dockable auxiliary tabs across the run sidebar and right sidebar
 - Commands panel for creating/editing/deleting reusable prompt snippets
 - Local Agent panel for group orchestration controls
 - Contextual Git panel per active path-group (branches, commits, staging, commit/tag/checkout/worktree actions)

@@ -1,7 +1,7 @@
 use crate::emily_bridge::EmilyBridge;
 use crate::orchestrator::{self, GroupOrchestratorSnapshot};
 use crate::resource_monitor::ResourceSnapshot;
-use crate::state::{AppState, SessionId};
+use crate::state::{AppState, AuxiliaryPanelKind, SessionId};
 use crate::terminal::TerminalManager;
 use crate::ui::UiState;
 use crate::ui::run_sidebar_panel_host::RunSidebarPanelHost;
@@ -179,6 +179,7 @@ pub(crate) fn WorkspaceMain(
     let mut renaming_header = use_signal(|| None::<SessionId>);
     let mut rename_header_draft = use_signal(String::new);
     let snippet_hotkey_state = use_signal(|| None::<SnippetHotkeyState>);
+    let dragging_auxiliary_panel = use_signal(|| None::<AuxiliaryPanelKind>);
     let renaming_header_id = *renaming_header.read();
     let rename_header_draft_value = rename_header_draft.read().clone();
 
@@ -699,6 +700,7 @@ pub(crate) fn WorkspaceMain(
                                     repo_context: git_context,
                                     repo_loading: git_context_loading,
                                     git_refresh_nonce: git_refresh_nonce,
+                                    dragging_panel: dragging_auxiliary_panel,
                                 }
                             }
 
@@ -717,6 +719,7 @@ pub(crate) fn WorkspaceMain(
                                         repo_context: git_context,
                                         repo_loading: git_context_loading,
                                         git_refresh_nonce: git_refresh_nonce,
+                                        dragging_panel: dragging_auxiliary_panel,
                                     }
                                 }
                             }
