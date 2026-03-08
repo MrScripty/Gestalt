@@ -26,3 +26,4 @@ Files:
 - `07-whatsapp-signal-analysis.md`: local WhatsApp-derived technical signal analysis for Martin contact
 - `08-gestalt-emily-development-plan.md`: phased implementation plan for evolving Gestalt's current Emily integration
 - `09-emily-crate-continuation-plan.md`: continuation plan for evolving the `emily` crate into the reusable Emily core
+- `10-emily-membrane-crate-design-plan.md`: sibling-crate design plan for the sovereign-dispatch membrane layer above `emily`
