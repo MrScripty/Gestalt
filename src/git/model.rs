@@ -56,6 +56,12 @@ pub struct TagInfo {
     pub annotated: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RepoFileState {
+    pub worktree_blob_sha: Option<String>,
+    pub index_blob_sha: Option<String>,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct RepoPathMarks {
     pub repo_root: Option<String>,

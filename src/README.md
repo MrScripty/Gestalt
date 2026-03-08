@@ -12,6 +12,7 @@ Application source modules for Gestalt's state model, command library, terminal 
 | `emily_bridge.rs` | Gestalt adapter for Emily memory ingest/query APIs |
 | `local_restore.rs` | SQLite-backed restore projection for terminal UI/runtime metadata |
 | `orchestration_log/` | Durable SQLite command/event/receipt timelines for orchestrated actions |
+| `run_checkpoints/` | Durable Git-backed run baselines and derived review diffs |
 | `state/` | Core workspace, knowledge, and command state models plus transitions |
 | `terminal.rs` | PTY lifecycle, input/output, and snapshots |
 | `orchestrator/` | Group-level terminal orchestration helpers |
@@ -27,6 +28,7 @@ Application source modules for Gestalt's state model, command library, terminal 
 - `terminal` should avoid redundant scrollback cloning on hot PTY read and resize paths; snapshot rebuild work should use locked line views where possible before publishing a new immutable snapshot.
 - `emily_bridge` adapts terminal line events into Emily generic text objects.
 - `orchestration_log` persists exact command lifecycles using timeline sequence plus timestamps.
+- `run_checkpoints` persists coarse repo baselines so run review can compare current Git state against the moment a run started.
 - `emily_bridge` can inject an optional Emily embedding provider at worker startup and exposes vectorization control commands.
 - Pantograph embedding bootstrap is deferred so provider validation does not block initial UI interaction.
 - Terminal history source-of-truth is Emily; workspace persistence stores terminal projection metadata only.
@@ -34,5 +36,5 @@ Application source modules for Gestalt's state model, command library, terminal 
 - `persistence` is isolated infrastructure with a versioned schema.
 
 ## Dependencies
-**Internal:** `commands`, `state`, `terminal`, `emily_bridge`, `orchestrator`, `orchestration_log`, `git`, `persistence`  
+**Internal:** `commands`, `state`, `terminal`, `emily_bridge`, `orchestrator`, `orchestration_log`, `run_checkpoints`, `git`, `persistence`  
 **External:** `dioxus`, `portable-pty`, `vt100`, `serde`, `emily`, `rusqlite`

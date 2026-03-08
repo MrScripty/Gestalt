@@ -18,6 +18,8 @@ pub(crate) mod path_validation;
 pub mod persistence;
 /// Cross-platform system and process resource sampling.
 pub mod resource_monitor;
+/// Durable Git-backed run checkpoints and review diffs.
+pub mod run_checkpoints;
 /// Core workspace/group/session state model.
 pub mod state;
 /// PTY-backed terminal runtime and snapshots.

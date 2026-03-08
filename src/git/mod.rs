@@ -4,6 +4,7 @@ mod model;
 mod parse;
 
 pub use error::GitError;
+pub(crate) use model::RepoFileState;
 pub use model::{
     BranchInfo, CheckoutTarget, CommitDetails, CommitDraft, CommitInfo, FileChange, RepoContext,
     RepoPathMarks, RepoSnapshot, TagInfo,
@@ -15,6 +16,7 @@ use parse::{
     parse_tags,
 };
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const DEFAULT_COMMIT_LIMIT: usize = 120;
@@ -269,6 +271,16 @@ pub fn repo_change_fingerprint(group_path: &str) -> Result<String, GitError> {
     repo_change_fingerprint_from_root(&root)
 }
 
+pub(crate) fn load_repo_file_state(repo_root: &str, path: &str) -> Result<RepoFileState, GitError> {
+    let path = validate_non_empty(path, "File path")?;
+    let worktree_blob_sha = load_worktree_blob_sha(repo_root, &path)?;
+    let index_blob_sha = load_index_blob_sha(repo_root, &path)?;
+    Ok(RepoFileState {
+        worktree_blob_sha,
+        index_blob_sha,
+    })
+}
+
 pub fn load_repo_path_marks(group_path: &str) -> Result<RepoPathMarks, GitError> {
     let root_output = run_git(group_path, &["rev-parse", "--show-toplevel"]);
     let repo_root = match root_output {
@@ -315,6 +327,31 @@ fn load_unpushed_commit_map(
         .filter(|sha| !sha.is_empty())
         .map(ToString::to_string)
         .collect())
+}
+
+fn load_worktree_blob_sha(repo_root: &str, path: &str) -> Result<Option<String>, GitError> {
+    let absolute = Path::new(repo_root).join(path);
+    if !absolute.exists() || absolute.is_dir() {
+        return Ok(None);
+    }
+
+    let output = run_git(repo_root, &["hash-object", "--no-filters", "--", path])?;
+    let sha = output.stdout.trim().to_string();
+    if sha.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(sha))
+}
+
+fn load_index_blob_sha(repo_root: &str, path: &str) -> Result<Option<String>, GitError> {
+    let output = run_git(repo_root, &["ls-files", "-s", "--", path])?;
+    let sha = output.stdout.lines().find_map(|line| {
+        let mut fields = line.split_whitespace();
+        let _mode = fields.next()?;
+        let sha = fields.next()?;
+        Some(sha.to_string())
+    });
+    Ok(sha)
 }
 
 fn is_unpushed_commit(group_path: &str, sha: &str) -> Result<bool, GitError> {
