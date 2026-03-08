@@ -12,6 +12,7 @@ one file.
 | File | Description |
 | ---- | ----------- |
 | `ir.rs` | Typed membrane IR contracts and render-mode metadata |
+| `retry.rs` | Request-scoped retry and mutation contracts for bounded remote retries |
 | `validation.rs` | Typed membrane validation contracts and category assessments |
 
 ## Problem
@@ -26,6 +27,7 @@ rendering.
 
 - DTOs in this directory must remain transport-agnostic.
 - IR contracts must be append-only.
+- Retry contracts must stay request-scoped and deterministic.
 - Validation contracts must stay membrane-owned and modest in their claims.
 - Provider adapters must translate from membrane IR rather than inventing their
   own primary task representation.
@@ -38,6 +40,8 @@ surface stable.
 ## Invariants
 
 - The typed IR is the primary compile representation.
+- Retry contracts describe bounded per-request retries; they do not imply
+  background workers or adaptive retry daemons.
 - Validation assessments are a first deterministic slice toward richer local
   membrane validation, not a claim of full `ECCR`.
 - Rendered prompt text remains an adapter-oriented view derived from the IR.

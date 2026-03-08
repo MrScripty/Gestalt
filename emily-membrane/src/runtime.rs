@@ -24,6 +24,7 @@ use std::sync::Arc;
 
 mod policy;
 mod remote;
+mod retry;
 mod validation;
 
 /// Minimal membrane runtime error surface for Milestone 1.

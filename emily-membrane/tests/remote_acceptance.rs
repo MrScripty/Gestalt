@@ -3,12 +3,14 @@ use emily::api::EmilyApi;
 use emily::runtime::EmilyRuntime;
 use emily::store::surreal::SurrealEmilyStore;
 use emily::{
-    CreateEpisodeRequest, DatabaseLocator, EarlDecision, EarlEvaluationRequest, EarlSignalVector,
-    EpisodeState, RemoteEpisodeState,
+    AuditRecordKind, CreateEpisodeRequest, DatabaseLocator, EarlDecision, EarlEvaluationRequest,
+    EarlSignalVector, EpisodeState, RemoteEpisodeState, ValidationDecision,
 };
 use emily_membrane::contracts::{
     MembraneTaskRequest, PolicyExecutionPersistence, RemoteExecutionPersistence,
-    RemoteRoutingPreference, RoutingPolicyOutcome, RoutingPolicyRequest, RoutingSensitivity,
+    RemoteRetryAttemptPersistence, RemoteRetryExecutionPersistence, RemoteRetryPolicy,
+    RemoteRoutingPreference, RetryMutationStrategy, RoutingPolicyOutcome, RoutingPolicyRequest,
+    RoutingSensitivity,
 };
 use emily_membrane::providers::{
     InMemoryProviderRegistry, MembraneProvider, MembraneProviderError, ProviderDispatchRequest,
@@ -16,7 +18,7 @@ use emily_membrane::providers::{
 };
 use emily_membrane::runtime::MembraneRuntime;
 use serde_json::json;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn locator() -> DatabaseLocator {
@@ -80,6 +82,14 @@ fn routing_preference() -> RemoteRoutingPreference {
 
 struct DeterministicTestProvider;
 
+struct ReviewThenSuccessProvider {
+    attempt: Mutex<u8>,
+}
+
+struct ErrorThenErrorProvider {
+    attempt: Mutex<u8>,
+}
+
 #[async_trait]
 impl MembraneProvider for DeterministicTestProvider {
     fn provider_id(&self) -> &str {
@@ -103,6 +113,66 @@ impl MembraneProvider for DeterministicTestProvider {
             output_text: format!("REMOTE: {}", request.bounded_payload),
             metadata: json!({"mode": "deterministic"}),
         })
+    }
+}
+
+#[async_trait]
+impl MembraneProvider for ReviewThenSuccessProvider {
+    fn provider_id(&self) -> &str {
+        "test-provider"
+    }
+
+    async fn dispatch(
+        &self,
+        request: ProviderDispatchRequest,
+    ) -> Result<ProviderDispatchResult, MembraneProviderError> {
+        let mut attempt = self.attempt.lock().expect("attempt mutex");
+        *attempt += 1;
+
+        Ok(ProviderDispatchResult {
+            provider_request_id: request.provider_request_id,
+            provider_id: self.provider_id().to_string(),
+            status: if *attempt == 1 {
+                ProviderDispatchStatus::Failed
+            } else {
+                assert!(
+                    request.bounded_payload.contains("Retry note:"),
+                    "second attempt should receive mutated retry hint"
+                );
+                ProviderDispatchStatus::Completed
+            },
+            output_text: if *attempt == 1 {
+                "transient remote ambiguity".to_string()
+            } else {
+                format!("REMOTE: {}", request.bounded_payload)
+            },
+            metadata: json!({"attempt": *attempt}),
+        })
+    }
+}
+
+#[async_trait]
+impl MembraneProvider for ErrorThenErrorProvider {
+    fn provider_id(&self) -> &str {
+        "test-provider"
+    }
+
+    async fn dispatch(
+        &self,
+        request: ProviderDispatchRequest,
+    ) -> Result<ProviderDispatchResult, MembraneProviderError> {
+        let mut attempt = self.attempt.lock().expect("attempt mutex");
+        *attempt += 1;
+        if *attempt > 1 {
+            assert!(
+                request.bounded_payload.contains("Retry note:"),
+                "second attempt should receive mutated retry hint"
+            );
+        }
+        Err(MembraneProviderError::Execution(format!(
+            "transient transport failure attempt {}",
+            *attempt
+        )))
     }
 }
 
@@ -137,6 +207,46 @@ fn reflex_earl_request() -> EarlEvaluationRequest {
             novelty_spike: 0.2,
         },
         metadata: json!({"origin": "integration-test"}),
+    }
+}
+
+fn retry_policy() -> RemoteRetryPolicy {
+    RemoteRetryPolicy {
+        max_attempts: 2,
+        retry_on_provider_error: true,
+        retry_on_validation_review: true,
+        mutation: RetryMutationStrategy::AppendRetryHintV1,
+    }
+}
+
+fn retry_persistence() -> RemoteRetryExecutionPersistence {
+    RemoteRetryExecutionPersistence {
+        route_decision_id: "route-remote-retry".to_string(),
+        route_decided_at_unix_ms: 30,
+        attempts: vec![
+            RemoteRetryAttemptPersistence {
+                provider_request_id: "provider-request-retry-1".to_string(),
+                remote_episode_id: "remote-retry-1".to_string(),
+                remote_dispatched_at_unix_ms: 31,
+                validation_id: "validation-retry-1".to_string(),
+                validated_at_unix_ms: 32,
+                retry_audit_id: None,
+                retry_audit_at_unix_ms: None,
+                mutation_audit_id: None,
+                mutation_audit_at_unix_ms: None,
+            },
+            RemoteRetryAttemptPersistence {
+                provider_request_id: "provider-request-retry-2".to_string(),
+                remote_episode_id: "remote-retry-2".to_string(),
+                remote_dispatched_at_unix_ms: 41,
+                validation_id: "validation-retry-2".to_string(),
+                validated_at_unix_ms: 42,
+                retry_audit_id: Some("audit-retry-2".to_string()),
+                retry_audit_at_unix_ms: Some(40),
+                mutation_audit_id: Some("audit-mutation-2".to_string()),
+                mutation_audit_at_unix_ms: Some(40),
+            },
+        ],
     }
 }
 
@@ -498,6 +608,177 @@ async fn broader_policy_execution_returns_policy_only_for_rejected_route() {
     assert!(routes.is_empty());
     assert!(remote_episodes.is_empty());
     assert!(validations.is_empty());
+
+    emily.close_db().await.expect("close db");
+    let _ = std::fs::remove_dir_all(locator.storage_path);
+}
+
+#[tokio::test]
+async fn remote_retry_execution_retries_review_and_records_boundary_audits() {
+    let store = Arc::new(SurrealEmilyStore::new());
+    let emily = Arc::new(EmilyRuntime::new(store));
+    let registry = Arc::new(InMemoryProviderRegistry::single_target(
+        RegisteredProviderTarget {
+            target: ProviderTarget {
+                provider_id: "test-provider".to_string(),
+                model_id: Some("deterministic-v1".to_string()),
+                profile_id: Some("reasoning".to_string()),
+                capability_tags: vec!["analysis".to_string()],
+                metadata: json!({"origin": "test"}),
+            },
+        },
+        Arc::new(ReviewThenSuccessProvider {
+            attempt: Mutex::new(0),
+        }) as Arc<dyn MembraneProvider>,
+    ));
+    let runtime = MembraneRuntime::with_provider_registry(emily.clone(), registry);
+    let locator = locator();
+
+    emily.open_db(locator.clone()).await.expect("open db");
+    emily
+        .create_episode(episode_request())
+        .await
+        .expect("create episode");
+
+    let result = runtime
+        .execute_remote_with_registry_retry_and_record(
+            task_request(),
+            routing_preference(),
+            retry_policy(),
+            retry_persistence(),
+        )
+        .await
+        .expect("execute retrying remote path");
+
+    assert!(!result.exhausted);
+    assert_eq!(result.attempts.len(), 2);
+    assert_eq!(
+        result.attempts[0]
+            .execution
+            .as_ref()
+            .expect("first attempt execution")
+            .validation
+            .disposition,
+        emily_membrane::contracts::MembraneValidationDisposition::NeedsReview
+    );
+    let final_execution = result.final_execution.expect("final execution");
+    assert_eq!(final_execution.remote_episode_id, "remote-retry-2");
+    assert_eq!(
+        final_execution.validation.disposition,
+        emily_membrane::contracts::MembraneValidationDisposition::Accepted
+    );
+
+    let remote_episodes = emily
+        .remote_episodes_for_episode("ep-membrane-remote")
+        .await
+        .expect("list remote episodes");
+    let validations = emily
+        .validation_outcomes_for_episode("ep-membrane-remote")
+        .await
+        .expect("list validations");
+    let audits = emily
+        .sovereign_audit_records_for_episode("ep-membrane-remote")
+        .await
+        .expect("list audits");
+
+    assert_eq!(remote_episodes.len(), 2);
+    assert_eq!(validations.len(), 2);
+    assert!(
+        validations
+            .iter()
+            .any(|validation| validation.decision == ValidationDecision::NeedsReview)
+    );
+    assert!(
+        validations
+            .iter()
+            .any(|validation| validation.decision == ValidationDecision::Accepted)
+    );
+    assert_eq!(
+        audits
+            .iter()
+            .filter(|audit| audit.kind == AuditRecordKind::BoundaryEvent)
+            .count(),
+        2
+    );
+
+    emily.close_db().await.expect("close db");
+    let _ = std::fs::remove_dir_all(locator.storage_path);
+}
+
+#[tokio::test]
+async fn remote_retry_execution_exhausts_after_provider_errors() {
+    let store = Arc::new(SurrealEmilyStore::new());
+    let emily = Arc::new(EmilyRuntime::new(store));
+    let registry = Arc::new(InMemoryProviderRegistry::single_target(
+        RegisteredProviderTarget {
+            target: ProviderTarget {
+                provider_id: "test-provider".to_string(),
+                model_id: Some("deterministic-v1".to_string()),
+                profile_id: Some("reasoning".to_string()),
+                capability_tags: vec!["analysis".to_string()],
+                metadata: json!({"origin": "test"}),
+            },
+        },
+        Arc::new(ErrorThenErrorProvider {
+            attempt: Mutex::new(0),
+        }) as Arc<dyn MembraneProvider>,
+    ));
+    let runtime = MembraneRuntime::with_provider_registry(emily.clone(), registry);
+    let locator = locator();
+
+    emily.open_db(locator.clone()).await.expect("open db");
+    emily
+        .create_episode(episode_request())
+        .await
+        .expect("create episode");
+
+    let result = runtime
+        .execute_remote_with_registry_retry_and_record(
+            task_request(),
+            routing_preference(),
+            retry_policy(),
+            retry_persistence(),
+        )
+        .await
+        .expect("execute retry exhaustion path");
+
+    assert!(result.exhausted);
+    assert!(result.final_execution.is_none());
+    assert_eq!(result.attempts.len(), 2);
+    assert!(
+        result
+            .attempts
+            .iter()
+            .all(|attempt| attempt.provider_error.is_some())
+    );
+
+    let remote_episodes = emily
+        .remote_episodes_for_episode("ep-membrane-remote")
+        .await
+        .expect("list remote episodes");
+    let validations = emily
+        .validation_outcomes_for_episode("ep-membrane-remote")
+        .await
+        .expect("list validations");
+    let audits = emily
+        .sovereign_audit_records_for_episode("ep-membrane-remote")
+        .await
+        .expect("list audits");
+
+    assert_eq!(remote_episodes.len(), 2);
+    assert!(
+        remote_episodes
+            .iter()
+            .all(|remote_episode| remote_episode.state == RemoteEpisodeState::Failed)
+    );
+    assert!(validations.is_empty());
+    assert_eq!(
+        audits
+            .iter()
+            .filter(|audit| audit.kind == AuditRecordKind::BoundaryEvent)
+            .count(),
+        4
+    );
 
     emily.close_db().await.expect("close db");
     let _ = std::fs::remove_dir_all(locator.storage_path);

@@ -115,6 +115,8 @@ async fn run_local(api: Arc<dyn EmilyApi>) {
   that IR as the primary pre-render boundary representation.
 - `contracts/validation.rs` now exposes typed validation categories,
   assessments, and severities for the first stronger local-validation slice.
+- `contracts/retry.rs` now exposes bounded retry and mutation contracts for
+  request-scoped remote retries.
 - `contracts.rs` now also carries typed routing-policy request/result contracts
   for the next membrane policy layer.
 - `providers/` now exposes the membrane-owned remote adapter boundary for the
@@ -143,5 +145,7 @@ async fn run_local(api: Arc<dyn EmilyApi>) {
   view derived from it.
 - That artifact set now also includes structured validation assessments for
   coherence, relevance, confidence, and provenance sufficiency.
+- It now also includes bounded retry policy and per-attempt persistence
+  contracts for deterministic remote retries.
 - Those artifacts are intentionally narrow and local-first in this milestone.
 - Revisit trigger: the first provider-facing or leakage-budget contract lands.

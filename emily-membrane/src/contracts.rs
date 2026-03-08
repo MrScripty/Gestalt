@@ -4,9 +4,11 @@ use crate::providers::ProviderTarget;
 use serde::{Deserialize, Serialize};
 
 mod ir;
+mod retry;
 mod validation;
 
 pub use ir::*;
+pub use retry::*;
 pub use validation::*;
 
 /// Host-provided context fragment already deemed safe for membrane use.

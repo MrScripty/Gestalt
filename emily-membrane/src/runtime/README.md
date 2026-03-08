@@ -12,6 +12,7 @@ focused files.
 | File/Folder | Description |
 | ----------- | ----------- |
 | `policy.rs` | Deterministic routing-policy evaluation over registered membrane targets |
+| `retry.rs` | Request-scoped retry helpers layered over the existing remote write path |
 | `remote.rs` | Remote execution helpers and provider-registry-backed runtime methods |
 | `validation.rs` | Deterministic local validation rules and disposition derivation |
 
@@ -44,6 +45,8 @@ runtime type in `runtime.rs`.
 - `runtime.rs` owns the public runtime type and core local path.
 - `policy.rs` owns deterministic routing-policy evaluation for the first
   sovereign routing slice.
+- `retry.rs` owns bounded request-scoped retry and mutation behavior for
+  remote execution.
 - `remote.rs` owns provider-registry-backed remote execution helpers.
 - `validation.rs` owns the first stronger local-validation slice and its
   deterministic disposition rules.
@@ -96,6 +99,8 @@ runtime type in `runtime.rs`.
 - Validation results now include typed assessments for coherence, relevance,
   confidence, and provenance sufficiency before mapping back into Emily
   validation outcomes.
+- The runtime now also exposes bounded request-scoped retry helpers with
+  explicit retry and mutation audits, without adding background workers.
 - This directory does not expose a separate public facade.
 - Revisit trigger: a separate runtime builder or worker owner becomes necessary.
 
