@@ -113,7 +113,7 @@ async fn compile_locally(api: Arc<dyn EmilyApi>) {
 
 - The public surface is intentionally narrow in this slice.
 - `contracts` now exposes typed DTOs for task input, compile results, routing,
-  dispatch, validation, and reconstruction.
+  dispatch, validation, reconstruction, and routing-policy evaluation.
 - `runtime` exposes a minimal local-only facade above an injected `EmilyApi`.
 - `providers` now exposes a membrane-owned remote adapter trait and provider
   registry plus provider request/result DTOs.

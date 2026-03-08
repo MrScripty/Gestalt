@@ -110,6 +110,8 @@ async fn run_local(api: Arc<dyn EmilyApi>) {
 
 - `contracts.rs` now exposes the first stable DTO families for Milestone 1,
   including local-only persistence envelopes.
+- `contracts.rs` now also carries typed routing-policy request/result contracts
+  for the next membrane policy layer.
 - `providers/` now exposes the membrane-owned remote adapter boundary for the
   next milestone.
 - `runtime.rs` now exposes both the local-only facade and the first

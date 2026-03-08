@@ -1,5 +1,6 @@
 //! Executable membrane boundary contracts.
 
+use crate::providers::ProviderTarget;
 use serde::{Deserialize, Serialize};
 
 /// Host-provided context fragment already deemed safe for membrane use.
@@ -78,6 +79,69 @@ pub struct RemoteRoutingPreference {
     /// Defaults to an empty list when omitted.
     #[serde(default)]
     pub required_capability_tags: Vec<String>,
+}
+
+/// Host-facing routing-policy request before provider dispatch.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoutingPolicyRequest {
+    pub task_id: String,
+    pub episode_id: String,
+    /// Defaults to `false` when omitted.
+    #[serde(default)]
+    pub allow_remote: bool,
+    /// Defaults to `Normal` when omitted.
+    #[serde(default)]
+    pub sensitivity: RoutingSensitivity,
+    pub preference: RemoteRoutingPreference,
+}
+
+/// Sensitivity classification for one routing-policy request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum RoutingSensitivity {
+    Low,
+    #[default]
+    Normal,
+    High,
+    Critical,
+}
+
+/// Result of evaluating membrane routing policy for one task.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RoutingPolicyResult {
+    pub task_id: String,
+    pub outcome: RoutingPolicyOutcome,
+    /// Defaults to `false` when omitted.
+    #[serde(default)]
+    pub caution: bool,
+    pub selected_target: Option<ProviderTarget>,
+    /// Defaults to an empty list when omitted.
+    #[serde(default)]
+    pub findings: Vec<RoutingPolicyFinding>,
+    pub rationale: Option<String>,
+}
+
+/// High-level routing-policy outcome before dispatch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RoutingPolicyOutcome {
+    LocalOnly,
+    SingleRemote,
+    Rejected,
+}
+
+/// Structured finding emitted during routing-policy evaluation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoutingPolicyFinding {
+    pub code: String,
+    pub severity: RoutingPolicyFindingSeverity,
+    pub detail: String,
+}
+
+/// Severity for one routing-policy finding.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RoutingPolicyFindingSeverity {
+    Info,
+    Caution,
+    Block,
 }
 
 /// Result of executing a routing plan.
@@ -295,6 +359,82 @@ mod tests {
             serde_json::from_str(r#"{"provider_id":"provider-b","profile_id":null}"#)
                 .expect("deserialize remote routing preference defaults");
         assert!(restored_default.required_capability_tags.is_empty());
+    }
+
+    #[test]
+    fn routing_policy_request_roundtrip_preserves_defaults() {
+        let request = RoutingPolicyRequest {
+            task_id: "task-1".into(),
+            episode_id: "episode-1".into(),
+            allow_remote: true,
+            sensitivity: RoutingSensitivity::High,
+            preference: RemoteRoutingPreference {
+                provider_id: Some("provider-a".into()),
+                profile_id: Some("reasoning".into()),
+                required_capability_tags: vec!["analysis".into()],
+            },
+        };
+
+        let text = serde_json::to_string(&request).expect("serialize routing policy request");
+        let restored: RoutingPolicyRequest =
+            serde_json::from_str(&text).expect("deserialize routing policy request");
+        assert_eq!(restored, request);
+
+        let restored_default: RoutingPolicyRequest = serde_json::from_str(
+            r#"{
+                "task_id":"task-2",
+                "episode_id":"episode-2",
+                "preference":{"provider_id":null,"profile_id":null}
+            }"#,
+        )
+        .expect("deserialize routing policy request defaults");
+        assert!(!restored_default.allow_remote);
+        assert_eq!(restored_default.sensitivity, RoutingSensitivity::Normal);
+        assert!(
+            restored_default
+                .preference
+                .required_capability_tags
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn routing_policy_result_roundtrip_preserves_defaults() {
+        let result = RoutingPolicyResult {
+            task_id: "task-1".into(),
+            outcome: RoutingPolicyOutcome::SingleRemote,
+            caution: true,
+            selected_target: Some(ProviderTarget {
+                provider_id: "provider-a".into(),
+                model_id: Some("model-a".into()),
+                profile_id: Some("reasoning".into()),
+                capability_tags: vec!["analysis".into()],
+                metadata: serde_json::json!({"rank": 1}),
+            }),
+            findings: vec![RoutingPolicyFinding {
+                code: "earl-caution".into(),
+                severity: RoutingPolicyFindingSeverity::Caution,
+                detail: "episode is cautioned before remote routing".into(),
+            }],
+            rationale: Some("matched preferred provider with caution".into()),
+        };
+
+        let text = serde_json::to_string(&result).expect("serialize routing policy result");
+        let restored: RoutingPolicyResult =
+            serde_json::from_str(&text).expect("deserialize routing policy result");
+        assert_eq!(restored, result);
+
+        let restored_default: RoutingPolicyResult = serde_json::from_str(
+            r#"{
+                "task_id":"task-2",
+                "outcome":"LocalOnly",
+                "selected_target":null
+            }"#,
+        )
+        .expect("deserialize routing policy result defaults");
+        assert!(!restored_default.caution);
+        assert!(restored_default.findings.is_empty());
+        assert_eq!(restored_default.rationale, None);
     }
 
     #[test]
