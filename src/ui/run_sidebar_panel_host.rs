@@ -1,3 +1,4 @@
+use crate::emily_bridge::EmilyBridge;
 use crate::git::RepoContext;
 use crate::orchestrator::GroupOrchestratorSnapshot;
 use crate::state::{AppState, GroupId};
@@ -21,6 +22,7 @@ pub(crate) fn RunSidebarPanelHost(
     app_state: Signal<AppState>,
     ui_state: Signal<UiState>,
     terminal_manager: Signal<Arc<TerminalManager>>,
+    emily_bridge: Signal<Arc<EmilyBridge>>,
     group_id: GroupId,
     active_group_path: String,
     group_orchestrator: Option<GroupOrchestratorSnapshot>,
@@ -92,6 +94,7 @@ pub(crate) fn RunSidebarPanelHost(
                             app_state: app_state,
                             ui_state: ui_state,
                             terminal_manager: terminal_manager,
+                            emily_bridge: emily_bridge,
                             group_id: group_id,
                             git_refresh_nonce: git_refresh_nonce,
                             group_orchestrator: group_orchestrator,

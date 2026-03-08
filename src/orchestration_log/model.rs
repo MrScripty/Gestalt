@@ -37,6 +37,8 @@ pub enum CommandPayload {
         session_ids: Vec<SessionId>,
         line: String,
         #[serde(default)]
+        display_line: Option<String>,
+        #[serde(default)]
         run_id: Option<String>,
     },
     LocalAgentInterrupt {

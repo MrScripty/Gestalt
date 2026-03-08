@@ -1,3 +1,5 @@
+use crate::emily_bridge::EmilyBridge;
+use crate::local_agent_context::prepare_local_agent_command;
 use crate::orchestration_log::{
     CommandKind, CommandPayload, OrchestrationLogStore, ReceiptStatus, RecentActivityRecord,
 };
@@ -15,6 +17,7 @@ pub(crate) fn LocalAgentPanel(
     app_state: Signal<AppState>,
     ui_state: Signal<UiState>,
     terminal_manager: Signal<Arc<TerminalManager>>,
+    emily_bridge: Signal<Arc<EmilyBridge>>,
     group_id: GroupId,
     git_refresh_nonce: Signal<u64>,
     group_orchestrator: GroupOrchestratorSnapshot,
@@ -47,6 +50,8 @@ pub(crate) fn LocalAgentPanel(
     let activity_loading_value = *activity_loading.read();
     let group_path_for_send = group_path.clone();
     let group_path_for_interrupt = group_path.clone();
+    let group_orchestrator_for_send = group_orchestrator.clone();
+    let emily_bridge_for_send = emily_bridge.read().clone();
 
     rsx! {
         article { class: "orchestrator-card",
@@ -75,41 +80,74 @@ pub(crate) fn LocalAgentPanel(
                                     "Enter a command to send.".to_string();
                                 return;
                             }
+                            ui_state.write().local_agent_feedback =
+                                "Assembling local-agent command with Emily context...".to_string();
 
+                            let emily_bridge = emily_bridge_for_send.clone();
+                            let group_orchestrator = group_orchestrator_for_send.clone();
+                            let terminal_manager = terminal_manager_for_send.clone();
                             let workspace_snapshot = app_state.read().workspace_state().clone();
-                            let dispatch = match orchestrator::start_local_agent_run(
-                                &workspace_snapshot,
-                                &terminal_manager_for_send,
-                                group_id,
-                                &command,
-                            ) {
-                                Ok(dispatch) => dispatch,
-                                Err(error) => {
-                                    ui_state.write().local_agent_feedback = error.to_string();
-                                    return;
+                            let group_path_for_send = group_path_for_send.clone();
+                            let mut app_state = app_state;
+                            let mut ui_state = ui_state;
+
+                            spawn(async move {
+                                let prepared = prepare_local_agent_command(
+                                    emily_bridge,
+                                    group_orchestrator,
+                                    command,
+                                )
+                                .await;
+                                let display_command = prepared.display_command.clone();
+                                let dispatched_command = prepared.dispatched_command.clone();
+                                let context_feedback =
+                                    prepared.context_status.feedback_suffix().unwrap_or_default();
+                                let dispatch_result = tokio::task::spawn_blocking(move || {
+                                    orchestrator::start_local_agent_run_prepared(
+                                        &workspace_snapshot,
+                                        &terminal_manager,
+                                        group_id,
+                                        &display_command,
+                                        &dispatched_command,
+                                    )
+                                })
+                                .await;
+
+                                let dispatch = match dispatch_result {
+                                    Ok(Ok(dispatch)) => dispatch,
+                                    Ok(Err(error)) => {
+                                        ui_state.write().local_agent_feedback = error.to_string();
+                                        return;
+                                    }
+                                    Err(error) => {
+                                        ui_state.write().local_agent_feedback =
+                                            format!("Failed preparing local-agent dispatch: {error}");
+                                        return;
+                                    }
+                                };
+
+                                let results = dispatch.results;
+                                let mut state = app_state.write();
+                                apply_orchestrator_results(&mut state, &results);
+                                drop(state);
+
+                                let ok_count =
+                                    results.iter().filter(|result| result.error.is_none()).count();
+                                let fail_count = results.len().saturating_sub(ok_count);
+                                if ok_count > 0 {
+                                    ui_state.write().local_agent_command.clear();
+                                    bump_refresh_nonce(git_refresh_nonce);
                                 }
-                            };
-                            let results = dispatch.results;
-
-                            let mut state = app_state.write();
-                            apply_orchestrator_results(&mut state, &results);
-                            drop(state);
-
-                            let ok_count = results.iter().filter(|result| result.error.is_none()).count();
-                            let fail_count = results.len().saturating_sub(ok_count);
-                            if ok_count > 0 {
-                                ui_state.write().local_agent_command.clear();
-                                bump_refresh_nonce(git_refresh_nonce);
-                            }
-                            ui_state.write().local_agent_feedback = format!(
-                                "Broadcast complete: {ok_count} success, {fail_count} failed."
-                            );
-                            refresh_recent_activity(
-                                recent_activity,
-                                activity_loading,
-                                activity_feedback,
-                                group_path_for_send.clone(),
-                            );
+                                ui_state.write().local_agent_feedback = format!(
+                                    "Broadcast complete: {ok_count} success, {fail_count} failed.{context_feedback}"
+                                );
+                                refresh_recent_activity(
+                                    recent_activity,
+                                    activity_loading,
+                                    activity_feedback,
+                                    group_path_for_send.clone(),
+                                );
+                            });
                         },
                         "Send To Group"
                     }
@@ -293,7 +331,12 @@ fn refresh_recent_activity(
 
 fn activity_title(item: &RecentActivityRecord) -> String {
     match &item.command.payload {
-        CommandPayload::LocalAgentSendLine { line, .. } => format!("Local Agent: {line}"),
+        CommandPayload::LocalAgentSendLine {
+            line, display_line, ..
+        } => format!(
+            "Local Agent: {}",
+            display_line.as_deref().unwrap_or(line.as_str())
+        ),
         CommandPayload::LocalAgentInterrupt { .. } => "Local Agent: interrupt".to_string(),
         CommandPayload::BroadcastSendLine { line, .. } => format!("Broadcast: {line}"),
         CommandPayload::BroadcastInterrupt { .. } => "Broadcast: interrupt".to_string(),

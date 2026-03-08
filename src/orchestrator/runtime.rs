@@ -298,7 +298,14 @@ pub fn send_local_agent_command_to_group(
     group_id: GroupId,
     line: &str,
 ) -> Vec<SessionWriteResult> {
-    send_local_agent_command_to_group_with_run_id(workspace, terminal_manager, group_id, line, None)
+    send_local_agent_command_to_group_with_run_id(
+        workspace,
+        terminal_manager,
+        group_id,
+        line,
+        None,
+        None,
+    )
 }
 
 /// Captures a run checkpoint when available and dispatches the local-agent command.
@@ -308,14 +315,27 @@ pub fn start_local_agent_run(
     group_id: GroupId,
     line: &str,
 ) -> Result<LocalAgentRunDispatch, RunCheckpointError> {
+    start_local_agent_run_prepared(workspace, terminal_manager, group_id, line, line)
+}
+
+/// Captures a run checkpoint using the human-entered command and dispatches the prepared payload.
+pub fn start_local_agent_run_prepared(
+    workspace: &WorkspaceState,
+    terminal_manager: &TerminalManager,
+    group_id: GroupId,
+    display_line: &str,
+    dispatch_line: &str,
+) -> Result<LocalAgentRunDispatch, RunCheckpointError> {
     let group_path = workspace.group_path(group_id).unwrap_or(".").to_string();
-    let checkpoint = run_checkpoints::capture_run_checkpoint(group_id, &group_path, line)?;
+    let checkpoint = run_checkpoints::capture_run_checkpoint(group_id, &group_path, display_line)?;
     let run_id = checkpoint.as_ref().map(|record| record.run_id.clone());
+    let stored_display_line = (display_line != dispatch_line).then_some(display_line);
     let results = send_local_agent_command_to_group_with_run_id(
         workspace,
         terminal_manager,
         group_id,
-        line,
+        dispatch_line,
+        stored_display_line,
         run_id.clone(),
     );
 
@@ -327,6 +347,7 @@ fn send_local_agent_command_to_group_with_run_id(
     terminal_manager: &TerminalManager,
     group_id: GroupId,
     line: &str,
+    display_line: Option<&str>,
     run_id: Option<String>,
 ) -> Vec<SessionWriteResult> {
     let session_ids = group_session_ids(workspace, group_id);
@@ -345,6 +366,7 @@ fn send_local_agent_command_to_group_with_run_id(
             group_path,
             session_ids: session_ids.clone(),
             line: line.to_string(),
+            display_line: display_line.map(str::to_string),
             run_id,
         },
     }) {
@@ -727,6 +749,7 @@ mod tests {
                     group_path: "/tmp/runtime".to_string(),
                     session_ids: vec![3, 4],
                     line: "cargo check".to_string(),
+                    display_line: None,
                     run_id: Some("run-1".to_string()),
                 },
             })

@@ -9,6 +9,7 @@ Integration tests for persistence and resume behavior.
 | `persistence_roundtrip.rs` | Save/load roundtrip contract tests |
 | `persistence_recovery.rs` | Corrupt-file and backup recovery behavior |
 | `emily_inspect_corpus.rs` | Emily inspection snapshot coverage through public read APIs |
+| `emily_local_agent_context.rs` | Emily-backed local-agent prompt assembly and display-line logging coverage |
 | `resume_startup.rs` | Startup resume flow with workspace state restored but terminal history omitted |
 | `emily_seed_corpus.rs` | Emily seed corpus acceptance coverage through the public runtime facade |
 | `git_panel_ops.rs` | Git panel orchestration action flow tests against temp repos |

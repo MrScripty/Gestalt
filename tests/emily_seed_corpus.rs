@@ -42,7 +42,7 @@ fn seeded_corpora_roundtrip_through_public_emily_facade() {
 
         let history = emily_runtime
             .page_history_before(HistoryPageRequest {
-                stream_id: "seed:terminal:session-1".to_string(),
+                stream_id: "terminal:1".to_string(),
                 before_sequence: None,
                 limit: 8,
             })

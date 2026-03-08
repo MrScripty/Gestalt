@@ -19,7 +19,7 @@ pub(super) fn builtin_seed_corpus(label: &str) -> Option<EmilySeedCorpus> {
 }
 
 fn synthetic_terminal_corpus() -> EmilySeedCorpus {
-    let stream_id = "seed:terminal:session-1";
+    let stream_id = "terminal:1";
     EmilySeedCorpus {
         label: SYNTHETIC_TERMINAL_DATASET.to_string(),
         text_objects: vec![

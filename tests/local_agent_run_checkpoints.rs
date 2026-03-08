@@ -115,10 +115,12 @@ fn start_local_agent_run_records_checkpoint_and_run_id() {
     match &recent[0].payload {
         CommandPayload::LocalAgentSendLine {
             line,
+            display_line,
             run_id: payload_run_id,
             ..
         } => {
             assert_eq!(line, "cargo check");
+            assert_eq!(display_line, &None);
             assert_eq!(payload_run_id.as_deref(), Some(run_id.as_str()));
         }
         other => panic!("expected local-agent payload, got {other:?}"),
