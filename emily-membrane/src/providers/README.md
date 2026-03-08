@@ -112,6 +112,9 @@ impl MembraneProvider for ExampleProvider {
   selection before provider dispatch.
 - `ProviderDispatchRequest` and `ProviderDispatchResult` are append-only DTOs
   for the first remote slices.
+- `ProviderDispatchRequest` now carries both typed membrane IR and the current
+  rendered payload so transport adapters remain translations of membrane-owned
+  structure rather than the source of truth.
 - The optional `pantograph` feature adds a one-shot workflow adapter without
   changing the provider trait.
 - Revisit trigger: the first real adapter needs streaming, cancellation, or

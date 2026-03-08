@@ -90,6 +90,12 @@ impl MembraneProvider for DeterministicTestProvider {
         &self,
         request: ProviderDispatchRequest,
     ) -> Result<ProviderDispatchResult, MembraneProviderError> {
+        let ir = request
+            .membrane_ir
+            .as_ref()
+            .expect("remote dispatch should receive typed membrane ir");
+        assert_eq!(ir.task.task_id, request.task_id);
+        assert_eq!(ir.task.episode_id, request.episode_id);
         Ok(ProviderDispatchResult {
             provider_request_id: request.provider_request_id,
             provider_id: self.provider_id().to_string(),

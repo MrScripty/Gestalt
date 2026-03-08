@@ -1,5 +1,6 @@
 //! Provider boundary for membrane-owned remote dispatch.
 
+use crate::contracts::MembraneIr;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -24,6 +25,9 @@ pub struct ProviderDispatchRequest {
     pub episode_id: String,
     pub target: ProviderTarget,
     pub dispatch_kind: ProviderDispatchKind,
+    /// Defaults to `None` when omitted by older payloads.
+    #[serde(default)]
+    pub membrane_ir: Option<MembraneIr>,
     pub bounded_payload: String,
     /// Defaults to an empty list when omitted.
     #[serde(default)]
@@ -245,6 +249,22 @@ mod tests {
                 metadata: json!({"priority": 1}),
             },
             dispatch_kind: ProviderDispatchKind::Prompt,
+            membrane_ir: Some(MembraneIr {
+                task: crate::contracts::MembraneTaskPayload {
+                    task_id: "task-1".into(),
+                    episode_id: "episode-1".into(),
+                    text: "bounded prompt".into(),
+                },
+                context_handles: vec![crate::contracts::MembraneContextHandle {
+                    fragment_id: "ctx-1".into(),
+                    text: "recent context".into(),
+                }],
+                boundary: crate::contracts::MembraneBoundaryMetadata {
+                    remote_allowed: true,
+                    render_mode: crate::contracts::MembraneIrRenderMode::PromptV1,
+                },
+                reconstruction: None,
+            }),
             bounded_payload: "bounded prompt".into(),
             context_fragment_ids: vec!["ctx-1".into()],
             metadata: json!({"source": "membrane"}),
@@ -267,6 +287,7 @@ mod tests {
             }"#,
         )
         .expect("deserialize provider dispatch request defaults");
+        assert_eq!(restored_default.membrane_ir, None);
         assert!(restored_default.context_fragment_ids.is_empty());
         assert!(restored_default.target.capability_tags.is_empty());
         assert_eq!(restored_default.target.model_id, None);

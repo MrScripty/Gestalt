@@ -13,6 +13,7 @@ allowing the membrane to depend on Emily's public APIs.
 | ----------- | ----------- |
 | `lib.rs` | Crate exports and top-level membrane boundary |
 | `contracts.rs` | Executable membrane DTOs for task, compile, route, dispatch, validation, and reconstruction |
+| `contracts/` | Focused contract submodules, starting with typed membrane IR |
 | `providers/` | Membrane-owned provider trait, registry, and remote dispatch contracts |
 | `runtime/` | Remote runtime helpers split out of `runtime.rs` for reviewability |
 | `runtime.rs` | Minimal local-only membrane runtime facade with an internal deterministic adapter |
@@ -110,6 +111,8 @@ async fn run_local(api: Arc<dyn EmilyApi>) {
 
 - `contracts.rs` now exposes the first stable DTO families for Milestone 1,
   including local-only persistence envelopes.
+- `contracts/ir.rs` now exposes typed membrane IR, and compiled tasks carry
+  that IR as the primary pre-render boundary representation.
 - `contracts.rs` now also carries typed routing-policy request/result contracts
   for the next membrane policy layer.
 - `providers/` now exposes the membrane-owned remote adapter boundary for the
@@ -134,5 +137,7 @@ async fn run_local(api: Arc<dyn EmilyApi>) {
 
 - `contracts.rs` publishes the first structured membrane artifacts through
   serde-backed DTOs.
+- That artifact set now includes typed membrane IR plus the rendered prompt
+  view derived from it.
 - Those artifacts are intentionally narrow and local-first in this milestone.
 - Revisit trigger: the first provider-facing or leakage-budget contract lands.

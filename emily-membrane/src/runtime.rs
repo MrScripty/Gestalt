@@ -2,9 +2,11 @@
 
 use crate::contracts::{
     CompileResult, CompiledMembraneTask, DispatchResult, DispatchStatus, LocalExecutionPersistence,
-    LocalExecutionRecord, MembraneRouteKind, MembraneTaskRequest, MembraneValidationDisposition,
-    PolicyExecutionPersistence, PolicySelectedExecution, ReconstructionResult, RoutingPlan,
-    RoutingPolicyOutcome, RoutingPolicyRequest, ValidationEnvelope, ValidationFinding,
+    LocalExecutionRecord, MembraneBoundaryMetadata, MembraneContextHandle, MembraneIr,
+    MembraneIrRenderMode, MembraneRouteKind, MembraneTaskPayload, MembraneTaskRequest,
+    MembraneValidationDisposition, PolicyExecutionPersistence, PolicySelectedExecution,
+    ReconstructionResult, RoutingPlan, RoutingPolicyOutcome, RoutingPolicyRequest,
+    ValidationEnvelope, ValidationFinding,
 };
 use crate::providers::{
     InMemoryProviderRegistry, MembraneProvider, MembraneProviderError, MembraneProviderRegistry,
@@ -151,9 +153,10 @@ where
             ));
         }
 
-        let bounded_prompt = bounded_prompt(&request);
-        let context_fragment_ids = request
-            .context_fragments
+        let membrane_ir = build_membrane_ir(&request);
+        let bounded_prompt = render_prompt_from_ir(&membrane_ir);
+        let context_fragment_ids = membrane_ir
+            .context_handles
             .iter()
             .map(|fragment| fragment.fragment_id.clone())
             .collect();
@@ -162,6 +165,7 @@ where
             compiled_task: CompiledMembraneTask {
                 task_id: request.task_id,
                 episode_id: request.episode_id,
+                membrane_ir: Some(membrane_ir),
                 bounded_prompt,
                 context_fragment_ids,
             },
@@ -399,18 +403,41 @@ where
     }
 }
 
-fn bounded_prompt(request: &MembraneTaskRequest) -> String {
-    if request.context_fragments.is_empty() {
-        return request.task_text.clone();
+fn build_membrane_ir(request: &MembraneTaskRequest) -> MembraneIr {
+    MembraneIr {
+        task: MembraneTaskPayload {
+            task_id: request.task_id.clone(),
+            episode_id: request.episode_id.clone(),
+            text: request.task_text.clone(),
+        },
+        context_handles: request
+            .context_fragments
+            .iter()
+            .map(|fragment| MembraneContextHandle {
+                fragment_id: fragment.fragment_id.clone(),
+                text: fragment.text.clone(),
+            })
+            .collect(),
+        boundary: MembraneBoundaryMetadata {
+            remote_allowed: request.allow_remote,
+            render_mode: MembraneIrRenderMode::PromptV1,
+        },
+        reconstruction: None,
+    }
+}
+
+fn render_prompt_from_ir(ir: &MembraneIr) -> String {
+    if ir.context_handles.is_empty() {
+        return ir.task.text.clone();
     }
 
-    let context = request
-        .context_fragments
+    let context = ir
+        .context_handles
         .iter()
         .map(|fragment| format!("[{}] {}", fragment.fragment_id, fragment.text))
         .collect::<Vec<_>>()
         .join("\n");
-    format!("{}\n\nContext:\n{}", request.task_text, context)
+    format!("{}\n\nContext:\n{}", ir.task.text, context)
 }
 
 fn validate_local_persistence(

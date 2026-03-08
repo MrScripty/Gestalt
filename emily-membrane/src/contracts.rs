@@ -3,6 +3,10 @@
 use crate::providers::ProviderTarget;
 use serde::{Deserialize, Serialize};
 
+mod ir;
+
+pub use ir::*;
+
 /// Host-provided context fragment already deemed safe for membrane use.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContextFragment {
@@ -29,6 +33,9 @@ pub struct MembraneTaskRequest {
 pub struct CompiledMembraneTask {
     pub task_id: String,
     pub episode_id: String,
+    /// Defaults to `None` when omitted by older payloads.
+    #[serde(default)]
+    pub membrane_ir: Option<MembraneIr>,
     pub bounded_prompt: String,
     /// Defaults to an empty list when omitted.
     #[serde(default)]
@@ -327,6 +334,25 @@ mod tests {
             compiled_task: CompiledMembraneTask {
                 task_id: "task-1".into(),
                 episode_id: "episode-1".into(),
+                membrane_ir: Some(MembraneIr {
+                    task: MembraneTaskPayload {
+                        task_id: "task-1".into(),
+                        episode_id: "episode-1".into(),
+                        text: "Summarize the recent outcome.".into(),
+                    },
+                    context_handles: vec![MembraneContextHandle {
+                        fragment_id: "ctx-1".into(),
+                        text: "recent context".into(),
+                    }],
+                    boundary: MembraneBoundaryMetadata {
+                        remote_allowed: false,
+                        render_mode: MembraneIrRenderMode::PromptV1,
+                    },
+                    reconstruction: Some(MembraneReconstructionHandle {
+                        handle_id: "reconstruct-1".into(),
+                        strategy: MembraneReconstructionStrategy::InlineText,
+                    }),
+                }),
                 bounded_prompt: "bounded prompt".into(),
                 context_fragment_ids: vec!["ctx-1".into()],
             },
@@ -342,6 +368,7 @@ mod tests {
             r#"{"compiled_task":{"task_id":"task-2","episode_id":"episode-2","bounded_prompt":"prompt"}}"#,
         )
         .expect("deserialize compile result defaults");
+        assert_eq!(restored_default.compiled_task.membrane_ir, None);
         assert!(
             restored_default
                 .compiled_task
@@ -534,6 +561,22 @@ mod tests {
                 compiled_task: CompiledMembraneTask {
                     task_id: "task-1".into(),
                     episode_id: "episode-1".into(),
+                    membrane_ir: Some(MembraneIr {
+                        task: MembraneTaskPayload {
+                            task_id: "task-1".into(),
+                            episode_id: "episode-1".into(),
+                            text: "Summarize the recent outcome.".into(),
+                        },
+                        context_handles: vec![MembraneContextHandle {
+                            fragment_id: "ctx-1".into(),
+                            text: "recent context".into(),
+                        }],
+                        boundary: MembraneBoundaryMetadata {
+                            remote_allowed: false,
+                            render_mode: MembraneIrRenderMode::PromptV1,
+                        },
+                        reconstruction: None,
+                    }),
                     bounded_prompt: "bounded prompt".into(),
                     context_fragment_ids: vec!["ctx-1".into()],
                 },
@@ -593,6 +636,22 @@ mod tests {
                 compiled_task: CompiledMembraneTask {
                     task_id: "task-1".into(),
                     episode_id: "episode-1".into(),
+                    membrane_ir: Some(MembraneIr {
+                        task: MembraneTaskPayload {
+                            task_id: "task-1".into(),
+                            episode_id: "episode-1".into(),
+                            text: "Summarize the recent outcome.".into(),
+                        },
+                        context_handles: vec![MembraneContextHandle {
+                            fragment_id: "ctx-1".into(),
+                            text: "recent context".into(),
+                        }],
+                        boundary: MembraneBoundaryMetadata {
+                            remote_allowed: true,
+                            render_mode: MembraneIrRenderMode::PromptV1,
+                        },
+                        reconstruction: None,
+                    }),
                     bounded_prompt: "bounded prompt".into(),
                     context_fragment_ids: vec!["ctx-1".into()],
                 },
@@ -692,6 +751,19 @@ mod tests {
                     compiled_task: CompiledMembraneTask {
                         task_id: "task-1".into(),
                         episode_id: "episode-1".into(),
+                        membrane_ir: Some(MembraneIr {
+                            task: MembraneTaskPayload {
+                                task_id: "task-1".into(),
+                                episode_id: "episode-1".into(),
+                                text: "Summarize the recent outcome.".into(),
+                            },
+                            context_handles: Vec::new(),
+                            boundary: MembraneBoundaryMetadata {
+                                remote_allowed: false,
+                                render_mode: MembraneIrRenderMode::PromptV1,
+                            },
+                            reconstruction: None,
+                        }),
                         bounded_prompt: "bounded prompt".into(),
                         context_fragment_ids: Vec::new(),
                     },

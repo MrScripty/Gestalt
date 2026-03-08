@@ -367,6 +367,15 @@ async fn runtime_executes_deterministic_local_flow() {
     };
 
     let compiled = runtime.compile(request).await.expect("compile");
+    let ir = compiled
+        .compiled_task
+        .membrane_ir
+        .as_ref()
+        .expect("compile should produce membrane ir");
+    assert_eq!(ir.task.task_id, "task-1");
+    assert_eq!(ir.task.episode_id, "episode-1");
+    assert!(ir.boundary.remote_allowed);
+    assert_eq!(ir.context_handles.len(), 2);
     assert!(compiled.compiled_task.bounded_prompt.contains("Context:"));
     assert_eq!(compiled.compiled_task.context_fragment_ids.len(), 2);
 

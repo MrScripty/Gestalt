@@ -475,6 +475,7 @@ fn build_provider_dispatch_request(
         episode_id: compile.compiled_task.episode_id.clone(),
         target: target.clone(),
         dispatch_kind: ProviderDispatchKind::Prompt,
+        membrane_ir: compile.compiled_task.membrane_ir.clone(),
         bounded_payload: compile.compiled_task.bounded_prompt.clone(),
         context_fragment_ids: compile.compiled_task.context_fragment_ids.clone(),
         metadata: json!({

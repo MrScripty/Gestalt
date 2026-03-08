@@ -512,6 +512,22 @@ mod tests {
                 metadata: json!({}),
             },
             dispatch_kind: crate::providers::ProviderDispatchKind::Prompt,
+            membrane_ir: Some(crate::contracts::MembraneIr {
+                task: crate::contracts::MembraneTaskPayload {
+                    task_id: "task-1".to_string(),
+                    episode_id: "episode-1".to_string(),
+                    text: "hello".to_string(),
+                },
+                context_handles: vec![crate::contracts::MembraneContextHandle {
+                    fragment_id: "ctx-1".to_string(),
+                    text: "provider context".to_string(),
+                }],
+                boundary: crate::contracts::MembraneBoundaryMetadata {
+                    remote_allowed: true,
+                    render_mode: crate::contracts::MembraneIrRenderMode::PromptV1,
+                },
+                reconstruction: None,
+            }),
             bounded_payload: "hello".to_string(),
             context_fragment_ids: vec!["ctx-1".to_string()],
             metadata: json!({}),

@@ -44,6 +44,8 @@ runtime type in `runtime.rs`.
 - `policy.rs` owns deterministic routing-policy evaluation for the first
   sovereign routing slice.
 - `remote.rs` owns provider-registry-backed remote execution helpers.
+- Compile now builds typed membrane IR first and renders the current prompt
+  payload from that IR.
 - Remote execution remains synchronous and request-scoped in this milestone.
 
 ## Revisit Triggers
@@ -86,6 +88,8 @@ runtime type in `runtime.rs`.
 - That helper remains remote-only by design.
 - The runtime now also exposes a broader policy-selected facade for
   local-plus-remote execution through one typed entrypoint.
+- Provider-bound dispatch requests now carry typed membrane IR alongside the
+  rendered payload so adapters translate from membrane-owned structure.
 - This directory does not expose a separate public facade.
 - Revisit trigger: a separate runtime builder or worker owner becomes necessary.
 
