@@ -340,6 +340,8 @@ Update during implementation:
   - read/query access remains unaudited until a real boundary-crossing host flow requires it
 - 2026-03-08: Follow-on bounded sovereign lifecycle slice completed through one commit:
   - `507be15` `feat(emily): add bounded sovereign lifecycle policy`
+- 2026-03-08: Follow-on episode-read slice completed through one commit:
+  - `fc8ca99` `feat(emily): expose episode reads`
 
 ## Commit Cadence Notes
 
@@ -387,7 +389,6 @@ Update during implementation:
 ### Follow-Ups
 
 - Decide whether the next sovereign slice belongs inside `emily` as richer policy/runtime behavior or in a sibling membrane crate.
-- Decide whether Emily now needs explicit episode-read facade methods so hosts can observe sovereign lifecycle projection changes without reaching into store internals.
 - Decide whether remote episodes need an explicit host-facing state-transition API beyond the current validation-driven reconciliation path.
 - Decide whether future sovereign record types should inherit automatic audit generation by default inside `emily`.
 - Decide whether Emily should keep the current explicit sovereign query facade or later add generic query primitives above the same persisted records.
@@ -447,6 +448,11 @@ Update during implementation:
   - `cargo test --manifest-path emily/Cargo.toml -q`
   - `cargo clippy --manifest-path emily/Cargo.toml --all-targets -- -D warnings`
   - Runtime policy and lifecycle coverage in `emily/src/runtime/sovereign_tests.rs`
+- Episode-read slice verification:
+  - `cargo fmt --manifest-path emily/Cargo.toml`
+  - `cargo test --manifest-path emily/Cargo.toml -q`
+  - `cargo clippy --manifest-path emily/Cargo.toml --all-targets -- -D warnings`
+  - Runtime episode-read coverage in `emily/src/runtime/episode_tests.rs`
 - Plan reviewed against:
   - `PLAN-STANDARDS.md`
   - `ARCHITECTURE-PATTERNS.md`
