@@ -207,7 +207,7 @@ entrypoints.
 - `cargo test -q`
 - DTO roundtrip tests
 
-**Status:** Not started
+**Status:** Completed on 2026-03-08 in commit `a629856`
 
 ### Milestone 1C: Runtime Facade And Internal Test Adapter
 
@@ -259,6 +259,11 @@ Update during implementation:
 - 2026-03-08: First adapter decision fixed to a narrow internal test adapter.
 - 2026-03-08: Milestone 1A crate skeleton implemented in commit `e95f341`.
 - 2026-03-08: Verification passed with:
+  - `cargo fmt --manifest-path emily-membrane/Cargo.toml`
+  - `cargo clippy --manifest-path emily-membrane/Cargo.toml --all-targets --offline -- -D warnings`
+  - `cargo test --manifest-path emily-membrane/Cargo.toml -q --offline`
+- 2026-03-08: Milestone 1B minimal contracts implemented in commit `a629856`.
+- 2026-03-08: DTO verification passed with:
   - `cargo fmt --manifest-path emily-membrane/Cargo.toml`
   - `cargo clippy --manifest-path emily-membrane/Cargo.toml --all-targets --offline -- -D warnings`
   - `cargo test --manifest-path emily-membrane/Cargo.toml -q --offline`
