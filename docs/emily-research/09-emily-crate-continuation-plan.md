@@ -201,7 +201,7 @@ In practice that means:
 - integration or acceptance check through `EmilyApi::query_context`
 - replay or recovery check if retrieval depends on persisted vectors and edges
 
-**Status:** Not started
+**Status:** Complete
 
 ### Milestone 3: Episode And Outcome Contracts
 
@@ -317,6 +317,8 @@ Update during implementation:
 - 2026-03-08: Milestone 1 completed through two commits:
   - `f57bb6c` `fix(emily): align ingest defaults with runtime behavior`
   - `c134880` `refactor(emily): split runtime and inference modules`
+- 2026-03-08: Milestone 2 completed through one commit:
+  - `04a3d45` `feat(emily): add semantic retrieval and edge traversal`
 
 ## Commit Cadence Notes
 
@@ -350,6 +352,7 @@ Update during implementation:
 ### Completed
 
 - Milestone 1: Baseline Alignment And Boundary Cleanup
+- Milestone 2: Retrieval Core
 
 ### Deviations
 
@@ -357,13 +360,17 @@ Update during implementation:
 
 ### Follow-Ups
 
-- Start Milestone 2 retrieval work.
+- Start Milestone 3 episode and outcome contract work.
 - Decide whether episode and outcome types remain in `model.rs` or get split immediately.
 - Decide whether sovereign-dispatch contracts belong in `emily` or a sibling crate.
 
 ### Verification Summary
 
 - Milestone 1 verification:
+  - `cargo fmt --manifest-path emily/Cargo.toml`
+  - `cargo test --manifest-path emily/Cargo.toml -q`
+  - `cargo clippy --manifest-path emily/Cargo.toml --all-targets -- -D warnings`
+- Milestone 2 verification:
   - `cargo fmt --manifest-path emily/Cargo.toml`
   - `cargo test --manifest-path emily/Cargo.toml -q`
   - `cargo clippy --manifest-path emily/Cargo.toml --all-targets -- -D warnings`
@@ -384,6 +391,8 @@ Update during implementation:
   - `emily/src/runtime/README.md`
   - `emily/src/inference/README.md`
   - `emily/src/inference/pantograph/README.md`
+  - `emily/src/store/README.md`
+  - `emily/src/store/surreal/README.md`
 - ADR added/updated: None identified as of 2026-03-08.
 - Reason: current work preserved the public facade while performing internal decomposition.
 - Revisit trigger: first milestone that changes public facade or package structure.
