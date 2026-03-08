@@ -3,10 +3,10 @@ use crate::orchestrator::{self, GroupOrchestratorSnapshot};
 use crate::resource_monitor::ResourceSnapshot;
 use crate::state::{AppState, SessionId};
 use crate::terminal::TerminalManager;
-use crate::ui::run_sidebar_panel_host::{RunSidebarPanelHost, RunSidebarPanelKind};
-use crate::ui::sidebar_panel_host::{SidebarPanelHost, SidebarPanelKind};
-use crate::ui::terminal_view::{terminal_shell, SnippetHotkeyState, TerminalInteractionSignals};
 use crate::ui::UiState;
+use crate::ui::run_sidebar_panel_host::RunSidebarPanelHost;
+use crate::ui::sidebar_panel_host::SidebarPanelHost;
+use crate::ui::terminal_view::{SnippetHotkeyState, TerminalInteractionSignals, terminal_shell};
 use dioxus::prelude::*;
 use emily::model::VectorizationStatus;
 use std::collections::HashMap;
@@ -22,7 +22,7 @@ const STACK_SPLIT_MIN_RATIO: f64 = 0.28;
 const STACK_SPLIT_MAX_RATIO: f64 = 0.72;
 const STACK_SPLIT_DRAG_SENSITIVITY_PX: f64 = 520.0;
 
-fn run_sidebar_style_for_panel(_panel: SidebarPanelKind, ratio: f64) -> String {
+fn run_sidebar_style(ratio: f64) -> String {
     format!("--runner-top-ratio: {:.2}%;", ratio * 100.0)
 }
 
@@ -179,7 +179,6 @@ pub(crate) fn WorkspaceMain(
     let mut renaming_header = use_signal(|| None::<SessionId>);
     let mut rename_header_draft = use_signal(String::new);
     let snippet_hotkey_state = use_signal(|| None::<SnippetHotkeyState>);
-    let run_sidebar_panel = use_signal(|| RunSidebarPanelKind::LocalAgent);
     let renaming_header_id = *renaming_header.read();
     let rename_header_draft_value = rename_header_draft.read().clone();
 
@@ -205,8 +204,7 @@ pub(crate) fn WorkspaceMain(
         "workspace-layout"
     };
     let agent_stack_style = format!("--agent-top-ratio: {:.2}%;", agent_ratio * 100.0);
-    let run_sidebar_style =
-        run_sidebar_style_for_panel(ui_state.read().sidebar_panel, sidebar_ratio);
+    let run_sidebar_style = run_sidebar_style(sidebar_ratio);
     let interaction = TerminalInteractionSignals {
         app_state,
         ui_state,
@@ -699,8 +697,8 @@ pub(crate) fn WorkspaceMain(
                                     active_group_path: active_path.clone(),
                                     group_orchestrator: orchestrator_snapshot.clone(),
                                     repo_context: git_context,
+                                    repo_loading: git_context_loading,
                                     git_refresh_nonce: git_refresh_nonce,
-                                    run_sidebar_panel: run_sidebar_panel,
                                 }
                             }
 
@@ -821,22 +819,12 @@ fn format_cwd_for_display(cwd: &str, workspace_path: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        format_bytes_compact, format_cwd_for_display, percent_used, run_sidebar_style_for_panel,
-    };
-    use crate::ui::sidebar_panel_host::SidebarPanelKind;
+    use super::{format_bytes_compact, format_cwd_for_display, percent_used, run_sidebar_style};
 
     #[test]
-    fn sidebar_layout_style_is_panel_agnostic() {
+    fn sidebar_layout_style_uses_only_ratio() {
         let ratio = 0.57;
-        let local = run_sidebar_style_for_panel(SidebarPanelKind::LocalAgent, ratio);
-        let commands = run_sidebar_style_for_panel(SidebarPanelKind::Commands, ratio);
-        let git = run_sidebar_style_for_panel(SidebarPanelKind::Git, ratio);
-        let files = run_sidebar_style_for_panel(SidebarPanelKind::FileBrowser, ratio);
-
-        assert_eq!(local, commands);
-        assert_eq!(local, git);
-        assert_eq!(local, files);
+        assert_eq!(run_sidebar_style(ratio), "--runner-top-ratio: 57.00%;");
     }
 
     #[test]

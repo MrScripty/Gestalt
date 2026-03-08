@@ -430,32 +430,71 @@
   gap: 8px;
 }
 
-.run-sidebar-switcher {
+.aux-panel-host {
+  min-height: 0;
+  min-width: 0;
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 8px;
 }
 
-.run-sidebar-tab {
-  border: 1px solid #9eb5bc;
-  border-radius: 8px;
-  background: #f2f7f9;
-  color: #214652;
+.aux-panel-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 5px;
+  border: 1px solid #315144;
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, #15231e 0%, #101b17 100%);
+  box-shadow:
+    inset 0 1px 0 #264338,
+    0 8px 20px #050b0c40;
+}
+
+.aux-panel-tab {
+  border: 1px solid #35584a;
+  border-radius: 9px;
+  background: linear-gradient(180deg, #1a2b24 0%, #13211c 100%);
+  color: #b9d7ca;
   font: inherit;
-  font-size: calc(0.74rem * var(--font-scale));
+  font-size: calc(0.73rem * var(--font-scale));
   font-weight: 700;
   padding: 7px 10px;
   cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease,
+    color 120ms ease,
+    transform 120ms ease;
 }
 
-.run-sidebar-tab.active {
-  border-color: #2a7e96;
-  background: #def1f8;
-  color: #113440;
+.aux-panel-tab:hover {
+  border-color: #4b7b68;
+  background: linear-gradient(180deg, #20352d 0%, #162720 100%);
+  color: #d8eee4;
+  transform: translateY(-1px);
 }
 
-.run-sidebar-body {
+.aux-panel-tab.active {
+  border-color: #7cd4a0;
+  background:
+    linear-gradient(180deg, #204032 0%, #173127 100%);
+  color: #effcf4;
+  box-shadow:
+    inset 0 0 0 1px #9df0bc33,
+    0 0 0 1px #7cd4a022;
+}
+
+.aux-panel-tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.aux-panel-body {
   min-height: 0;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .notes-card {
@@ -1032,22 +1071,6 @@
   border-color: #45695a;
   color: #90afa2;
   background: #0f1d19;
-}
-
-.side-panel-tab {
-  border-color: #3f6254;
-  background: #142722;
-  color: #bddbce;
-}
-
-.side-panel-tab.active {
-  border-color: #66d672;
-  background: #193126;
-  color: #d6f0e2;
-}
-
-.side-panel-tab:focus-visible {
-  outline-color: var(--accent);
 }
 
 .sidebar-panel-empty {

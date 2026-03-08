@@ -1,6 +1,5 @@
 use crate::state::SessionId;
 use crate::ui::insert_command_mode::InsertModeState;
-use crate::ui::sidebar_panel_host::SidebarPanelKind;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -18,7 +17,6 @@ pub(crate) struct UiState {
     pub local_agent_command: String,
     pub local_agent_feedback: String,
     pub persistence_feedback: String,
-    pub sidebar_panel: SidebarPanelKind,
     pub sidebar_open: bool,
     pub insert_mode_state: Option<InsertModeState>,
     pub terminal_history_by_session: HashMap<SessionId, TerminalHistoryState>,
@@ -32,7 +30,6 @@ impl Default for UiState {
             local_agent_command: String::new(),
             local_agent_feedback: String::new(),
             persistence_feedback: String::new(),
-            sidebar_panel: SidebarPanelKind::Commands,
             sidebar_open: true,
             insert_mode_state: None,
             terminal_history_by_session: HashMap::new(),

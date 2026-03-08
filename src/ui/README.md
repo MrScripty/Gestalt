@@ -8,6 +8,7 @@
 | ----------- | ----------- |
 | `workspace.rs` | Main workspace layout and shell composition |
 | `state.rs` | Root-shared transient `UiState` and terminal history paging state |
+| `auxiliary_panel_host.rs` | Shared docked auxiliary tab host and panel body routing |
 | `terminal_view.rs` | Terminal output rendering |
 | `terminal_input.rs` | Terminal input and viewport measurement |
 | `tab_rail.rs` | Group/session tab strip behavior |
@@ -21,7 +22,8 @@
 | `insert_command_mode.rs` | Insert mode state and controls |
 | `local_agent_panel.rs` | Local agent control panel and run-start dispatch surface |
 | `run_review_panel.rs` | Latest run checkpoint review UI |
-| `sidebar_panel_host.rs` | Sidebar container selection |
+| `run_sidebar_panel_host.rs` | Run-sidebar wrapper around the shared auxiliary dock host |
+| `sidebar_panel_host.rs` | Right-sidebar wrapper around the shared auxiliary dock host |
 
 ## Problem
 Provide responsive desktop UI workflows while delegating domain behavior to lower layers.
@@ -65,6 +67,7 @@ data ownership or action routing.
 - Local-agent Emily episode creation and host-side gate interpretation stay in host helpers; the UI only renders the resulting feedback and dispatch counts.
 - Run review loads checkpoint-derived data on demand and refreshes from existing Git context signals instead of starting a separate polling loop.
 - Sidebar hosts forward the shared `git_refresh_nonce` into repo-aware child panels; refresh invalidation remains owned by the action-producing child surface rather than the container.
+- Auxiliary panel host membership, order, and active-tab selection come from durable `state`; UI wrappers only render the host-specific shell and route clicks.
 - Git commit tree rendering stays snapshot-driven and presentation-only; lane geometry is derived from `RepoSnapshot.commits` without introducing a second Git state owner in UI.
 
 ## Revisit Triggers

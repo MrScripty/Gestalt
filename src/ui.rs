@@ -1,3 +1,4 @@
+mod auxiliary_panel_host;
 mod command_palette;
 mod commands_panel;
 mod file_browser_panel;
