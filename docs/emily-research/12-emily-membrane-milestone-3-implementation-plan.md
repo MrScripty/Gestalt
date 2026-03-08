@@ -248,6 +248,25 @@ Update during implementation:
   - Streaming, cancellation, and session-reuse hooks are not blockers for the
     first adapter, but they are future trait-evolution candidates rather than
     metadata-only concerns.
+- 2026-03-08: Post-gate additive Pantograph adapter implemented in commit
+  `2135888`.
+- 2026-03-08: Pantograph adapter scope:
+  - Added an optional `pantograph` feature to `emily-membrane`.
+  - Added `PantographWorkflowProvider`, `PantographProviderConfig`, and
+    `PantographWorkflowBinding` under `src/providers/pantograph.rs`.
+  - Kept the existing `MembraneProvider` trait unchanged.
+  - Bound the first adapter to one-shot workflow execution only.
+  - Supported additive metadata conventions for `workflow_id`, `timeout_ms`,
+    `priority`, and `output_targets`.
+  - Rejected nonzero `priority` for the one-shot path pending a future
+    session-backed adapter.
+- 2026-03-08: Pantograph adapter verification passed with:
+  - `cargo fmt --manifest-path emily-membrane/Cargo.toml`
+  - `cargo test --manifest-path emily-membrane/Cargo.toml -q --offline --features pantograph`
+  - `cargo clippy --manifest-path emily-membrane/Cargo.toml --all-targets --offline --features pantograph -- -D warnings`
+- 2026-03-08: Verification caveat:
+  - Feature-gated Pantograph checks emit upstream warnings from the Pantograph
+    workspace, but `emily-membrane` passes under `-D warnings`.
 
 ## Commit Cadence Notes
 
