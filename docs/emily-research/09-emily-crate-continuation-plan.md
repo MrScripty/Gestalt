@@ -329,6 +329,8 @@ Update during implementation:
   - `c706018` `refactor(emily): harden host-agnostic runtime boundary`
 - 2026-03-08: Milestone 7 completed through one commit:
   - `21fbc20` `feat(emily): add sovereign dispatch contracts`
+- 2026-03-08: Follow-on sovereign persistence slice completed through one commit:
+  - `e1ce9e8` `feat(emily): persist sovereign runtime records`
 
 ## Commit Cadence Notes
 
@@ -375,8 +377,9 @@ Update during implementation:
 
 ### Follow-Ups
 
-- Decide whether future sovereign work should begin with persisted route / validation records or with a sibling membrane crate.
-- Decide when remote-episode persistence and audit writes should move from DTO-only support into runtime/store behavior.
+- Decide whether the next sovereign slice belongs inside `emily` as richer policy/runtime behavior or in a sibling membrane crate.
+- Decide whether routing, remote-episode, validation, and sovereign-audit records now need read/query support at the Emily API boundary.
+- Decide whether route, validation, or remote-episode writes should start producing automatic audit trails instead of relying on explicit host calls.
 
 ### Verification Summary
 
@@ -412,6 +415,12 @@ Update during implementation:
   - `cargo clippy --manifest-path emily/Cargo.toml --all-targets -- -D warnings`
   - Contract review against `docs/emily-research/02-architecture-reconstruction.md`
   - Boundary decision recorded in `emily/README.md` and `emily/src/README.md`
+- Sovereign persistence slice verification:
+  - `cargo fmt --manifest-path emily/Cargo.toml`
+  - `cargo test --manifest-path emily/Cargo.toml -q`
+  - `cargo clippy --manifest-path emily/Cargo.toml --all-targets -- -D warnings`
+  - Runtime acceptance coverage in `emily/src/runtime/sovereign_tests.rs`
+  - Surreal roundtrip coverage in `emily/src/store/surreal/tests.rs`
 - Plan reviewed against:
   - `PLAN-STANDARDS.md`
   - `ARCHITECTURE-PATTERNS.md`
