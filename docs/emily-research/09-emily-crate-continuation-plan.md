@@ -223,7 +223,7 @@ In practice that means:
 - integration tests for episode persistence, replay, and duplicate handling
 - README updates covering new consumer contracts and structured producer contracts
 
-**Status:** Not started
+**Status:** Complete
 
 ### Milestone 4: EARL Runtime
 
@@ -319,6 +319,8 @@ Update during implementation:
   - `c134880` `refactor(emily): split runtime and inference modules`
 - 2026-03-08: Milestone 2 completed through one commit:
   - `04a3d45` `feat(emily): add semantic retrieval and edge traversal`
+- 2026-03-08: Milestone 3 completed through one commit:
+  - `ef520e0` `feat(emily): add episode and outcome contracts`
 
 ## Commit Cadence Notes
 
@@ -353,6 +355,7 @@ Update during implementation:
 
 - Milestone 1: Baseline Alignment And Boundary Cleanup
 - Milestone 2: Retrieval Core
+- Milestone 3: Episode And Outcome Contracts
 
 ### Deviations
 
@@ -360,8 +363,8 @@ Update during implementation:
 
 ### Follow-Ups
 
-- Start Milestone 3 episode and outcome contract work.
-- Decide whether episode and outcome types remain in `model.rs` or get split immediately.
+- Start Milestone 4 `EARL` runtime work.
+- Decide which first host flow should exercise `EARL` gating through the new episode model.
 - Decide whether sovereign-dispatch contracts belong in `emily` or a sibling crate.
 
 ### Verification Summary
@@ -371,6 +374,10 @@ Update during implementation:
   - `cargo test --manifest-path emily/Cargo.toml -q`
   - `cargo clippy --manifest-path emily/Cargo.toml --all-targets -- -D warnings`
 - Milestone 2 verification:
+  - `cargo fmt --manifest-path emily/Cargo.toml`
+  - `cargo test --manifest-path emily/Cargo.toml -q`
+  - `cargo clippy --manifest-path emily/Cargo.toml --all-targets -- -D warnings`
+- Milestone 3 verification:
   - `cargo fmt --manifest-path emily/Cargo.toml`
   - `cargo test --manifest-path emily/Cargo.toml -q`
   - `cargo clippy --manifest-path emily/Cargo.toml --all-targets -- -D warnings`
@@ -388,6 +395,7 @@ Update during implementation:
 
 - Module README updated:
   - `emily/src/README.md`
+  - `emily/src/model/README.md`
   - `emily/src/runtime/README.md`
   - `emily/src/inference/README.md`
   - `emily/src/inference/pantograph/README.md`
