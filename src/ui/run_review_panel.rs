@@ -10,9 +10,9 @@ pub(crate) fn RunReviewPanel(
 ) -> Element {
     let repo_context_value = repo_context.read().clone();
     let refresh_nonce = *git_refresh_nonce.read();
-    let mut review = use_signal(|| None::<RunReview>);
+    let review = use_signal(|| None::<RunReview>);
     let review_value = review.read().clone();
-    let mut review_feedback = use_signal(String::new);
+    let review_feedback = use_signal(String::new);
     let review_feedback_value = review_feedback.read().clone();
     let review_loading = use_signal(|| true);
     let review_loading_value = *review_loading.read();
