@@ -7,36 +7,38 @@ Map publicly supported experience signals to likely architectural choices in Emi
 ## Evidence-Based Background Signals
 
 1. Cloud and managed infrastructure operations history from at least 2002 onward.
-2. Security, continuity, and compliance-heavy delivery experience (including healthcare privacy positioning).
+2. Security, continuity, and compliance-heavy delivery experience.
 3. Infrastructure strategy for AI workloads (GPU, hybrid cloud, production operations).
-4. Public push toward formal epistemic controls in AI (EMEB, EARL, ECGL) and probabilistic validation language.
+4. Public push toward formal epistemic controls in AI (`EMEB`, `EARL`, `ECGL`).
+5. March 2026 explicit framing around sovereignty, provider independence, and Indigenous/community-governed control.
 
 ## Matrix
 
 | Experience / Knowledge Base | Public Signal (Observed) | Likely Design Bias | Emily Architecture Expression |
 |---|---|---|---|
-| Managed hosting and cloud operations | Robson Communications history and long-run cloud services positioning | Reliability-first systems thinking; treat memory as production state, not cache | Asynchronous consolidation loop, operational monitoring, explicit system health surfaces |
-| Business continuity and cyber-protection environments | Acronis/continuity style partner framing | Defensive posture against silent corruption and drift | Quarantine path for untrusted memories; controlled integration instead of blind persistence |
-| Compliance and privacy delivery (medical domain messaging) | Robson One privacy/compliance emphasis | Auditability, traceability, and governance over model behavior | Metricized memory states, threshold policies, integrity alerts, interpretable gate outcomes |
-| Infrastructure engineering for AI workloads | Lenovo + hybrid GPU deployment narratives | Cost/perf pragmatism and scale-aware architecture choices | Split runtime: online retrieval path + offline scoring/calibration workers |
-| Risk and outcome accountability mindset | Public EARL framing (outcome- and risk-linked learning) | Decisions should be weighted by consequence, not only accuracy | Outcome factor in learning weight; high-stakes outcomes contribute more |
-| Probabilistic/statistical orientation | Public EMEB framing + probabilistic validation language in hiring/posts | Quantify uncertainty and bound trust instead of heuristic confidence only | Epsilon bounds, confidence ranges, epsilon-confidence correlation monitoring |
-| Cognitive integrity as system objective | ECGL paper and public "epistemic integrity" framing | Protect long-term identity from low-quality or adversarial inputs | Learning-weight gate, adaptive threshold, CI scalar, integration vs quarantine controls |
-| Productized agent operations focus | Emily OS task/mission operational screenshots | Build AI as an operable system with feedback loops | Task telemetry, mission analytics, style calibration, reliability dashboards |
+| Managed hosting and cloud operations | Robson Communications history and long-run cloud services positioning | Reliability-first systems thinking; treat cognition as production state, not chat state | Asynchronous workers, operational monitoring, explicit health and integrity surfaces |
+| Business continuity and cyber-protection environments | Acronis/continuity style partner framing | Defensive posture against silent corruption and single-point capture | Quarantine paths, bounded remote calls, local authority over integration |
+| Compliance and privacy delivery | Healthcare/privacy positioning plus sovereignty framing | Governance must be architectural, auditable, and local | Threshold policies, interpretable gate outcomes, local trust-boundary enforcement |
+| Infrastructure engineering for AI workloads | Lenovo + hybrid GPU deployment narratives | Cost/perf pragmatism and workload routing across substrates | Split local/remote reasoning paths, provider selection, online vs offline control loops |
+| Risk and outcome accountability mindset | `EARL` paper and public risk language | Decisions should be gated before damage compounds | Pre-cognitive risk gate, clarification / abort modes, consequence-weighted learning |
+| Probabilistic / statistical orientation | `EMEB` framing and probabilistic validation language | Quantify accumulation risk instead of relying on intuition | Error bounds, effective-universe estimation, duplicate-mass prediction, confidence correlation monitoring |
+| Cognitive integrity as system objective | `ECGL` paper and public "epistemic integrity" framing | Protect long-term identity from low-quality or adversarial inputs | Learning-weight gate, adaptive thresholding, `CI`, quarantine, semantic audit triggers |
+| Productized agent operations focus | Emily OS task/mission screenshots and March 2026 dispatch framing | Build AI as an operable system with control loops over external cognition | Multi-model dispatch, local rendering, mission analytics, reliability dashboards |
+| Indigenous data sovereignty emphasis | March 2026 sovereign-cognition paper | Ownership, memory authority, and governance must stay with the served person/community | Provider independence, community-governed identity layer, mathematical boundary controls |
 
 ## Design Consequences For Reproduction
 
-1. Treat memory write/integration as policy-controlled state transition, not a direct insert.
-2. Implement probabilistic uncertainty metrics (`epsilon`) and explicit confidence tracking as first-class fields.
-3. Keep outcome logging tied to decision risk so learning weights reflect consequence.
-4. Use quarantine as a persistent state with periodic re-evaluation rather than hard delete/reject.
-5. Maintain a global integrity metric and alerts so degradation is visible before behavioral failure.
+1. Treat memory write and integration as policy-controlled state transitions, not direct inserts.
+2. Add a trust-boundary layer rather than treating remote inference as a transparent call.
+3. Use `EARL`-style pre-cognitive gating before allowing confused reasoning to affect memory or users.
+4. Use `ECGL`-style quarantine and adaptive integrity controls rather than binary accept/reject behavior.
+5. Keep identity, continuity, and memory authority local even if reasoning is distributed across providers.
 
 ## Confidence Labels
 
-- `High confidence`: broad infra/compliance/operations background and current AI-epistemic focus.
-- `Medium confidence`: exact internal weighting, threshold values, and worker topology in production.
-- `Low confidence`: private heuristics, unpublished data pipelines, and undisclosed red-team defenses.
+- `High confidence`: broad infra/compliance/operations background, current AI-epistemic focus, and sovereignty framing from the March 2026 paper.
+- `Medium confidence`: exact production topology, exact provider routing policy, and exact weighting constants in production.
+- `Low confidence`: private heuristics, unpublished validation layers, and undisclosed red-team defenses.
 
 ## Sources Used
 
@@ -47,6 +49,5 @@ Map publicly supported experience signals to likely architectural choices in Emi
 - `https://www.lenovo.com/us/en/case-studies-customer-success-stories/robson-comms/`
 - `https://www.pr.com/press-release/932521`
 - `https://www.robsoninc.com/RobsonInc-Response-National_Sprint_Consultation_on_AI_Strategy.pdf`
-- Local white paper: `/home/jeremy/Downloads/Emily_OS-ECGL_Scientific_Paper.pdf`
+- Local papers in `docs/emily-research/`
 - Local screenshots: `/home/jeremy/Downloads/Screenshot2026_02_27_*.jpg`
-

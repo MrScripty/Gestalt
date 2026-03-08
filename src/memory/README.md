@@ -8,8 +8,9 @@ Build a reusable, Emily-style memory subsystem for Gestalt that:
 2. Adds an embedding vector to each text object.
 3. Maintains both linear edges (chronological chain) and semantic edges (vector similarity links).
 4. Returns context packets for local agent orchestration.
+5. Provides a practical local foundation for later `EARL` / `ECGL` controls and possible sovereign-dispatch extensions.
 
-The design must be modular enough to extract later without breaking Gestalt, and safe enough that changing memory internals does not break terminal behavior.
+This module is the memory and epistemic-integrity layer inside Gestalt. It is not, by itself, the full March 2026 Emily sovereign-cognition architecture.
 
 ## Scope
 
@@ -24,7 +25,9 @@ In scope:
 
 Out of scope for first implementation:
 
-- out-of-process network service
+- `Semantic Membrane`
+- provider-routing and multi-model dispatch
+- local legend mapping / remote reconstruction
 - external API transport (HTTP/IPC server)
 - full autonomous policy engine
 
@@ -70,7 +73,7 @@ This preserves current ownership boundaries and keeps terminal emulation behavio
 
 `src/memory/embed.rs`
 - embedding provider abstraction
-- initial provider: local Ollama embeddings
+- initial provider: local or workflow-backed embeddings
 
 `src/memory/engine.rs`
 - ingest orchestration
@@ -93,8 +96,8 @@ Required fields:
 - `session_id: SessionId`
 - `group_id: GroupId`
 - `seq_in_session: u64`
-- `ts_utc: i64` (unix ms or ns; pick one constant globally)
-- `kind: TextKind` (`InputLine`, `OutputLine`, `RoundSummary`, `AgentNote`)
+- `ts_utc: i64`
+- `kind: TextKind`
 - `text: String`
 - `embedding: Vec<f32>`
 - `cwd: Option<String>`
@@ -107,7 +110,7 @@ Required fields:
 - `id: Uuid`
 - `from_id: Uuid`
 - `to_id: Uuid`
-- `edge_type: EdgeType` (`LinearNext`, `SemanticSimilar`, `CommandToOutput`, `SameRound`, `SameCwd`)
+- `edge_type: EdgeType`
 - `weight: f32`
 - `ts_utc: i64`
 
@@ -135,7 +138,7 @@ Key indexes:
 
 Capture before PTY write path:
 
-- source today: `src/terminal.rs` in `send_input`/`send_line`
+- source today: `src/terminal.rs` in `send_input` / `send_line`
 - event contains: session/group/cwd, text, timestamp, monotonic session seq
 
 ### Output events
@@ -149,7 +152,7 @@ Capture at finalized line boundaries:
 
 - terminal path only enqueues events
 - DB writes and embeddings run in background worker
-- bounded queue with drop accounting + metrics (no hidden data loss)
+- bounded queue with drop accounting + metrics
 
 ## Edge Construction Rules
 
@@ -175,7 +178,7 @@ Suggested initial constants:
 
 Tune later via policy records.
 
-## Retrieval Contract for Agents
+## Retrieval Contract For Agents
 
 `query_context(request)` should:
 
@@ -193,31 +196,44 @@ For MVP, `confidence` and `learning_weight` can default to `1.0` until scoring i
 
 ## Embedding Strategy
 
-Initial provider:
+Initial provider options:
 
-- Ollama embeddings with `nomic-embed-text`
+- workflow-backed embeddings through the `emily` inference abstraction
+- local embedding providers later if needed
 
 Provider abstraction requirements:
 
-- configurable model name
+- configurable profile / model name
 - explicit embedding dimension validation
 - timeout and retry policy with typed errors
 
 Future providers:
 
-- local ONNX/Candle provider
+- local ONNX / Candle provider
 - remote embedding endpoint
 
-## Emily-Style Scoring Roadmap
+## Emily-Style Control Roadmap
 
-Phase-in scoring after retrieval is stable:
+Phase-in controls after retrieval is stable:
 
-1. EMEB proxy (`epsilon`, uncertainty estimate)
-2. EARL proxy (`outcome_factor`, risk-weighted feedback)
-3. ECGL gate (`learning_weight`, integrate vs quarantine)
-4. CI metric and adaptive threshold policy
+1. `EMEB`-style confidence / memory-coordination signals
+2. `EARL`-style pre-cognitive gating for risky reasoning episodes
+3. `ECGL` gate (`learning_weight`, integrate vs quarantine)
+4. `CI` metric and adaptive threshold policy
 
-Do not block MVP on full scoring stack; stage it behind optional policy mode.
+Do not block MVP on the full stack; stage it behind optional policy mode.
+
+## Relationship To Broader Emily Architecture
+
+The local papers now support a broader Emily concept that includes:
+
+- `Semantic Membrane`
+- multi-provider dispatch
+- local rendering / legend mapping
+- `ECCR`
+- `AOPO/APC`
+
+Those are not part of this module's current responsibility. This module should instead expose clean extension points so the broader architecture can be layered above it later.
 
 ## Gestalt Integration Plan
 
@@ -265,7 +281,7 @@ Manual verification:
 - copy/paste and key behavior unchanged
 - agent receives context packet with provenance IDs
 
-## Migration and Rollout
+## Migration And Rollout
 
 1. Add `memory` module scaffolding and typed interfaces.
 2. Add `NoopMemoryRuntime` and wire in app startup/shutdown.
@@ -277,7 +293,7 @@ Manual verification:
 
 Each step should be independently shippable behind a feature flag or runtime toggle.
 
-## Definition of Done for Memory MVP
+## Definition Of Done For Memory MVP
 
 MVP is complete when:
 
