@@ -115,6 +115,8 @@ async fn compile_locally(api: Arc<dyn EmilyApi>) {
 - `contracts` now exposes typed DTOs for task input, compile results, routing,
   dispatch, validation, and reconstruction.
 - `runtime` exposes a minimal local-only facade above an injected `EmilyApi`.
+- `providers` now exposes a membrane-owned remote adapter trait and provider
+  request/result DTOs.
 - Local-only execution can already persist routing and validation artifacts
   through Emily's public sovereign APIs.
 - Compatibility policy for this crate will be append-only while the initial

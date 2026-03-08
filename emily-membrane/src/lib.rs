@@ -6,4 +6,5 @@
 //! of Emily's durable memory and policy state.
 
 pub mod contracts;
+pub mod providers;
 pub mod runtime;

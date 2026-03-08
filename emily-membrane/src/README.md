@@ -13,6 +13,7 @@ allowing the membrane to depend on Emily's public APIs.
 | ----------- | ----------- |
 | `lib.rs` | Crate exports and top-level membrane boundary |
 | `contracts.rs` | Executable membrane DTOs for task, compile, route, dispatch, validation, and reconstruction |
+| `providers/` | Membrane-owned provider trait and remote dispatch contracts |
 | `runtime.rs` | Minimal local-only membrane runtime facade with an internal deterministic adapter |
 
 ## Problem
@@ -31,9 +32,10 @@ different runtime concerns.
 
 ## Decision
 
-Start with a narrow source tree containing only `contracts` and `runtime`
-modules. Defer subdirectories such as `compiler/`, `router/`, or `providers/`
-until those responsibilities become real in code.
+Start with a narrow source tree containing only the directories and modules that
+already have real responsibilities. `providers/` now exists because the remote
+adapter boundary is no longer speculative, while `compiler/` and `router/`
+remain deferred.
 
 ## Alternatives Rejected
 
@@ -47,6 +49,7 @@ until those responsibilities become real in code.
 ## Invariants
 
 - `contracts.rs` owns boundary DTOs, not provider implementations.
+- `providers/` owns provider-facing membrane contracts and adapter traits.
 - `runtime.rs` owns membrane orchestration entrypoints, not Emily persistence.
 - No module in this tree may depend on Gestalt UI or application modules.
 
@@ -104,6 +107,8 @@ async fn run_local(api: Arc<dyn EmilyApi>) {
 
 - `contracts.rs` now exposes the first stable DTO families for Milestone 1,
   including local-only persistence envelopes.
+- `providers/` now exposes the membrane-owned remote adapter boundary for the
+  next milestone.
 - `runtime.rs` now exposes the first local-only membrane facade above `EmilyApi`.
 - Revisit trigger: the first provider-backed runtime path lands.
 
