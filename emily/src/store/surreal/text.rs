@@ -62,7 +62,7 @@ impl SurrealEmilyStore {
     }
 
     pub(super) fn text_object_projection() -> &'static str {
-        "type::string(id) AS id, stream_id, source_kind, object_kind, sequence, ts_unix_ms, text, metadata, epsilon, confidence, outcome_factor, novelty_factor, stability_factor, learning_weight, gate_score, integrated, quarantine_score"
+        "type::string(id) AS id, stream_id, source_kind, object_kind, sequence, ts_unix_ms, text, metadata, epsilon, confidence, outcome_factor, novelty_factor, stability_factor, learning_weight, gate_score, memory_state, integrated, quarantine_score"
     }
 
     async fn append_linear_edge(
@@ -386,6 +386,7 @@ impl SurrealEmilyStore {
 
         let mut ranked = objects
             .into_iter()
+            .filter(|object| object.memory_state != crate::model::MemoryState::Quarantined)
             .map(|object| {
                 let similarity = Self::lexical_similarity(&query.query_text, &object.text);
                 let rank = Self::rank_score(similarity, &object);

@@ -1,7 +1,7 @@
 use super::*;
 use crate::model::{
-    AuditRecord, EarlEvaluationRecord, EpisodeRecord, EpisodeTraceLink, OutcomeRecord, TextEdge,
-    TextObjectKind, VectorizationConfig,
+    AuditRecord, EarlEvaluationRecord, EpisodeRecord, EpisodeTraceLink, IntegritySnapshot,
+    OutcomeRecord, TextEdge, TextObjectKind, VectorizationConfig,
 };
 use crate::store::EmilyStore;
 use serde_json::json;
@@ -18,6 +18,7 @@ pub(super) struct MockStore {
     pub(super) outcomes: Mutex<Vec<OutcomeRecord>>,
     pub(super) earl_evaluations: Mutex<Vec<EarlEvaluationRecord>>,
     pub(super) audits: Mutex<Vec<AuditRecord>>,
+    pub(super) integrity_snapshots: Mutex<Vec<IntegritySnapshot>>,
     pub(super) config: Mutex<Option<VectorizationConfig>>,
     pub(super) insert_started: Option<Arc<Notify>>,
     pub(super) release_insert: Option<Arc<Notify>>,
@@ -293,6 +294,27 @@ impl EmilyStore for MockStore {
         audits.retain(|item| item.episode_id == episode_id);
         audits.sort_by(|left, right| left.ts_unix_ms.cmp(&right.ts_unix_ms));
         Ok(audits)
+    }
+
+    async fn upsert_integrity_snapshot(
+        &self,
+        snapshot: &IntegritySnapshot,
+    ) -> Result<(), EmilyError> {
+        let mut snapshots = self.integrity_snapshots.lock().await;
+        if let Some(index) = snapshots.iter().position(|item| item.id == snapshot.id) {
+            snapshots[index] = snapshot.clone();
+        } else {
+            snapshots.push(snapshot.clone());
+        }
+        Ok(())
+    }
+
+    async fn latest_integrity_snapshot(&self) -> Result<Option<IntegritySnapshot>, EmilyError> {
+        let snapshots = self.integrity_snapshots.lock().await;
+        Ok(snapshots
+            .iter()
+            .cloned()
+            .max_by(|left, right| left.ts_unix_ms.cmp(&right.ts_unix_ms)))
     }
 
     async fn query_context(&self, _query: &ContextQuery) -> Result<ContextPacket, EmilyError> {

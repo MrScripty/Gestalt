@@ -9,6 +9,7 @@ This directory contains the embedded SurrealDB backend for Emily persistence. Th
 | File/Folder | Description |
 | ----------- | ----------- |
 | `mod.rs` | Surreal-backed `EmilyStore` facade and trait implementation delegation. |
+| `ecgl.rs` | Integrity snapshot persistence helpers. |
 | `earl.rs` | EARL evaluation persistence helpers. |
 | `text.rs` | Text, vector, edge, history, and lexical fallback persistence helpers. |
 | `episodes.rs` | Episode, trace-link, outcome, and audit persistence helpers. |
@@ -16,7 +17,7 @@ This directory contains the embedded SurrealDB backend for Emily persistence. Th
 
 ## Problem
 
-The Surreal backend now owns text objects, vectors, edges, paging, legacy lexical fallback queries, episode-oriented persisted artifacts, and EARL evaluation records. Splitting it into a subdirectory keeps the implementation within the repo's file-size and documentation thresholds.
+The Surreal backend now owns text objects, vectors, edges, paging, legacy lexical fallback queries, episode-oriented persisted artifacts, EARL evaluation records, and ECGL integrity snapshots. Splitting it into a subdirectory keeps the implementation within the repo's file-size and documentation thresholds.
 
 ## Constraints
 
@@ -39,6 +40,7 @@ Use a `store/surreal/` directory with `mod.rs` for implementation and a separate
 - Text objects, vectors, and edges remain stored as distinct record types.
 - Episode records, trace links, outcomes, and audits remain stored as distinct record types.
 - EARL evaluations remain stored as distinct record types.
+- Integrity snapshots remain stored as distinct record types.
 - Backend tests validate real persistence behavior, not only helper functions.
 
 ## Revisit Triggers
@@ -74,6 +76,6 @@ let store = SurrealEmilyStore::new();
 
 ## Structured Producer Contract
 
-- This backend writes `text_objects`, `text_vectors`, `text_edges`, `episodes`, `episode_trace_links`, `outcomes`, `earl_evaluations`, `audit_records`, and runtime config records.
+- This backend writes `text_objects`, `text_vectors`, `text_edges`, `episodes`, `episode_trace_links`, `outcomes`, `earl_evaluations`, `integrity_snapshots`, `audit_records`, and runtime config records.
 - Stable record-field semantics are defined by Emily model types.
 - If persisted record shapes change, compatibility or migration behavior must be documented before merge.

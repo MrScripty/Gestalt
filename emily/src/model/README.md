@@ -9,6 +9,7 @@
 | File | Description |
 | ---- | ----------- |
 | `earl.rs` | EARL signal and evaluation contracts for pre-cognitive episode gating |
+| `ecgl.rs` | ECGL memory-state and integrity-snapshot contracts |
 | `episode.rs` | Episode, trace-link, outcome, and audit contracts for host-agnostic policy inputs |
 
 ## Problem
@@ -23,12 +24,13 @@ Milestone 3 adds new public contracts for episode-oriented Emily behavior. Keepi
 
 ## Decision
 
-Add focused episode/outcome/audit/EARL contracts under `model/` and re-export them from `model.rs`.
+Add focused episode/outcome/audit/EARL/ECGL contracts under `model/` and re-export them from `model.rs`.
 
 ## Invariants
 
 - Episode and outcome records are additive extensions to the existing text-memory model.
 - EARL evaluations are additive extensions to the existing text-memory model.
+- ECGL memory states and integrity snapshots are additive extensions to the existing text-memory model.
 - Audit records remain immutable event records.
 - Request/record types avoid Gestalt-specific UI or transport assumptions.
 

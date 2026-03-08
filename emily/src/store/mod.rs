@@ -1,8 +1,8 @@
 use crate::error::EmilyError;
 use crate::model::{
     AuditRecord, ContextPacket, ContextQuery, DatabaseLocator, EarlEvaluationRecord, EpisodeRecord,
-    EpisodeTraceLink, HistoryPage, HistoryPageRequest, OutcomeRecord, TextEdge, TextObject,
-    TextVector, VectorizationConfig,
+    EpisodeTraceLink, HistoryPage, HistoryPageRequest, IntegritySnapshot, OutcomeRecord, TextEdge,
+    TextObject, TextVector, VectorizationConfig,
 };
 use async_trait::async_trait;
 
@@ -64,6 +64,11 @@ pub trait EmilyStore: Send + Sync {
     async fn upsert_audit_record(&self, audit: &AuditRecord) -> Result<(), EmilyError>;
     async fn get_audit_record(&self, audit_id: &str) -> Result<Option<AuditRecord>, EmilyError>;
     async fn list_audit_records(&self, episode_id: &str) -> Result<Vec<AuditRecord>, EmilyError>;
+    async fn upsert_integrity_snapshot(
+        &self,
+        snapshot: &IntegritySnapshot,
+    ) -> Result<(), EmilyError>;
+    async fn latest_integrity_snapshot(&self) -> Result<Option<IntegritySnapshot>, EmilyError>;
     async fn query_context(&self, query: &ContextQuery) -> Result<ContextPacket, EmilyError>;
     async fn page_history_before(
         &self,

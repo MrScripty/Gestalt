@@ -3,11 +3,13 @@ use serde_json::Value;
 use std::path::PathBuf;
 
 mod earl;
+mod ecgl;
 mod episode;
 
 pub use earl::{
     EarlDecision, EarlEvaluationRecord, EarlEvaluationRequest, EarlHostAction, EarlSignalVector,
 };
+pub use ecgl::{IntegritySnapshot, MemoryState};
 pub use episode::{
     AppendAuditRecordRequest, AuditRecord, AuditRecordKind, CreateEpisodeRequest, EpisodeRecord,
     EpisodeState, EpisodeTraceKind, EpisodeTraceLink, OutcomeRecord, OutcomeStatus,
@@ -56,6 +58,7 @@ pub struct TextObject {
     pub stability_factor: f32,
     pub learning_weight: f32,
     pub gate_score: Option<f32>,
+    pub memory_state: MemoryState,
     /// Whether the object has been admitted into integrated memory.
     ///
     /// New objects should remain `false` until an explicit integration policy

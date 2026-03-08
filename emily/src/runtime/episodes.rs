@@ -239,6 +239,8 @@ impl<S: EmilyStore + 'static> EmilyRuntime<S> {
         if updated_episode != existing_episode {
             self.store.upsert_episode(&updated_episode).await?;
         }
+        self.apply_ecgl_after_outcome(&updated_episode, &outcome)
+            .await?;
 
         Ok(outcome)
     }

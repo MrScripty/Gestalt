@@ -1,8 +1,8 @@
 use crate::error::EmilyError;
 use crate::model::{
     AuditRecord, ContextPacket, ContextQuery, DatabaseLocator, EarlEvaluationRecord, EpisodeRecord,
-    EpisodeTraceLink, HistoryPage, HistoryPageRequest, OutcomeRecord, TextEdge, TextObject,
-    TextVector, VectorizationConfig,
+    EpisodeTraceLink, HistoryPage, HistoryPageRequest, IntegritySnapshot, OutcomeRecord, TextEdge,
+    TextObject, TextVector, VectorizationConfig,
 };
 use crate::store::EmilyStore;
 use async_trait::async_trait;
@@ -11,6 +11,7 @@ use surrealdb::engine::local::Db;
 use tokio::sync::RwLock;
 
 mod earl;
+mod ecgl;
 mod episodes;
 #[cfg(test)]
 mod tests;
@@ -183,6 +184,17 @@ impl EmilyStore for SurrealEmilyStore {
 
     async fn list_audit_records(&self, episode_id: &str) -> Result<Vec<AuditRecord>, EmilyError> {
         self.list_audit_records_internal(episode_id).await
+    }
+
+    async fn upsert_integrity_snapshot(
+        &self,
+        snapshot: &IntegritySnapshot,
+    ) -> Result<(), EmilyError> {
+        self.upsert_integrity_snapshot_internal(snapshot).await
+    }
+
+    async fn latest_integrity_snapshot(&self) -> Result<Option<IntegritySnapshot>, EmilyError> {
+        self.latest_integrity_snapshot_internal().await
     }
 
     async fn query_context(&self, query: &ContextQuery) -> Result<ContextPacket, EmilyError> {

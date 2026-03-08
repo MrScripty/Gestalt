@@ -1,7 +1,8 @@
 use super::EmilyRuntime;
 use crate::error::EmilyError;
 use crate::model::{
-    ContextItem, ContextPacket, ContextQuery, TextEdge, TextEdgeType, TextObject, TextVector,
+    ContextItem, ContextPacket, ContextQuery, MemoryState, TextEdge, TextEdgeType, TextObject,
+    TextVector,
 };
 use crate::store::EmilyStore;
 use std::cmp::Ordering;
@@ -97,7 +98,10 @@ impl<S: EmilyStore + 'static> EmilyRuntime<S> {
         let objects = self
             .store
             .list_text_objects(query.stream_id.as_deref())
-            .await?;
+            .await?
+            .into_iter()
+            .filter(|object| object.memory_state != MemoryState::Quarantined)
+            .collect::<Vec<_>>();
         if objects.is_empty() {
             return Ok(ContextPacket { items: Vec::new() });
         }

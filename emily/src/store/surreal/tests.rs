@@ -40,6 +40,7 @@ fn sample_object(sequence: u64, text: &str) -> TextObject {
         stability_factor: 1.0,
         learning_weight: 1.0,
         gate_score: None,
+        memory_state: crate::model::MemoryState::Pending,
         integrated: false,
         quarantine_score: 0.0,
     }

@@ -23,8 +23,9 @@ pub use model::{
     ContextQuery, CreateEpisodeRequest, DatabaseLocator, EarlDecision, EarlEvaluationRecord,
     EarlEvaluationRequest, EarlHostAction, EarlSignalVector, EmbeddingProviderStatus,
     EpisodeRecord, EpisodeState, EpisodeTraceKind, EpisodeTraceLink, HealthSnapshot, HistoryPage,
-    HistoryPageRequest, IngestTextRequest, MemoryPolicy, OutcomeRecord, OutcomeStatus,
-    RecordOutcomeRequest, TextEdge, TextEdgeType, TextObject, TextObjectKind, TextVector,
-    TraceLinkRequest, VectorizationConfig, VectorizationConfigPatch, VectorizationJobKind,
-    VectorizationJobSnapshot, VectorizationJobState, VectorizationRunRequest, VectorizationStatus,
+    HistoryPageRequest, IngestTextRequest, IntegritySnapshot, MemoryPolicy, MemoryState,
+    OutcomeRecord, OutcomeStatus, RecordOutcomeRequest, TextEdge, TextEdgeType, TextObject,
+    TextObjectKind, TextVector, TraceLinkRequest, VectorizationConfig, VectorizationConfigPatch,
+    VectorizationJobKind, VectorizationJobSnapshot, VectorizationJobState, VectorizationRunRequest,
+    VectorizationStatus,
 };

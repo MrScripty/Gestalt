@@ -4,10 +4,10 @@ use crate::inference::EmbeddingProvider;
 use crate::model::{
     AppendAuditRecordRequest, AuditRecord, ContextPacket, ContextQuery, CreateEpisodeRequest,
     DatabaseLocator, EarlEvaluationRecord, EarlEvaluationRequest, EpisodeRecord, EpisodeTraceLink,
-    HealthSnapshot, HistoryPage, HistoryPageRequest, IngestTextRequest, MemoryPolicy,
-    OutcomeRecord, RecordOutcomeRequest, TextObject, TextVector, TraceLinkRequest,
-    VectorizationConfig, VectorizationConfigPatch, VectorizationJobKind, VectorizationJobSnapshot,
-    VectorizationRunRequest, VectorizationStatus,
+    HealthSnapshot, HistoryPage, HistoryPageRequest, IngestTextRequest, IntegritySnapshot,
+    MemoryPolicy, MemoryState, OutcomeRecord, RecordOutcomeRequest, TextObject, TextVector,
+    TraceLinkRequest, VectorizationConfig, VectorizationConfigPatch, VectorizationJobKind,
+    VectorizationJobSnapshot, VectorizationRunRequest, VectorizationStatus,
 };
 use crate::store::EmilyStore;
 use async_trait::async_trait;
@@ -18,6 +18,9 @@ use tokio::sync::{Mutex, RwLock, broadcast};
 mod earl;
 #[cfg(test)]
 mod earl_tests;
+mod ecgl;
+#[cfg(test)]
+mod ecgl_tests;
 #[cfg(test)]
 mod episode_tests;
 mod episodes;
@@ -39,6 +42,21 @@ struct VectorizationRuntimeState {
     config: VectorizationConfig,
     active_job: Option<VectorizationJobSnapshot>,
     last_job: Option<VectorizationJobSnapshot>,
+}
+
+#[derive(Debug, Clone)]
+struct EcglRuntimeState {
+    tau: f32,
+    last_snapshot: Option<IntegritySnapshot>,
+}
+
+impl Default for EcglRuntimeState {
+    fn default() -> Self {
+        Self {
+            tau: ecgl::TAU_INITIAL,
+            last_snapshot: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -73,6 +91,7 @@ pub struct EmilyRuntime<S: EmilyStore> {
     policy: Arc<RwLock<MemoryPolicy>>,
     in_flight_ingest_events: AtomicUsize,
     vectorization: Arc<RwLock<VectorizationRuntimeState>>,
+    ecgl: Arc<RwLock<EcglRuntimeState>>,
     active_job_control: Arc<Mutex<Option<ActiveJobControl>>>,
     vectorization_events: broadcast::Sender<VectorizationStatus>,
     job_counter: AtomicU64,
@@ -98,6 +117,7 @@ impl<S: EmilyStore + 'static> EmilyRuntime<S> {
             policy: Arc::new(RwLock::new(MemoryPolicy::default())),
             in_flight_ingest_events: AtomicUsize::new(0),
             vectorization: Arc::new(RwLock::new(VectorizationRuntimeState::default())),
+            ecgl: Arc::new(RwLock::new(EcglRuntimeState::default())),
             active_job_control: Arc::new(Mutex::new(None)),
             vectorization_events,
             job_counter: AtomicU64::new(0),
@@ -163,6 +183,7 @@ impl<S: EmilyStore + 'static> EmilyRuntime<S> {
             stability_factor: 1.0,
             learning_weight: 1.0,
             gate_score: None,
+            memory_state: MemoryState::Pending,
             integrated: false,
             quarantine_score: 0.0,
         }
@@ -202,6 +223,17 @@ impl<S: EmilyStore + 'static> EmilyRuntime<S> {
         // Persist defaults on first open so settings are explicit in storage.
         self.store.upsert_vectorization_config(&loaded).await?;
         self.emit_vectorization_status().await;
+        Ok(())
+    }
+
+    async fn load_integrity_snapshot(&self) -> Result<(), EmilyError> {
+        let snapshot = self.store.latest_integrity_snapshot().await?;
+        let mut ecgl = self.ecgl.write().await;
+        ecgl.tau = snapshot
+            .as_ref()
+            .map(|snapshot| snapshot.tau)
+            .unwrap_or(ecgl::TAU_INITIAL);
+        ecgl.last_snapshot = snapshot;
         Ok(())
     }
 
@@ -278,7 +310,8 @@ impl<S: EmilyStore + 'static> EmilyApi for EmilyRuntime<S> {
             let mut state = self.state.write().await;
             state.db_locator = Some(locator);
         }
-        self.load_vectorization_config().await
+        self.load_vectorization_config().await?;
+        self.load_integrity_snapshot().await
     }
 
     async fn switch_db(&self, locator: DatabaseLocator) -> Result<(), EmilyError> {
@@ -289,7 +322,8 @@ impl<S: EmilyStore + 'static> EmilyApi for EmilyRuntime<S> {
             let mut state = self.state.write().await;
             state.db_locator = Some(locator);
         }
-        self.load_vectorization_config().await
+        self.load_vectorization_config().await?;
+        self.load_integrity_snapshot().await
     }
 
     async fn close_db(&self) -> Result<(), EmilyError> {
@@ -363,6 +397,10 @@ impl<S: EmilyStore + 'static> EmilyApi for EmilyRuntime<S> {
         request: EarlEvaluationRequest,
     ) -> Result<EarlEvaluationRecord, EmilyError> {
         self.evaluate_episode_risk_internal(request).await
+    }
+
+    async fn latest_integrity_snapshot(&self) -> Result<Option<IntegritySnapshot>, EmilyError> {
+        Ok(self.ecgl.read().await.last_snapshot.clone())
     }
 
     async fn query_context(&self, query: ContextQuery) -> Result<ContextPacket, EmilyError> {

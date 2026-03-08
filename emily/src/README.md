@@ -15,7 +15,7 @@ This source tree currently covers the memory-side runtime, not the full Emily so
 | `runtime.rs` | Default runtime facade and API implementation |
 | `runtime/` | Runtime submodules for retrieval, vectorization jobs, and runtime tests |
 | `model.rs` | Shared request/response and domain models |
-| `model/` | Focused model submodules for episode, outcome, audit, and EARL contracts |
+| `model/` | Focused model submodules for episode, outcome, audit, EARL, and ECGL contracts |
 | `error.rs` | Typed Emily error types |
 | `inference.rs` | Embedding provider facade and feature gating |
 | `inference/` | Provider-specific embedding integrations |
@@ -23,7 +23,7 @@ This source tree currently covers the memory-side runtime, not the full Emily so
 
 ## Problem
 
-Provide a modular Emily core that can ingest terminal text, persist text/vector state, record episode-oriented runtime artifacts, run the first EARL gate, and answer context/history queries without coupling Gestalt to one database API or one embedding provider.
+Provide a modular Emily core that can ingest terminal text, persist text/vector state, record episode-oriented runtime artifacts, run the first EARL gate, apply synchronous ECGL state transitions, and answer context/history queries without coupling Gestalt to one database API or one embedding provider.
 
 ## Constraints
 
@@ -34,7 +34,7 @@ Provide a modular Emily core that can ingest terminal text, persist text/vector 
 
 ## Decision
 
-Use trait-based API/store abstractions with a default runtime wiring focused on persistence, semantic retrieval, episode/outcome capture, deterministic EARL gating, vectorization, and runtime diagnostics.
+Use trait-based API/store abstractions with a default runtime wiring focused on persistence, semantic retrieval, episode/outcome capture, deterministic EARL gating, synchronous ECGL evaluation, vectorization, and runtime diagnostics.
 
 ## What This Layer Does Not Yet Cover
 
@@ -55,6 +55,7 @@ Those belong above this crate boundary unless the crate is intentionally expande
 - Text vectors are persisted separately from text object records.
 - Episode, outcome, trace-link, and audit records are Emily-owned persisted artifacts.
 - EARL evaluations are Emily-owned persisted artifacts with deterministic replay-safe IDs.
+- Text objects now carry explicit memory states, and integrity snapshots are Emily-owned persisted artifacts.
 - Vectorization configuration and job state are Emily-owned runtime data.
 - Pantograph session lifecycle is managed by embedding providers, not by store modules.
 - Newly ingested text objects are not treated as integrated memory by default.
