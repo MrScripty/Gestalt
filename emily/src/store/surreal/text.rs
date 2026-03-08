@@ -1,44 +1,16 @@
+use super::{StoreState, SurrealEmilyStore};
 use crate::error::EmilyError;
 use crate::model::{
     ContextItem, ContextPacket, ContextQuery, DatabaseLocator, HistoryPage, HistoryPageRequest,
     TextEdge, TextEdgeType, TextObject, TextVector, VectorizationConfig,
 };
-use crate::store::EmilyStore;
-use async_trait::async_trait;
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use surrealdb::Surreal;
 use surrealdb::engine::local::{Db, SurrealKv};
-use tokio::sync::RwLock;
-
-#[derive(Debug, Default)]
-struct StoreState {
-    active_locator: Option<DatabaseLocator>,
-    active_client: Option<Surreal<Db>>,
-}
-
-/// Embedded SurrealDB-backed store implementation.
-#[derive(Debug, Default)]
-pub struct SurrealEmilyStore {
-    state: RwLock<StoreState>,
-}
 
 impl SurrealEmilyStore {
-    pub fn new() -> Self {
-        Self {
-            state: RwLock::new(StoreState::default()),
-        }
-    }
-
-    async fn active_client(&self) -> Result<Surreal<Db>, EmilyError> {
-        let state = self.state.read().await;
-        state
-            .active_client
-            .clone()
-            .ok_or(EmilyError::DatabaseNotOpen)
-    }
-
     fn parse_query_tokens(value: &str) -> HashMap<String, usize> {
         let mut freq = HashMap::<String, usize>::new();
         for token in value
@@ -73,14 +45,10 @@ impl SurrealEmilyStore {
     }
 
     fn rank_score(similarity: f32, object: &TextObject) -> f32 {
-        let recency_decay = 1.0;
-        similarity
-            * (0.4 + 0.6 * object.confidence)
-            * (0.5 + 0.5 * object.learning_weight)
-            * recency_decay
+        similarity * (0.4 + 0.6 * object.confidence) * (0.5 + 0.5 * object.learning_weight)
     }
 
-    fn text_object_projection() -> &'static str {
+    pub(super) fn text_object_projection() -> &'static str {
         "type::string(id) AS id, stream_id, source_kind, object_kind, sequence, ts_unix_ms, text, metadata, epsilon, confidence, outcome_factor, novelty_factor, stability_factor, learning_weight, gate_score, integrated, quarantine_score"
     }
 
@@ -123,20 +91,10 @@ impl SurrealEmilyStore {
             ts_unix_ms: object.ts_unix_ms,
         };
 
-        client
-            .query("UPSERT type::thing('text_edges', $id) CONTENT $edge")
-            .bind(("id", edge.id.clone()))
-            .bind(("edge", edge))
-            .await
-            .map_err(|error| EmilyError::Store(format!("surreal edge upsert failed: {error}")))?;
-
-        Ok(())
+        self.upsert_text_edge_internal(&edge).await
     }
-}
 
-#[async_trait]
-impl EmilyStore for SurrealEmilyStore {
-    async fn open(&self, locator: &DatabaseLocator) -> Result<(), EmilyError> {
+    pub(super) async fn open_internal(&self, locator: &DatabaseLocator) -> Result<(), EmilyError> {
         fs::create_dir_all(&locator.storage_path).map_err(|error| {
             EmilyError::Store(format!(
                 "failed creating surreal storage path {}: {error}",
@@ -155,21 +113,18 @@ impl EmilyStore for SurrealEmilyStore {
             .map_err(|error| EmilyError::Store(format!("surreal use ns/db failed: {error}")))?;
 
         let mut state = self.state.write().await;
-        state.active_locator = Some(locator.clone());
-        state.active_client = Some(client);
+        *state = StoreState {
+            active_locator: Some(locator.clone()),
+            active_client: Some(client),
+        };
         Ok(())
     }
 
-    async fn close(&self) -> Result<(), EmilyError> {
-        let mut state = self.state.write().await;
-        state.active_locator = None;
-        state.active_client = None;
-        Ok(())
-    }
-
-    async fn insert_text_object(&self, object: &TextObject) -> Result<(), EmilyError> {
+    pub(super) async fn insert_text_object_internal(
+        &self,
+        object: &TextObject,
+    ) -> Result<(), EmilyError> {
         let client = self.active_client().await?;
-
         self.append_linear_edge(&client, object).await?;
 
         client
@@ -182,7 +137,47 @@ impl EmilyStore for SurrealEmilyStore {
         Ok(())
     }
 
-    async fn upsert_text_vector(&self, vector: &TextVector) -> Result<(), EmilyError> {
+    pub(super) async fn get_text_object_internal(
+        &self,
+        object_id: &str,
+    ) -> Result<Option<TextObject>, EmilyError> {
+        let client = self.active_client().await?;
+        let mut response = client
+            .query(format!(
+                "SELECT {} FROM type::thing('text_objects', $id)",
+                Self::text_object_projection()
+            ))
+            .bind(("id", object_id.to_string()))
+            .await
+            .map_err(|error| {
+                EmilyError::Store(format!("surreal select text_object failed: {error}"))
+            })?;
+        let objects: Vec<TextObject> = response.take(0).map_err(|error| {
+            EmilyError::Store(format!(
+                "surreal result decode failed (text_object): {error}"
+            ))
+        })?;
+        Ok(objects.into_iter().next())
+    }
+
+    pub(super) async fn upsert_text_edge_internal(
+        &self,
+        edge: &TextEdge,
+    ) -> Result<(), EmilyError> {
+        let client = self.active_client().await?;
+        client
+            .query("UPSERT type::thing('text_edges', $id) CONTENT $edge")
+            .bind(("id", edge.id.clone()))
+            .bind(("edge", edge.clone()))
+            .await
+            .map_err(|error| EmilyError::Store(format!("surreal edge upsert failed: {error}")))?;
+        Ok(())
+    }
+
+    pub(super) async fn upsert_text_vector_internal(
+        &self,
+        vector: &TextVector,
+    ) -> Result<(), EmilyError> {
         let client = self.active_client().await?;
         client
             .query("UPSERT type::thing('text_vectors', $id) CONTENT $vector")
@@ -193,7 +188,10 @@ impl EmilyStore for SurrealEmilyStore {
         Ok(())
     }
 
-    async fn get_text_vector(&self, object_id: &str) -> Result<Option<TextVector>, EmilyError> {
+    pub(super) async fn get_text_vector_internal(
+        &self,
+        object_id: &str,
+    ) -> Result<Option<TextVector>, EmilyError> {
         let client = self.active_client().await?;
         let mut response = client
             .query(
@@ -210,7 +208,30 @@ impl EmilyStore for SurrealEmilyStore {
         Ok(vectors.into_iter().next())
     }
 
-    async fn list_text_objects(
+    pub(super) async fn list_text_vectors_internal(
+        &self,
+        stream_id: Option<&str>,
+    ) -> Result<Vec<TextVector>, EmilyError> {
+        let client = self.active_client().await?;
+        let mut response = client
+            .query(
+                "SELECT type::string(id) AS id, object_id, stream_id, sequence, ts_unix_ms, dimensions, profile_id, vector FROM text_vectors",
+            )
+            .await
+            .map_err(|error| EmilyError::Store(format!("surreal select text_vectors failed: {error}")))?;
+        let mut vectors: Vec<TextVector> = response.take(0).map_err(|error| {
+            EmilyError::Store(format!(
+                "surreal result decode failed (text_vectors): {error}"
+            ))
+        })?;
+        if let Some(stream_id) = stream_id {
+            vectors.retain(|vector| vector.stream_id == stream_id);
+        }
+        vectors.sort_by(|left, right| left.sequence.cmp(&right.sequence));
+        Ok(vectors)
+    }
+
+    pub(super) async fn list_text_objects_internal(
         &self,
         stream_id: Option<&str>,
     ) -> Result<Vec<TextObject>, EmilyError> {
@@ -236,7 +257,71 @@ impl EmilyStore for SurrealEmilyStore {
         Ok(objects)
     }
 
-    async fn get_vectorization_config(&self) -> Result<Option<VectorizationConfig>, EmilyError> {
+    pub(super) async fn list_text_edges_internal(
+        &self,
+        object_ids: &[String],
+        max_depth: u8,
+    ) -> Result<Vec<TextEdge>, EmilyError> {
+        if object_ids.is_empty() || max_depth == 0 {
+            return Ok(Vec::new());
+        }
+
+        let client = self.active_client().await?;
+        let mut response = client
+            .query(
+                "SELECT type::string(id) AS id, from_id, to_id, edge_type, weight, ts_unix_ms FROM text_edges",
+            )
+            .await
+            .map_err(|error| EmilyError::Store(format!("surreal select text_edges failed: {error}")))?;
+        let all_edges: Vec<TextEdge> = response.take(0).map_err(|error| {
+            EmilyError::Store(format!(
+                "surreal result decode failed (text_edges): {error}"
+            ))
+        })?;
+
+        let mut seen_edges = HashSet::<String>::new();
+        let mut visited_nodes = object_ids.iter().cloned().collect::<HashSet<_>>();
+        let mut frontier = object_ids
+            .iter()
+            .cloned()
+            .map(|id| (id, 0_u8))
+            .collect::<VecDeque<_>>();
+        let mut collected = Vec::<TextEdge>::new();
+
+        while let Some((node_id, depth)) = frontier.pop_front() {
+            if depth >= max_depth {
+                continue;
+            }
+
+            for edge in &all_edges {
+                let next_node = if edge.from_id == node_id {
+                    Some(edge.to_id.clone())
+                } else if edge.to_id == node_id {
+                    Some(edge.from_id.clone())
+                } else {
+                    None
+                };
+
+                let Some(next_node) = next_node else {
+                    continue;
+                };
+
+                if seen_edges.insert(edge.id.clone()) {
+                    collected.push(edge.clone());
+                }
+
+                if visited_nodes.insert(next_node.clone()) {
+                    frontier.push_back((next_node, depth.saturating_add(1)));
+                }
+            }
+        }
+
+        Ok(collected)
+    }
+
+    pub(super) async fn get_vectorization_config_internal(
+        &self,
+    ) -> Result<Option<VectorizationConfig>, EmilyError> {
         let client = self.active_client().await?;
         let mut response = client
             .query("SELECT enabled, expected_dimensions, profile_id FROM type::thing('runtime_config', $id)")
@@ -251,7 +336,7 @@ impl EmilyStore for SurrealEmilyStore {
         Ok(configs.into_iter().next())
     }
 
-    async fn upsert_vectorization_config(
+    pub(super) async fn upsert_vectorization_config_internal(
         &self,
         config: &VectorizationConfig,
     ) -> Result<(), EmilyError> {
@@ -265,32 +350,16 @@ impl EmilyStore for SurrealEmilyStore {
         Ok(())
     }
 
-    async fn query_context(&self, query: &ContextQuery) -> Result<ContextPacket, EmilyError> {
-        let client = self.active_client().await?;
-
-        let mut response = client
-            .query(format!(
-                "SELECT {} FROM text_objects",
-                Self::text_object_projection()
-            ))
-            .await
-            .map_err(|error| {
-                EmilyError::Store(format!("surreal select text_objects failed: {error}"))
-            })?;
-        let objects: Vec<TextObject> = response.take(0).map_err(|error| {
-            EmilyError::Store(format!(
-                "surreal result decode failed (text_objects): {error}"
-            ))
-        })?;
+    pub(super) async fn query_context_internal(
+        &self,
+        query: &ContextQuery,
+    ) -> Result<ContextPacket, EmilyError> {
+        let objects = self
+            .list_text_objects_internal(query.stream_id.as_deref())
+            .await?;
 
         let mut ranked = objects
             .into_iter()
-            .filter(|object| {
-                query
-                    .stream_id
-                    .as_ref()
-                    .is_none_or(|stream_id| &object.stream_id == stream_id)
-            })
             .map(|object| {
                 let similarity = Self::lexical_similarity(&query.query_text, &object.text);
                 let rank = Self::rank_score(similarity, &object);
@@ -315,7 +384,7 @@ impl EmilyStore for SurrealEmilyStore {
         Ok(ContextPacket { items: ranked })
     }
 
-    async fn page_history_before(
+    pub(super) async fn page_history_before_internal(
         &self,
         request: &HistoryPageRequest,
     ) -> Result<HistoryPage, EmilyError> {
@@ -325,25 +394,10 @@ impl EmilyStore for SurrealEmilyStore {
             ));
         }
 
-        let client = self.active_client().await?;
-        let mut response = client
-            .query(format!(
-                "SELECT {} FROM text_objects",
-                Self::text_object_projection()
-            ))
-            .await
-            .map_err(|error| {
-                EmilyError::Store(format!("surreal select text_objects failed: {error}"))
-            })?;
-        let objects: Vec<TextObject> = response.take(0).map_err(|error| {
-            EmilyError::Store(format!(
-                "surreal result decode failed (text_objects): {error}"
-            ))
-        })?;
-
-        let mut items = objects
+        let mut items = self
+            .list_text_objects_internal(Some(&request.stream_id))
+            .await?
             .into_iter()
-            .filter(|object| object.stream_id == request.stream_id)
             .filter(|object| {
                 request
                     .before_sequence
@@ -358,91 +412,5 @@ impl EmilyStore for SurrealEmilyStore {
             items,
             next_before_sequence,
         })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::model::{HistoryPageRequest, TextObjectKind};
-    use serde_json::json;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    fn locator() -> DatabaseLocator {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system time before unix epoch");
-        DatabaseLocator {
-            storage_path: std::env::temp_dir()
-                .join(format!("emily-surreal-test-{}", now.as_millis())),
-            namespace: "ns".to_string(),
-            database: "db".to_string(),
-        }
-    }
-
-    fn sample_object(sequence: u64, text: &str) -> TextObject {
-        TextObject {
-            id: format!("stream-a:{sequence}"),
-            stream_id: "stream-a".to_string(),
-            source_kind: "terminal".to_string(),
-            object_kind: TextObjectKind::SystemOutput,
-            sequence,
-            ts_unix_ms: sequence as i64,
-            text: text.to_string(),
-            metadata: json!({}),
-            epsilon: None,
-            confidence: 1.0,
-            outcome_factor: 0.5,
-            novelty_factor: 0.5,
-            stability_factor: 1.0,
-            learning_weight: 1.0,
-            gate_score: None,
-            integrated: false,
-            quarantine_score: 0.0,
-        }
-    }
-
-    #[tokio::test]
-    async fn open_insert_and_page_history_roundtrip() {
-        let store = SurrealEmilyStore::new();
-        let locator = locator();
-        store.open(&locator).await.expect("open store");
-        store
-            .insert_text_object(&sample_object(1, "hello world"))
-            .await
-            .expect("insert 1");
-        store
-            .insert_text_object(&sample_object(2, "second line"))
-            .await
-            .expect("insert 2");
-
-        store
-            .upsert_text_vector(&TextVector {
-                id: "vec:stream-a:2".to_string(),
-                object_id: "stream-a:2".to_string(),
-                stream_id: "stream-a".to_string(),
-                sequence: 2,
-                ts_unix_ms: 2,
-                dimensions: 1024,
-                profile_id: "qwen3-0.6b".to_string(),
-                vector: vec![0.0; 1024],
-            })
-            .await
-            .expect("upsert vector");
-
-        let page = store
-            .page_history_before(&HistoryPageRequest {
-                stream_id: "stream-a".to_string(),
-                before_sequence: None,
-                limit: 1,
-            })
-            .await
-            .expect("page history");
-        assert_eq!(page.items.len(), 1);
-        assert_eq!(page.items[0].sequence, 2);
-        assert_eq!(page.next_before_sequence, Some(2));
-
-        store.close().await.expect("close store");
-        let _ = std::fs::remove_dir_all(locator.storage_path);
     }
 }

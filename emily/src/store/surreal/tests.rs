@@ -1,5 +1,8 @@
 use super::*;
-use crate::model::{HistoryPageRequest, TextObjectKind};
+use crate::model::{
+    AuditRecord, AuditRecordKind, EpisodeRecord, EpisodeState, EpisodeTraceKind, EpisodeTraceLink,
+    HistoryPageRequest, OutcomeRecord, OutcomeStatus, TextEdgeType, TextObjectKind,
+};
 use serde_json::json;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -125,6 +128,96 @@ async fn list_text_edges_returns_neighbors_within_depth() {
         .await
         .expect("list depth two");
     assert_eq!(depth_two.len(), 2);
+
+    store.close().await.expect("close store");
+    let _ = std::fs::remove_dir_all(locator.storage_path);
+}
+
+#[tokio::test]
+async fn episode_records_roundtrip() {
+    let store = SurrealEmilyStore::new();
+    let locator = locator();
+    store.open(&locator).await.expect("open store");
+
+    let episode = EpisodeRecord {
+        id: "ep-1".to_string(),
+        stream_id: Some("stream-a".to_string()),
+        source_kind: "terminal".to_string(),
+        episode_kind: "command_round".to_string(),
+        state: EpisodeState::Open,
+        started_at_unix_ms: 1,
+        closed_at_unix_ms: None,
+        intent: Some("inspect state".to_string()),
+        metadata: json!({"cwd": "/tmp"}),
+        last_outcome_id: None,
+        created_at_unix_ms: 1,
+        updated_at_unix_ms: 1,
+    };
+    let link = EpisodeTraceLink {
+        id: "episode:ep-1:output:stream-a:1".to_string(),
+        episode_id: "ep-1".to_string(),
+        object_id: "stream-a:1".to_string(),
+        trace_kind: EpisodeTraceKind::Output,
+        linked_at_unix_ms: 2,
+        metadata: json!({"source": "terminal"}),
+    };
+    let outcome = OutcomeRecord {
+        id: "out-1".to_string(),
+        episode_id: "ep-1".to_string(),
+        status: OutcomeStatus::Succeeded,
+        recorded_at_unix_ms: 3,
+        summary: Some("command completed".to_string()),
+        metadata: json!({"exit_code": 0}),
+    };
+    let audit = AuditRecord {
+        id: "audit-1".to_string(),
+        episode_id: "ep-1".to_string(),
+        kind: AuditRecordKind::OutcomeRecorded,
+        ts_unix_ms: 4,
+        summary: "outcome stored".to_string(),
+        metadata: json!({"origin": "test"}),
+    };
+
+    store
+        .upsert_episode(&episode)
+        .await
+        .expect("upsert episode");
+    store
+        .upsert_episode_trace_link(&link)
+        .await
+        .expect("upsert trace link");
+    store
+        .upsert_outcome(&outcome)
+        .await
+        .expect("upsert outcome");
+    store
+        .upsert_audit_record(&audit)
+        .await
+        .expect("upsert audit");
+
+    assert_eq!(
+        store
+            .get_episode("ep-1")
+            .await
+            .expect("get episode")
+            .expect("episode"),
+        episode
+    );
+    assert_eq!(
+        store
+            .list_episode_trace_links("ep-1")
+            .await
+            .expect("list trace links"),
+        vec![link]
+    );
+    assert_eq!(
+        store.list_outcomes("ep-1").await.expect("list outcomes"),
+        vec![outcome]
+    );
+    assert_eq!(
+        store.list_audit_records("ep-1").await.expect("list audits"),
+        vec![audit]
+    );
 
     store.close().await.expect("close store");
     let _ = std::fs::remove_dir_all(locator.storage_path);

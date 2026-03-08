@@ -1,7 +1,8 @@
 use crate::error::EmilyError;
 use crate::model::{
-    ContextPacket, ContextQuery, DatabaseLocator, HistoryPage, HistoryPageRequest, TextEdge,
-    TextObject, TextVector, VectorizationConfig,
+    AuditRecord, ContextPacket, ContextQuery, DatabaseLocator, EpisodeRecord, EpisodeTraceLink,
+    HistoryPage, HistoryPageRequest, OutcomeRecord, TextEdge, TextObject, TextVector,
+    VectorizationConfig,
 };
 use async_trait::async_trait;
 
@@ -11,6 +12,7 @@ pub trait EmilyStore: Send + Sync {
     async fn open(&self, locator: &DatabaseLocator) -> Result<(), EmilyError>;
     async fn close(&self) -> Result<(), EmilyError>;
     async fn insert_text_object(&self, object: &TextObject) -> Result<(), EmilyError>;
+    async fn get_text_object(&self, object_id: &str) -> Result<Option<TextObject>, EmilyError>;
     async fn upsert_text_edge(&self, edge: &TextEdge) -> Result<(), EmilyError>;
     async fn upsert_text_vector(&self, vector: &TextVector) -> Result<(), EmilyError>;
     async fn get_text_vector(&self, object_id: &str) -> Result<Option<TextVector>, EmilyError>;
@@ -32,6 +34,23 @@ pub trait EmilyStore: Send + Sync {
         &self,
         config: &VectorizationConfig,
     ) -> Result<(), EmilyError>;
+    async fn upsert_episode(&self, episode: &EpisodeRecord) -> Result<(), EmilyError>;
+    async fn get_episode(&self, episode_id: &str) -> Result<Option<EpisodeRecord>, EmilyError>;
+    async fn upsert_episode_trace_link(&self, link: &EpisodeTraceLink) -> Result<(), EmilyError>;
+    async fn get_episode_trace_link(
+        &self,
+        link_id: &str,
+    ) -> Result<Option<EpisodeTraceLink>, EmilyError>;
+    async fn list_episode_trace_links(
+        &self,
+        episode_id: &str,
+    ) -> Result<Vec<EpisodeTraceLink>, EmilyError>;
+    async fn upsert_outcome(&self, outcome: &OutcomeRecord) -> Result<(), EmilyError>;
+    async fn get_outcome(&self, outcome_id: &str) -> Result<Option<OutcomeRecord>, EmilyError>;
+    async fn list_outcomes(&self, episode_id: &str) -> Result<Vec<OutcomeRecord>, EmilyError>;
+    async fn upsert_audit_record(&self, audit: &AuditRecord) -> Result<(), EmilyError>;
+    async fn get_audit_record(&self, audit_id: &str) -> Result<Option<AuditRecord>, EmilyError>;
+    async fn list_audit_records(&self, episode_id: &str) -> Result<Vec<AuditRecord>, EmilyError>;
     async fn query_context(&self, query: &ContextQuery) -> Result<ContextPacket, EmilyError>;
     async fn page_history_before(
         &self,

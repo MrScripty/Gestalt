@@ -1,7 +1,7 @@
 # emily/src/store
 
 ## Purpose
-`store` defines persistence contracts and concrete storage implementations for Emily text objects, vector records, and query operations.
+`store` defines persistence contracts and concrete storage implementations for Emily text objects, vector records, episode artifacts, and query operations.
 
 ## Contents
 | File/Folder | Description |
@@ -28,7 +28,18 @@ Define `EmilyStore` as the storage boundary and keep backend details inside impl
 - `EmilyStore` trait remains backend-agnostic.
 - Backend modules map storage failures to `EmilyError`.
 - Vector writes use dedicated records (`text_vectors`) instead of embedding fields on text objects.
+- Episode, trace-link, outcome, and audit writes use dedicated record families rather than being embedded into text rows.
 - Runtime vectorization config is persisted in dedicated runtime config records.
+
+## Compatibility Notes
+
+- The current Milestone 3 schema additions are additive:
+  - `episodes`
+  - `episode_trace_links`
+  - `outcomes`
+  - `audit_records`
+- Existing databases containing only text/vector/runtime-config records remain valid.
+- Replay safety for durable write paths is enforced in the runtime facade through idempotent record IDs and conflict checks.
 
 ## Revisit Triggers
 - Additional backend support is required.

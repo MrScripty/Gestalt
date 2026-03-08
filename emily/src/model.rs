@@ -2,6 +2,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::PathBuf;
 
+mod episode;
+
+pub use episode::{
+    AppendAuditRecordRequest, AuditRecord, AuditRecordKind, CreateEpisodeRequest, EpisodeRecord,
+    EpisodeState, EpisodeTraceKind, EpisodeTraceLink, OutcomeRecord, OutcomeStatus,
+    RecordOutcomeRequest, TraceLinkRequest,
+};
+
 /// Address of an embedded database instance that can be opened or switched at runtime.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DatabaseLocator {

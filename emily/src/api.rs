@@ -1,7 +1,9 @@
 use crate::error::EmilyError;
 use crate::model::{
-    ContextPacket, ContextQuery, DatabaseLocator, HealthSnapshot, HistoryPage, HistoryPageRequest,
-    IngestTextRequest, MemoryPolicy, TextObject, VectorizationConfig, VectorizationConfigPatch,
+    AppendAuditRecordRequest, AuditRecord, ContextPacket, ContextQuery, CreateEpisodeRequest,
+    DatabaseLocator, EpisodeRecord, EpisodeTraceLink, HealthSnapshot, HistoryPage,
+    HistoryPageRequest, IngestTextRequest, MemoryPolicy, OutcomeRecord, RecordOutcomeRequest,
+    TextObject, TraceLinkRequest, VectorizationConfig, VectorizationConfigPatch,
     VectorizationJobSnapshot, VectorizationRunRequest, VectorizationStatus,
 };
 use async_trait::async_trait;
@@ -20,6 +22,30 @@ pub trait EmilyApi: Send + Sync {
 
     /// Ingest one text object into memory.
     async fn ingest_text(&self, request: IngestTextRequest) -> Result<TextObject, EmilyError>;
+
+    /// Create one host-agnostic episode anchor record.
+    async fn create_episode(
+        &self,
+        request: CreateEpisodeRequest,
+    ) -> Result<EpisodeRecord, EmilyError>;
+
+    /// Link one persisted text object into an episode trace.
+    async fn link_text_to_episode(
+        &self,
+        request: TraceLinkRequest,
+    ) -> Result<EpisodeTraceLink, EmilyError>;
+
+    /// Record one durable outcome for an episode.
+    async fn record_outcome(
+        &self,
+        request: RecordOutcomeRequest,
+    ) -> Result<OutcomeRecord, EmilyError>;
+
+    /// Append one immutable audit record.
+    async fn append_audit_record(
+        &self,
+        request: AppendAuditRecordRequest,
+    ) -> Result<AuditRecord, EmilyError>;
 
     /// Retrieve ranked context items for the given query.
     async fn query_context(&self, query: ContextQuery) -> Result<ContextPacket, EmilyError>;

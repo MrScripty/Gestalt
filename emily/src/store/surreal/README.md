@@ -8,12 +8,14 @@ This directory contains the embedded SurrealDB backend for Emily persistence. Th
 
 | File/Folder | Description |
 | ----------- | ----------- |
-| `mod.rs` | Surreal-backed `EmilyStore` implementation. |
-| `tests.rs` | Backend integration tests for history, vectors, and edge traversal. |
+| `mod.rs` | Surreal-backed `EmilyStore` facade and trait implementation delegation. |
+| `text.rs` | Text, vector, edge, history, and lexical fallback persistence helpers. |
+| `episodes.rs` | Episode, trace-link, outcome, and audit persistence helpers. |
+| `tests.rs` | Backend integration tests for history, vectors, edges, and episode artifacts. |
 
 ## Problem
 
-The Surreal backend now owns text objects, vectors, edges, paging, and legacy lexical fallback queries. Splitting it into a subdirectory keeps the implementation within the repo's file-size and documentation thresholds.
+The Surreal backend now owns text objects, vectors, edges, paging, legacy lexical fallback queries, and episode-oriented persisted artifacts. Splitting it into a subdirectory keeps the implementation within the repo's file-size and documentation thresholds.
 
 ## Constraints
 
@@ -34,6 +36,7 @@ Use a `store/surreal/` directory with `mod.rs` for implementation and a separate
 
 - `SurrealEmilyStore` remains the embedded backend exported at `emily::store::surreal`.
 - Text objects, vectors, and edges remain stored as distinct record types.
+- Episode records, trace links, outcomes, and audits remain stored as distinct record types.
 - Backend tests validate real persistence behavior, not only helper functions.
 
 ## Revisit Triggers
@@ -69,6 +72,6 @@ let store = SurrealEmilyStore::new();
 
 ## Structured Producer Contract
 
-- This backend writes `text_objects`, `text_vectors`, `text_edges`, and runtime config records.
+- This backend writes `text_objects`, `text_vectors`, `text_edges`, `episodes`, `episode_trace_links`, `outcomes`, `audit_records`, and runtime config records.
 - Stable record-field semantics are defined by Emily model types.
 - If persisted record shapes change, compatibility or migration behavior must be documented before merge.

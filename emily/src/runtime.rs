@@ -2,10 +2,11 @@ use crate::api::EmilyApi;
 use crate::error::EmilyError;
 use crate::inference::EmbeddingProvider;
 use crate::model::{
-    ContextPacket, ContextQuery, DatabaseLocator, HealthSnapshot, HistoryPage, HistoryPageRequest,
-    IngestTextRequest, MemoryPolicy, TextObject, TextVector, VectorizationConfig,
-    VectorizationConfigPatch, VectorizationJobKind, VectorizationJobSnapshot,
-    VectorizationRunRequest, VectorizationStatus,
+    AppendAuditRecordRequest, AuditRecord, ContextPacket, ContextQuery, CreateEpisodeRequest,
+    DatabaseLocator, EpisodeRecord, EpisodeTraceLink, HealthSnapshot, HistoryPage,
+    HistoryPageRequest, IngestTextRequest, MemoryPolicy, OutcomeRecord, RecordOutcomeRequest,
+    TextObject, TextVector, TraceLinkRequest, VectorizationConfig, VectorizationConfigPatch,
+    VectorizationJobKind, VectorizationJobSnapshot, VectorizationRunRequest, VectorizationStatus,
 };
 use crate::store::EmilyStore;
 use async_trait::async_trait;
@@ -13,7 +14,12 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use tokio::sync::{Mutex, RwLock, broadcast};
 
+#[cfg(test)]
+mod episode_tests;
+mod episodes;
 mod retrieval;
+#[cfg(test)]
+mod test_support;
 #[cfg(test)]
 mod tests;
 mod vectorization;
@@ -318,6 +324,34 @@ impl<S: EmilyStore + 'static> EmilyApi for EmilyRuntime<S> {
         self.maybe_embed_object(&object, &config).await?;
 
         Ok(object)
+    }
+
+    async fn create_episode(
+        &self,
+        request: CreateEpisodeRequest,
+    ) -> Result<EpisodeRecord, EmilyError> {
+        self.create_episode_internal(request).await
+    }
+
+    async fn link_text_to_episode(
+        &self,
+        request: TraceLinkRequest,
+    ) -> Result<EpisodeTraceLink, EmilyError> {
+        self.link_text_to_episode_internal(request).await
+    }
+
+    async fn record_outcome(
+        &self,
+        request: RecordOutcomeRequest,
+    ) -> Result<OutcomeRecord, EmilyError> {
+        self.record_outcome_internal(request).await
+    }
+
+    async fn append_audit_record(
+        &self,
+        request: AppendAuditRecordRequest,
+    ) -> Result<AuditRecord, EmilyError> {
+        self.append_audit_record_internal(request).await
     }
 
     async fn query_context(&self, query: ContextQuery) -> Result<ContextPacket, EmilyError> {

@@ -9,6 +9,7 @@ Current scope is the memory and embedding-integrity core. This crate does not ye
 ## Public API
 
 - `EmilyApi`: open/switch/close database, ingest text, query context, page history
+- Episode contract surface: create episodes, link traces, record outcomes, append audits
 - Retrieval policy surface: read/update `MemoryPolicy`
 - Vectorization control surface: config updates, status, backfill/revectorize jobs, cancellation
 - Generic DTOs in `model.rs` (no Gestalt-specific types)
@@ -29,12 +30,16 @@ Current policy fields on stored objects are provisional. Until active `EARL` and
 `ECGL` runtimes exist, the crate should not imply that stored confidence,
 learning, or integration values are the result of a real policy engine.
 
+Episode, outcome, and audit records are now part of the reusable crate boundary.
+Those persisted artifacts are additive extensions to existing Emily storage and
+do not require breaking changes for databases that only contain text/vector data.
+
 ## Internal Modules
 
 - `api`: transport-agnostic public contracts
 - `model`: canonical data structures
-- `store`: storage traits + Surreal-backed implementation for text objects and vectors
-- `runtime`: default in-process API implementation and background vectorization jobs
+- `store`: storage traits + Surreal-backed implementation for text, episode, outcome, and audit records
+- `runtime`: default in-process API implementation, episode lifecycle writes, and background vectorization jobs
 - `inference`: embedding provider contracts + Pantograph workflow-session client adapters
 - `error`: typed error surface
 
