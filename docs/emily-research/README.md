@@ -32,3 +32,4 @@ Files:
 - `13-emily-membrane-routing-policy-plan.md`: standards-aligned plan for evolving deterministic registry lookup into Emily-informed sovereign routing policy
 - `14-emily-membrane-execution-depth-plan.md`: standards-aligned milestone plan for deepening membrane execution beyond routing-policy plumbing into IR, validation, retry, multi-target, and reconstruction layers
 - `15-gestalt-emily-adoption-and-test-data-plan.md`: standards-aligned plan for seeding Emily with deterministic test data and adopting Emily-backed flows in Gestalt
+- `16-gestalt-emily-pantograph-integration-plan.md`: standards-aligned plan for wiring Pantograph-backed Qwen embedding and reasoning workflows into Gestalt while preserving reusable Emily and membrane boundaries
