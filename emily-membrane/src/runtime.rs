@@ -5,8 +5,7 @@ use crate::contracts::{
     LocalExecutionRecord, MembraneBoundaryMetadata, MembraneContextHandle, MembraneIr,
     MembraneIrRenderMode, MembraneRouteKind, MembraneTaskPayload, MembraneTaskRequest,
     MembraneValidationDisposition, PolicyExecutionPersistence, PolicySelectedExecution,
-    ReconstructionResult, RoutingPlan, RoutingPolicyOutcome, RoutingPolicyRequest,
-    ValidationEnvelope,
+    RoutingPlan, RoutingPolicyOutcome, RoutingPolicyRequest, ValidationEnvelope,
 };
 use crate::providers::{
     InMemoryProviderRegistry, MembraneProvider, MembraneProviderError, MembraneProviderRegistry,
@@ -24,6 +23,7 @@ use std::sync::Arc;
 
 mod multi_remote;
 mod policy;
+mod reconstruction;
 mod remote;
 mod retry;
 mod validation;
@@ -223,33 +223,6 @@ where
         })
     }
 
-    /// Reconstruct the final host-facing output from a validated result.
-    pub async fn reconstruct(
-        &self,
-        validation: &ValidationEnvelope,
-    ) -> Result<ReconstructionResult, MembraneRuntimeError> {
-        match validation.disposition {
-            MembraneValidationDisposition::Rejected => Err(MembraneRuntimeError::InvalidState(
-                "cannot reconstruct from a rejected validation result".to_string(),
-            )),
-            MembraneValidationDisposition::Accepted
-            | MembraneValidationDisposition::NeedsReview => {
-                let output_text = validation.validated_text.clone().ok_or_else(|| {
-                    MembraneRuntimeError::InvalidState(
-                        "validated_text is required for reconstruction".to_string(),
-                    )
-                })?;
-
-                Ok(ReconstructionResult {
-                    task_id: validation.task_id.clone(),
-                    output_text,
-                    references: Vec::new(),
-                    caution: validation.disposition == MembraneValidationDisposition::NeedsReview,
-                })
-            }
-        }
-    }
-
     /// Execute the full local-only membrane path and persist the resulting
     /// sovereign artifacts through Emily's public API.
     pub async fn execute_local_only_and_record(
@@ -263,7 +236,9 @@ where
         let route = self.route(&compile).await?;
         let dispatch = self.dispatch_local(&compile, &route).await?;
         let validation = self.validate(&dispatch).await?;
-        let reconstruction = self.reconstruct(&validation).await?;
+        let reconstruction = self
+            .reconstruct_with_context(&compile, &dispatch, &validation)
+            .await?;
 
         let expected_routing_decision =
             build_local_routing_decision(&compile, &route, &persistence);
@@ -394,7 +369,10 @@ fn build_membrane_ir(request: &MembraneTaskRequest) -> MembraneIr {
             remote_allowed: request.allow_remote,
             render_mode: MembraneIrRenderMode::PromptV1,
         },
-        reconstruction: None,
+        reconstruction: Some(crate::contracts::MembraneReconstructionHandle {
+            handle_id: format!("reconstruct:{}:inline-text-v1", request.task_id),
+            strategy: crate::contracts::MembraneReconstructionStrategy::InlineText,
+        }),
     }
 }
 

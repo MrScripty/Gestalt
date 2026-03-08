@@ -95,6 +95,9 @@ async fn local_only_execution_records_route_validation_and_audits_idempotently()
     assert_eq!(first.route_decision_id, "route-local-1");
     assert_eq!(first.validation_id, "validation-local-1");
     assert!(first.reconstruction.output_text.starts_with("LOCAL: "));
+    assert!(first.reconstruction.references.iter().any(|reference| {
+        reference.source == emily_membrane::contracts::ReconstructionSource::ReconstructionHandle
+    }));
 
     let routes = emily
         .routing_decisions_for_episode("ep-membrane-local")
@@ -218,6 +221,15 @@ async fn local_only_execution_records_review_validation_for_brief_output() {
         emily_membrane::contracts::MembraneValidationDisposition::NeedsReview
     );
     assert!(result.reconstruction.caution);
+    assert!(
+        result
+            .reconstruction
+            .output_text
+            .starts_with("Review required before relying on this output.")
+    );
+    assert!(result.reconstruction.references.iter().any(|reference| {
+        reference.source == emily_membrane::contracts::ReconstructionSource::ValidationPolicy
+    }));
 
     let validations = emily
         .validation_outcomes_for_episode("ep-membrane-local")

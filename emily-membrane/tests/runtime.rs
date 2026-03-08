@@ -407,6 +407,7 @@ async fn runtime_executes_deterministic_local_flow() {
     assert_eq!(ir.task.episode_id, "episode-1");
     assert!(ir.boundary.remote_allowed);
     assert_eq!(ir.context_handles.len(), 2);
+    assert!(ir.reconstruction.is_some());
     assert!(compiled.compiled_task.bounded_prompt.contains("Context:"));
     assert_eq!(compiled.compiled_task.context_fragment_ids.len(), 2);
 
@@ -432,10 +433,27 @@ async fn runtime_executes_deterministic_local_flow() {
     assert_eq!(validation.assessments.len(), 4);
     assert!(validation.findings.is_empty());
 
-    let reconstruction = runtime.reconstruct(&validation).await.expect("reconstruct");
+    let reconstruction = runtime
+        .reconstruct_with_context(&compiled, &dispatch, &validation)
+        .await
+        .expect("reconstruct");
     assert_eq!(reconstruction.task_id, "task-1");
     assert_eq!(reconstruction.output_text, dispatch.response_text);
     assert!(!reconstruction.caution);
+    assert_eq!(reconstruction.references.len(), 3);
+    assert!(reconstruction.references.iter().any(|reference| {
+        reference.source == emily_membrane::contracts::ReconstructionSource::ReconstructionHandle
+    }));
+    assert!(
+        reconstruction
+            .references
+            .iter()
+            .filter(|reference| {
+                reference.source == emily_membrane::contracts::ReconstructionSource::LocalContext
+            })
+            .count()
+            == 2
+    );
 }
 
 #[tokio::test]
@@ -536,6 +554,72 @@ async fn reconstruct_rejects_rejected_validation() {
         .expect_err("rejected validation should not reconstruct");
 
     assert!(matches!(error, MembraneRuntimeError::InvalidState(_)));
+}
+
+#[tokio::test]
+async fn contextual_reconstruction_renders_remote_review_with_provenance() {
+    let runtime = MembraneRuntime::new(Arc::new(StubEmilyApi::default()));
+    let compiled = runtime
+        .compile(MembraneTaskRequest {
+            task_id: "task-remote-1".into(),
+            episode_id: "episode-1".into(),
+            task_text: "Summarize the remote evidence.".into(),
+            context_fragments: vec![ContextFragment {
+                fragment_id: "ctx-remote-1".into(),
+                text: "remote context".into(),
+            }],
+            allow_remote: true,
+        })
+        .await
+        .expect("compile");
+    let dispatch = emily_membrane::contracts::DispatchResult {
+        task_id: "task-remote-1".into(),
+        route: MembraneRouteKind::SingleRemote,
+        status: emily_membrane::contracts::DispatchStatus::RemoteCompleted,
+        response_text: "REMOTE: provider output".into(),
+        remote_reference: Some("remote-1".into()),
+    };
+    let validation = ValidationEnvelope {
+        task_id: "task-remote-1".into(),
+        disposition: MembraneValidationDisposition::NeedsReview,
+        assessments: Vec::new(),
+        findings: vec![emily_membrane::contracts::ValidationFinding {
+            code: "provider-failed".into(),
+            category: ValidationCategory::Confidence,
+            severity: emily_membrane::contracts::ValidationFindingSeverity::Caution,
+            detail: "provider returned degraded output".into(),
+        }],
+        validated_text: Some("REMOTE: provider output".into()),
+    };
+
+    let reconstruction = runtime
+        .reconstruct_with_context(&compiled, &dispatch, &validation)
+        .await
+        .expect("contextual reconstruction");
+
+    assert!(
+        reconstruction
+            .output_text
+            .contains("Membrane rendered remote output from 'remote-1'.")
+    );
+    assert!(
+        reconstruction
+            .output_text
+            .contains("Review required before relying on this output.")
+    );
+    assert!(
+        reconstruction
+            .output_text
+            .contains("Validation findings: [caution] provider-failed")
+    );
+    assert!(reconstruction.references.iter().any(|reference| {
+        reference.source == emily_membrane::contracts::ReconstructionSource::RemoteResult
+            && reference.reference_id == "remote-1"
+    }));
+    assert!(reconstruction.references.iter().any(|reference| {
+        reference.source == emily_membrane::contracts::ReconstructionSource::ValidationPolicy
+            && reference.reference_id == "provider-failed"
+    }));
 }
 
 #[tokio::test]

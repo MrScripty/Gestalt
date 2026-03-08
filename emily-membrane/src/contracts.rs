@@ -8,11 +8,13 @@ use serde::{Deserialize, Serialize};
 
 mod ir;
 mod multi_remote;
+mod reconstruction;
 mod retry;
 mod validation;
 
 pub use ir::*;
 pub use multi_remote::*;
+pub use reconstruction::*;
 pub use retry::*;
 pub use validation::*;
 
@@ -189,34 +191,6 @@ pub enum DispatchStatus {
     RemoteDispatched,
     RemoteCompleted,
     Blocked,
-}
-
-/// Final local reconstruction result returned to the host.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ReconstructionResult {
-    pub task_id: String,
-    pub output_text: String,
-    /// Defaults to an empty list when omitted.
-    #[serde(default)]
-    pub references: Vec<ReconstructionReference>,
-    /// Defaults to `false` when omitted.
-    #[serde(default)]
-    pub caution: bool,
-}
-
-/// Provenance reference captured during reconstruction.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ReconstructionReference {
-    pub source: ReconstructionSource,
-    pub reference_id: String,
-}
-
-/// Source category for one reconstruction reference.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ReconstructionSource {
-    LocalContext,
-    RemoteResult,
-    ValidationPolicy,
 }
 
 /// Deterministic identifiers and timestamps used for local-only Emily writes.
@@ -557,30 +531,6 @@ mod tests {
         .expect("deserialize validation defaults");
         assert!(restored_default.assessments.is_empty());
         assert!(restored_default.findings.is_empty());
-    }
-
-    #[test]
-    fn reconstruction_result_roundtrip_preserves_defaults() {
-        let result = ReconstructionResult {
-            task_id: "task-1".into(),
-            output_text: "final response".into(),
-            references: vec![ReconstructionReference {
-                source: ReconstructionSource::LocalContext,
-                reference_id: "ctx-1".into(),
-            }],
-            caution: true,
-        };
-
-        let text = serde_json::to_string(&result).expect("serialize reconstruction result");
-        let restored: ReconstructionResult =
-            serde_json::from_str(&text).expect("deserialize reconstruction result");
-        assert_eq!(restored, result);
-
-        let restored_default: ReconstructionResult =
-            serde_json::from_str(r#"{"task_id":"task-2","output_text":"plain response"}"#)
-                .expect("deserialize reconstruction defaults");
-        assert!(restored_default.references.is_empty());
-        assert!(!restored_default.caution);
     }
 
     #[test]

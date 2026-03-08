@@ -436,7 +436,16 @@ async fn remote_execution_records_route_remote_episode_validation_and_audits_ide
     assert_eq!(first.route_decision_id, "route-remote-1");
     assert_eq!(first.remote_episode_id, "remote-1");
     assert_eq!(first.validation_id, "validation-remote-1");
-    assert!(first.reconstruction.output_text.starts_with("REMOTE: "));
+    assert!(
+        first
+            .reconstruction
+            .output_text
+            .starts_with("Membrane rendered remote output from 'remote-1'.")
+    );
+    assert!(first.reconstruction.references.iter().any(|reference| {
+        reference.source == emily_membrane::contracts::ReconstructionSource::RemoteResult
+            && reference.reference_id == "remote-1"
+    }));
 
     let routes = emily
         .routing_decisions_for_episode("ep-membrane-remote")

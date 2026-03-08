@@ -266,7 +266,10 @@ where
                     "remote execution was rejected during validation".to_string(),
                 ));
             }
-            _ => self.reconstruct(&validation).await?,
+            _ => {
+                self.reconstruct_with_context(&compile, &dispatch, &validation)
+                    .await?
+            }
         };
 
         Ok(RemoteExecutionRecord {

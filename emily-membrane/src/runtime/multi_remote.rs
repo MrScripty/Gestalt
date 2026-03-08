@@ -214,9 +214,11 @@ where
                 _ => Some(RemoteExecutionRecord {
                     compile: compile.clone(),
                     route: route.clone(),
-                    dispatch,
+                    dispatch: dispatch.clone(),
                     validation: validation.clone(),
-                    reconstruction: self.reconstruct(&validation).await?,
+                    reconstruction: self
+                        .reconstruct_with_context(&compile, &dispatch, &validation)
+                        .await?,
                     provider_request_id: attempt_persistence.provider_request_id.clone(),
                     route_decision_id: routing_decision.decision_id.clone(),
                     remote_episode_id: remote_episode.id.clone(),
