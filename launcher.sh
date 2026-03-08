@@ -108,9 +108,64 @@ release_bin_path() {
   printf '%s\n' "${PROJECT_ROOT}/target/release/${APP_BIN_NAME}"
 }
 
-managed_state_dir() {
-  local mode="$1"
-  printf '%s\n' "${LAUNCHER_STATE_ROOT}/${mode}"
+persistent_state_dir() {
+  printf '%s\n' "${LAUNCHER_STATE_ROOT}/persistent"
+}
+
+legacy_persistent_state_source_dir() {
+  local dev_dir="${LAUNCHER_STATE_ROOT}/dev"
+  local release_dir="${LAUNCHER_STATE_ROOT}/release"
+  local dev_workspace="${dev_dir}/workspace/workspace.v1.json"
+  local release_workspace="${release_dir}/workspace/workspace.v1.json"
+
+  if [[ -f "$dev_workspace" && -f "$release_workspace" ]]; then
+    if [[ "$dev_workspace" -nt "$release_workspace" ]]; then
+      printf '%s\n' "$dev_dir"
+    else
+      printf '%s\n' "$release_dir"
+    fi
+    return 0
+  fi
+
+  if [[ -f "$dev_workspace" ]]; then
+    printf '%s\n' "$dev_dir"
+    return 0
+  fi
+
+  if [[ -f "$release_workspace" ]]; then
+    printf '%s\n' "$release_dir"
+    return 0
+  fi
+
+  if [[ -d "$dev_dir" ]]; then
+    printf '%s\n' "$dev_dir"
+    return 0
+  fi
+
+  if [[ -d "$release_dir" ]]; then
+    printf '%s\n' "$release_dir"
+  fi
+}
+
+migrate_legacy_persistent_state() {
+  local target_dir
+  local target_workspace
+  local source_dir=""
+
+  target_dir="$(persistent_state_dir)"
+  target_workspace="${target_dir}/workspace/workspace.v1.json"
+  if [[ -f "$target_workspace" ]]; then
+    return 0
+  fi
+
+  source_dir="$(legacy_persistent_state_source_dir)"
+  if [[ -z "$source_dir" || "$source_dir" == "$target_dir" ]]; then
+    return 0
+  fi
+
+  mkdir -p "$target_dir"
+  cp -a "${source_dir}/." "$target_dir/"
+  log "[state] migrated isolated launcher state from $source_dir to $target_dir"
 }
 
 make_temp_state_dir() {
@@ -151,7 +206,8 @@ configure_managed_state() {
   if [[ "$lifespan" == "temp" ]]; then
     state_dir="$(make_temp_state_dir "$mode")"
   else
-    state_dir="$(managed_state_dir "$mode")"
+    migrate_legacy_persistent_state
+    state_dir="$(persistent_state_dir)"
   fi
 
   setup_managed_state_env "$state_dir"

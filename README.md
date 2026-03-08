@@ -45,7 +45,9 @@ It is built with Dioxus Desktop (`0.7.x`) and uses real PTY sessions + VT100 par
 
 `launcher.sh` is the canonical local workflow entry point. It wraps build, test,
 perf, and release smoke commands and uses repo-local state dirs by default so
-development runs do not pollute the host's normal Gestalt state.
+development runs do not pollute the host's normal Gestalt state. Persistent app
+launches share one repo-local state directory, while perf/test/smoke actions
+use disposable isolated state.
 
 ```bash
 ./launcher.sh --run
