@@ -8,12 +8,14 @@ use serde_json::{Value, json};
 pub const SYNTHETIC_TERMINAL_DATASET: &str = "synthetic-terminal";
 pub const SYNTHETIC_AGENT_ROUND_DATASET: &str = "synthetic-agent-round";
 pub const SYNTHETIC_RISK_GATED_DATASET: &str = "synthetic-risk-gated";
+pub const SYNTHETIC_SEMANTIC_CONTEXT_DATASET: &str = "synthetic-semantic-context";
 
 pub(super) fn builtin_seed_corpus(label: &str) -> Option<EmilySeedCorpus> {
     match label {
         SYNTHETIC_TERMINAL_DATASET => Some(synthetic_terminal_corpus()),
         SYNTHETIC_AGENT_ROUND_DATASET => Some(synthetic_agent_round_corpus()),
         SYNTHETIC_RISK_GATED_DATASET => Some(synthetic_risk_gated_corpus()),
+        SYNTHETIC_SEMANTIC_CONTEXT_DATASET => Some(synthetic_semantic_context_corpus()),
         _ => None,
     }
 }
@@ -277,6 +279,40 @@ fn synthetic_risk_gated_corpus() -> EmilySeedCorpus {
                 }],
             },
         ],
+    }
+}
+
+fn synthetic_semantic_context_corpus() -> EmilySeedCorpus {
+    let stream_id = "terminal:41";
+    EmilySeedCorpus {
+        label: SYNTHETIC_SEMANTIC_CONTEXT_DATASET.to_string(),
+        text_objects: vec![
+            seed_text(
+                stream_id,
+                TextObjectKind::Note,
+                1,
+                1_730_000_301_000,
+                "provider capability metadata must match target routing requirements before remote dispatch",
+                json!({"dataset": SYNTHETIC_SEMANTIC_CONTEXT_DATASET, "role": "semantic_target"}),
+            ),
+            seed_text(
+                stream_id,
+                TextObjectKind::Note,
+                2,
+                1_730_000_302_000,
+                "repository clean after the last cargo test run",
+                json!({"dataset": SYNTHETIC_SEMANTIC_CONTEXT_DATASET, "role": "lexical_target"}),
+            ),
+            seed_text(
+                stream_id,
+                TextObjectKind::SystemOutput,
+                3,
+                1_730_000_303_000,
+                "recent session output: membrane validation remained within review thresholds",
+                json!({"dataset": SYNTHETIC_SEMANTIC_CONTEXT_DATASET, "role": "distractor"}),
+            ),
+        ],
+        episodes: Vec::new(),
     }
 }
 

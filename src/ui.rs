@@ -24,7 +24,9 @@ use crate::git::RepoContext;
 use crate::local_restore;
 use crate::orchestrator::{self, STARTUP_BACKGROUND_TICK_MS, StartupCoordinator};
 use crate::orchestrator::{AutosaveController, AutosaveFeedback, AutosaveWorker};
-use crate::pantograph_host::build_deferred_embedding_provider_from_env;
+use crate::pantograph_host::{
+    build_deferred_embedding_provider_from_env, build_embedding_vectorization_patch_from_env,
+};
 use crate::persistence;
 use crate::resource_monitor::{RESOURCE_POLL_MS, ResourceSnapshot, sample_resource_snapshot};
 use crate::state::{SessionId, SessionStatus, clamp_ui_scale};
@@ -861,7 +863,20 @@ fn gui_scale_direction(key: &Key, ctrl: bool, meta: bool, alt: bool) -> Option<f
 
 fn initialize_emily_bridge() -> EmilyBridge {
     match build_deferred_embedding_provider_from_env() {
-        Ok(provider) => EmilyBridge::new_default_with_embedding_provider(provider),
+        Ok(provider) => {
+            let bridge = EmilyBridge::new_default_with_embedding_provider(provider);
+            match build_embedding_vectorization_patch_from_env() {
+                Ok(patch) => {
+                    if let Err(error) = bridge.update_vectorization_config(patch) {
+                        eprintln!("Pantograph embedding vectorization init failed: {error}");
+                    }
+                }
+                Err(error) => {
+                    eprintln!("Pantograph embedding vectorization config unavailable: {error}");
+                }
+            }
+            bridge
+        }
         Err(error) => {
             eprintln!("Pantograph embedding provider unavailable: {error}");
             EmilyBridge::new_default_with_provider_error(error)

@@ -3,8 +3,8 @@ use emily::model::{ContextQuery, DatabaseLocator, EarlDecision, EpisodeState, Hi
 use emily::runtime::EmilyRuntime;
 use emily::store::surreal::SurrealEmilyStore;
 use gestalt::emily_seed::{
-    SYNTHETIC_AGENT_ROUND_DATASET, SYNTHETIC_RISK_GATED_DATASET, SYNTHETIC_TERMINAL_DATASET,
-    seed_builtin_corpus,
+    SYNTHETIC_AGENT_ROUND_DATASET, SYNTHETIC_RISK_GATED_DATASET,
+    SYNTHETIC_SEMANTIC_CONTEXT_DATASET, SYNTHETIC_TERMINAL_DATASET, seed_builtin_corpus,
 };
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -29,6 +29,12 @@ fn seeded_corpora_roundtrip_through_public_emily_facade() {
             .await
             .expect("terminal dataset should seed");
         assert_eq!(terminal_report.text_objects_seeded, 5);
+
+        let semantic_report =
+            seed_builtin_corpus(&emily_runtime, SYNTHETIC_SEMANTIC_CONTEXT_DATASET)
+                .await
+                .expect("semantic dataset should seed");
+        assert_eq!(semantic_report.text_objects_seeded, 3);
 
         let agent_report = seed_builtin_corpus(&emily_runtime, SYNTHETIC_AGENT_ROUND_DATASET)
             .await

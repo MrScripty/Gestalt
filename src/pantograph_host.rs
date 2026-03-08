@@ -4,7 +4,7 @@ use emily::inference::{
     PantographWorkflowBinding as EmilyWorkflowBinding, PantographWorkflowEmbeddingConfig,
     PantographWorkflowServiceClient,
 };
-use emily::model::EmbeddingProviderStatus;
+use emily::model::{EmbeddingProviderStatus, VectorizationConfigPatch};
 use emily_membrane::providers::{
     InMemoryProviderRegistry, MembraneProvider, MembraneProviderRegistry, PantographProviderConfig,
     PantographWorkflowBinding as MembraneWorkflowBinding, PantographWorkflowProvider,
@@ -28,6 +28,7 @@ use workflow_nodes as _;
 
 const DEFAULT_TIMEOUT_MS: u64 = 120_000;
 const DEFAULT_EMBED_DIMENSIONS: usize = 1024;
+const DEFAULT_EMBEDDING_PROFILE_ID: &str = "Qwen3-Embedding-4B-GGUF";
 const DEFAULT_REASONING_PROVIDER_ID: &str = "pantograph-qwen-reasoning";
 const DEFAULT_REASONING_MODEL_ID: &str = "Qwen3.5-35B-A3B-GGUF";
 const DEFAULT_REASONING_PROFILE_ID: &str = "reasoning";
@@ -171,6 +172,7 @@ pub struct PantographRuntimeConfig {
     pub workflow_id: String,
     pub timeout_ms: Option<u64>,
     pub expected_dimensions: usize,
+    pub profile_id: String,
     pub text_input_node_id: Option<String>,
     pub text_input_port_id: Option<String>,
     pub vector_output_node_id: Option<String>,
@@ -194,6 +196,11 @@ impl PantographRuntimeConfig {
             .ok()
             .and_then(|value| value.parse::<usize>().ok())
             .unwrap_or(DEFAULT_EMBED_DIMENSIONS);
+        let profile_id = std::env::var("GESTALT_EMBEDDING_PROFILE_ID")
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| DEFAULT_EMBEDDING_PROFILE_ID.to_string());
 
         let text_input_node_id = std::env::var("GESTALT_PANTOGRAPH_TEXT_NODE_ID")
             .ok()
@@ -229,6 +236,7 @@ impl PantographRuntimeConfig {
             workflow_id,
             timeout_ms,
             expected_dimensions,
+            profile_id,
             text_input_node_id,
             text_input_port_id,
             vector_output_node_id,
@@ -254,6 +262,14 @@ impl PantographRuntimeConfig {
 
     fn data_dir(&self) -> PathBuf {
         self.pantograph_root.join("launcher-data")
+    }
+
+    pub fn vectorization_patch(&self) -> VectorizationConfigPatch {
+        VectorizationConfigPatch {
+            enabled: Some(true),
+            expected_dimensions: Some(self.expected_dimensions),
+            profile_id: Some(self.profile_id.clone()),
+        }
     }
 }
 
@@ -354,6 +370,7 @@ impl PantographReasoningRuntimeConfig {
             workflow_id: self.workflow_id.clone(),
             timeout_ms: self.timeout_ms,
             expected_dimensions: DEFAULT_EMBED_DIMENSIONS,
+            profile_id: DEFAULT_EMBEDDING_PROFILE_ID.to_string(),
             text_input_node_id: self.text_input_node_id.clone(),
             text_input_port_id: self.text_input_port_id.clone(),
             vector_output_node_id: None,
@@ -936,6 +953,10 @@ pub fn build_deferred_embedding_provider_from_env() -> Result<Arc<dyn EmbeddingP
     }))
 }
 
+pub fn build_embedding_vectorization_patch_from_env() -> Result<VectorizationConfigPatch, String> {
+    Ok(PantographRuntimeConfig::from_env()?.vectorization_patch())
+}
+
 fn build_membrane_provider_registry(
     config: PantographReasoningRuntimeConfig,
 ) -> Result<Arc<dyn MembraneProviderRegistry>, String> {
@@ -1145,6 +1166,7 @@ mod tests {
             workflow_id: "Embedding".to_string(),
             timeout_ms: Some(1_000),
             expected_dimensions: 1024,
+            profile_id: DEFAULT_EMBEDDING_PROFILE_ID.to_string(),
             text_input_node_id: None,
             text_input_port_id: None,
             vector_output_node_id: None,
@@ -1165,6 +1187,17 @@ mod tests {
         let config = PantographReasoningRuntimeConfig::from_env_with(|_| None)
             .expect("config parse should succeed");
         assert_eq!(config, None);
+    }
+
+    #[test]
+    fn embedding_runtime_config_emits_vectorization_patch_defaults() {
+        let patch = test_config().vectorization_patch();
+        assert_eq!(patch.enabled, Some(true));
+        assert_eq!(patch.expected_dimensions, Some(1024));
+        assert_eq!(
+            patch.profile_id.as_deref(),
+            Some(DEFAULT_EMBEDDING_PROFILE_ID)
+        );
     }
 
     #[test]
