@@ -267,6 +267,21 @@ Update during implementation:
 - 2026-03-08: Verification caveat:
   - Feature-gated Pantograph checks emit upstream warnings from the Pantograph
     workspace, but `emily-membrane` passes under `-D warnings`.
+- 2026-03-08: Provider registry lookup implemented in commit `4a6be10`.
+- 2026-03-08: Registry lookup scope:
+  - Added a membrane-owned `MembraneProviderRegistry` abstraction.
+  - Added `InMemoryProviderRegistry` as the default host-supplied registry.
+  - Kept `with_provider(...)` as an additive single-provider wrapper.
+  - Added `with_provider_registry(...)` for host-owned provider lookup.
+  - Changed remote execution to resolve providers by `target.provider_id`
+    instead of assuming one injected provider.
+  - Added runtime coverage for missing-registry and missing-provider cases.
+- 2026-03-08: Provider registry verification passed with:
+  - `cargo fmt --manifest-path emily-membrane/Cargo.toml`
+  - `cargo test --manifest-path emily-membrane/Cargo.toml -q --offline`
+  - `cargo clippy --manifest-path emily-membrane/Cargo.toml --all-targets --offline -- -D warnings`
+  - `cargo test --manifest-path emily-membrane/Cargo.toml -q --offline --features pantograph`
+  - `cargo clippy --manifest-path emily-membrane/Cargo.toml --all-targets --offline --features pantograph -- -D warnings`
 
 ## Commit Cadence Notes
 
