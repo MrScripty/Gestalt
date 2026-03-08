@@ -27,3 +27,4 @@ Files:
 - `08-gestalt-emily-development-plan.md`: phased implementation plan for evolving Gestalt's current Emily integration
 - `09-emily-crate-continuation-plan.md`: continuation plan for evolving the `emily` crate into the reusable Emily core
 - `10-emily-membrane-crate-design-plan.md`: sibling-crate design plan for the sovereign-dispatch membrane layer above `emily`
+- `11-emily-membrane-milestone-1-implementation-plan.md`: standards-aligned implementation plan for the first membrane crate slice using a narrow internal test adapter

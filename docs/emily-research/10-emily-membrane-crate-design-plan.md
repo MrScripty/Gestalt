@@ -367,6 +367,9 @@ dispatch.
 Update during implementation:
 - 2026-03-08: Initial membrane-crate design plan written after reviewing shared
   standards, Gestalt standards, and Emily research docs.
+- 2026-03-08: First adapter decision recorded:
+  - start with a narrow internal test adapter
+  - defer Pantograph-backed provider work to the later remote-adapter milestone
 
 ## Commit Cadence Notes
 
@@ -415,8 +418,6 @@ Update during implementation:
 
 ### Follow-Ups
 
-- Decide whether the first provider adapter should be Pantograph-backed or a
-  narrower internal test adapter.
 - Decide whether the first membrane integration target in Gestalt should be the
   local-agent path or a separate bounded experiment path.
 - Decide whether membrane contracts should live entirely in `emily-membrane` or
