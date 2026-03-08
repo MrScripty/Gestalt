@@ -29,13 +29,6 @@
   color: #4a3f1d;
 }
 
-.git-panel-head p {
-  margin: 4px 0 0;
-  font-size: calc(0.72rem * var(--font-scale));
-  color: #75673e;
-  line-break: anywhere;
-}
-
 .git-loading {
   margin: 8px 12px;
   font-size: calc(0.72rem * var(--font-scale));
@@ -57,11 +50,6 @@
 
 .git-empty p {
   margin: 6px 0 0;
-}
-
-.git-repo-meta {
-  padding: 8px 12px;
-  border-bottom: 1px solid #eadbb6;
 }
 
 .git-meta {
@@ -142,6 +130,10 @@
   grid-template-columns: var(--git-graph-gutter, 120px) minmax(0, 1fr);
   column-gap: 12px;
   align-items: stretch;
+}
+
+.git-commit-row-shell {
+  position: relative;
 }
 
 .git-commit-row.selected {
@@ -233,6 +225,57 @@
   min-height: 100%;
 }
 
+.git-node-tag-btn {
+  position: absolute;
+  top: 50%;
+  left: var(--git-tag-left, 32px);
+  transform: translate(-50%, -50%);
+  border: 1px solid #b89d63;
+  border-radius: 999px;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #f6e5bc;
+  color: #4c3812;
+  box-shadow: 0 4px 12px rgba(68, 52, 18, 0.18);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 120ms ease,
+    background-color 120ms ease,
+    border-color 120ms ease,
+    transform 120ms ease;
+  z-index: 3;
+}
+
+.git-commit-row-shell:hover .git-node-tag-btn,
+.git-commit-row-shell:focus-within .git-node-tag-btn,
+.git-node-tag-btn.visible {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.git-node-tag-btn:hover {
+  background: #efd39a;
+  transform: translate(-50%, -50%) scale(1.03);
+}
+
+.git-node-tag-btn:focus-visible {
+  outline: 2px solid #bf9b4b;
+  outline-offset: 2px;
+}
+
+.git-node-tag-icon {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+}
+
 .git-summary-content,
 .git-commit-main {
   min-width: 0;
@@ -319,6 +362,50 @@
   overflow: auto;
 }
 
+.git-detail-actions {
+  margin-top: 8px;
+  display: flex;
+  gap: 6px;
+}
+
+.git-tag-section {
+  margin-top: 10px;
+  border-top: 1px solid #decea8;
+  padding-top: 10px;
+}
+
+.git-tag-section h6 {
+  margin: 0 0 6px;
+  font-size: calc(0.68rem * var(--font-scale));
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #5a4a1f;
+}
+
+.git-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.git-tag-chip {
+  border: 1px solid #baa16c;
+  border-radius: 999px;
+  background: #f4e5c4;
+  color: #4a3712;
+  font: inherit;
+  font-size: calc(0.68rem * var(--font-scale));
+  font-weight: 700;
+  padding: 4px 9px;
+  cursor: pointer;
+}
+
+.git-tag-chip.selected {
+  background: #dcc27e;
+  border-color: #b69143;
+}
+
 .git-change-row {
   grid-template-columns: auto 1fr auto;
 }
@@ -356,15 +443,6 @@
 .git-textarea {
   resize: vertical;
   min-height: 48px;
-}
-
-.git-checkbox-row {
-  margin-top: 6px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: calc(0.72rem * var(--font-scale));
-  color: #5f5331;
 }
 
 .git-action-btn {
@@ -421,7 +499,6 @@
 }
 
 .git-panel-head,
-.git-repo-meta,
 .git-section {
   border-bottom-color: #2f4c40;
 }
@@ -430,7 +507,6 @@
   color: #d3eadf;
 }
 
-.git-panel-head p,
 .git-loading,
 .git-meta {
   color: #91b2a3;
@@ -472,6 +548,17 @@
 
 .git-summary-row {
   border-bottom-color: #35584a;
+}
+
+.git-node-tag-btn {
+  border-color: #4b7c66;
+  background: #17392d;
+  color: #cae4d6;
+  box-shadow: 0 4px 12px rgba(2, 9, 7, 0.3);
+}
+
+.git-node-tag-btn:hover {
+  background: #1d4637;
 }
 
 .git-summary-label {
@@ -518,6 +605,25 @@
   color: #d3eadf;
 }
 
+.git-tag-section {
+  border-top-color: #2f4d40;
+}
+
+.git-tag-section h6 {
+  color: #9fc3b2;
+}
+
+.git-tag-chip {
+  border-color: #3f6655;
+  background: #163328;
+  color: #cae4d6;
+}
+
+.git-tag-chip.selected {
+  border-color: #63a887;
+  background: #214736;
+}
+
 .git-commit-details-message {
   border-color: #3a5d4f;
   background: #132720;
@@ -529,10 +635,6 @@
   border-color: #3f6556;
   background: #0c1714;
   color: #d8ede2;
-}
-
-.git-checkbox-row {
-  color: #95b7a8;
 }
 
 .git-action-btn {

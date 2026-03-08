@@ -7,7 +7,7 @@ pub use error::GitError;
 pub(crate) use model::RepoFileState;
 pub use model::{
     BranchInfo, CheckoutTarget, CommitDetails, CommitDraft, CommitInfo, FileChange, RepoContext,
-    RepoPathMarks, RepoSnapshot, TagInfo,
+    RepoPathMarks, RepoSnapshot, TagDetails, TagInfo,
 };
 
 use command::{run_git, run_git_with_env};
@@ -212,6 +212,35 @@ pub fn create_tag(group_path: &str, name: &str, message: &str, sha: &str) -> Res
     let sha = validate_non_empty(sha, "Commit SHA")?;
     run_git(group_path, &["tag", "-a", &name, "-m", &message, &sha])?;
     Ok(())
+}
+
+pub fn load_tag_details(group_path: &str, name: &str) -> Result<TagDetails, GitError> {
+    let name = validate_non_empty(name, "Tag name")?;
+    let format = "%(refname:short)%x1f%(objectname)%x1f%(*objectname)%x1f%(contents)";
+    let ref_name = format!("refs/tags/{name}");
+    let output = run_git(group_path, &["for-each-ref", &ref_name, "--format", format])?;
+    let line = output
+        .stdout
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .ok_or_else(|| GitError::InvalidInput(format!("Tag '{name}' does not exist.")))?;
+    let fields = line.splitn(4, FIELD_DELIMITER).collect::<Vec<_>>();
+    if fields.len() != 4 {
+        return Err(GitError::ParseError {
+            command: "git for-each-ref refs/tags".to_string(),
+            details: format!("Expected 4 fields, found {} in '{line}'", fields.len()),
+        });
+    }
+
+    let annotated = !fields[2].trim().is_empty();
+    let target_sha = if annotated { fields[2] } else { fields[1] };
+
+    Ok(TagDetails {
+        name: fields[0].to_string(),
+        target_sha: target_sha.to_string(),
+        message: fields[3].trim_end().to_string(),
+        annotated,
+    })
 }
 
 pub fn delete_tag(group_path: &str, name: &str) -> Result<(), GitError> {

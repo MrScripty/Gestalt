@@ -1,5 +1,6 @@
 use crate::git::{
     self, CheckoutTarget, CommitDetails, CommitDraft, GitError, RepoContext, RepoPathMarks,
+    TagDetails,
 };
 use crate::orchestration_log::{
     CommandPayload, EventPayload, NewCommandRecord, NewEventRecord, NewReceiptRecord,
@@ -121,6 +122,10 @@ pub fn create_commit(group_path: &str, draft: CommitDraft) -> Result<String, Git
 
 pub fn load_commit_details(group_path: &str, sha: &str) -> Result<CommitDetails, GitError> {
     git::load_commit_details(group_path, sha)
+}
+
+pub fn load_tag_details(group_path: &str, name: &str) -> Result<TagDetails, GitError> {
+    git::load_tag_details(group_path, name)
 }
 
 pub fn update_commit_message(
