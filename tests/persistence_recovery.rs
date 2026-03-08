@@ -1,4 +1,4 @@
-use gestalt::persistence::{self, PersistedWorkspaceV1};
+use gestalt::persistence::{self, PersistedWorkspaceV1, PersistenceError};
 use gestalt::state::AppState;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -44,6 +44,22 @@ fn test_load_workspace_with_corrupt_primary_uses_backup() {
             quarantined_path.exists(),
             "corrupt workspace should be renamed to .corrupt"
         );
+    });
+}
+
+#[test]
+fn test_load_workspace_rejects_unsupported_schema_version() {
+    with_workspace_path("unsupported-schema", |workspace_path| {
+        let mut workspace = PersistedWorkspaceV1::new(AppState::default(), Vec::new());
+        workspace.schema_version += 1;
+        let payload = serde_json::to_string(&workspace).expect("payload should serialize");
+        std::fs::write(&workspace_path, payload).expect("workspace write should succeed");
+
+        let error = persistence::load_workspace().expect_err("load should reject schema");
+        assert!(matches!(
+            error,
+            PersistenceError::UnsupportedSchemaVersion { version } if version == workspace.schema_version
+        ));
     });
 }
 

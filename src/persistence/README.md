@@ -19,6 +19,10 @@ Persists and restores workspace state so groups, sessions, and terminal projecti
 - Save path is OS-specific but hidden behind `paths.rs`.
 - Terminal history lines are not persisted here; Emily is the history source of truth.
 
+## Invariants
+- `load_workspace` rejects unsupported schema versions before restored state is used.
+- Migration to the current schema strips any terminal history lines from legacy in-memory payloads before returning workspace state.
+
 ## Dependencies
 **Internal:** `state`, `terminal`  
 **External:** `serde`, `serde_json`, `thiserror`
