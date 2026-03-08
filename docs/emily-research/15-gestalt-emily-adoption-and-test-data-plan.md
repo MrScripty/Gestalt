@@ -283,10 +283,26 @@ terminal-history persistence.
 **Goal:** Use the membrane facade in one controlled Gestalt flow.
 
 **Tasks:**
-- [ ] Pick a non-destructive host action for first membrane execution
-- [ ] Use policy-selected execution with seeded or isolated local data
-- [ ] Add inspection of resulting routing / remote / validation artifacts
-- [ ] Keep the feature behind an explicit development toggle until trusted
+- [x] Pick a non-destructive host action for first membrane execution
+- [x] Use policy-selected execution with seeded or isolated local data
+- [x] Add inspection of resulting routing / remote / validation artifacts
+- [x] Keep the feature behind an explicit development toggle until trusted
+
+**Execution Notes:**
+- Added a Gestalt-hosted `emily_membrane_dev` runner that executes the
+  membrane facade against an isolated Emily database instead of altering the
+  normal desktop UI flow.
+- The first controlled action is intentionally non-destructive: a local-only
+  membrane task over seeded Emily context from the `synthetic-agent-round`
+  dataset.
+- The runner uses `MembraneRuntime::execute_with_policy_and_record(...)` so the
+  host integration goes through the same unified policy-selected facade planned
+  for later product flows.
+- After execution, the runner inspects the resulting Emily episode, routing,
+  validation, and sovereign audit artifacts and prints one deterministic JSON
+  snapshot for review.
+- The flow is gated behind `GESTALT_ENABLE_MEMBRANE_DEV=1` so it remains an
+  explicit development-only path until broader host adoption is trusted.
 
 **Verification:**
 - `cargo fmt`
