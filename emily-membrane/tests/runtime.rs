@@ -15,7 +15,7 @@ use emily_membrane::contracts::{
     ContextFragment, MembraneRouteKind, MembraneTaskRequest, MembraneValidationDisposition,
     PolicyExecutionPersistence, RemoteExecutionPersistence, RemoteRoutingPreference, RoutingPlan,
     RoutingPolicyFindingSeverity, RoutingPolicyOutcome, RoutingPolicyRequest, RoutingSensitivity,
-    ValidationEnvelope,
+    ValidationAssessmentStatus, ValidationCategory, ValidationEnvelope,
 };
 use emily_membrane::providers::{
     InMemoryProviderRegistry, MembraneProvider, MembraneProviderError, ProviderDispatchRequest,
@@ -398,11 +398,67 @@ async fn runtime_executes_deterministic_local_flow() {
         validation.disposition,
         MembraneValidationDisposition::Accepted
     );
+    assert_eq!(validation.assessments.len(), 4);
+    assert!(validation.findings.is_empty());
 
     let reconstruction = runtime.reconstruct(&validation).await.expect("reconstruct");
     assert_eq!(reconstruction.task_id, "task-1");
     assert_eq!(reconstruction.output_text, dispatch.response_text);
     assert!(!reconstruction.caution);
+}
+
+#[tokio::test]
+async fn validate_marks_brief_local_output_for_review() {
+    let runtime = MembraneRuntime::new(Arc::new(StubEmilyApi::default()));
+    let validation = runtime
+        .validate(&emily_membrane::contracts::DispatchResult {
+            task_id: "task-1".into(),
+            route: MembraneRouteKind::LocalOnly,
+            status: emily_membrane::contracts::DispatchStatus::LocalCompleted,
+            response_text: "LOCAL: ok".into(),
+            remote_reference: None,
+        })
+        .await
+        .expect("validate");
+
+    assert_eq!(
+        validation.disposition,
+        MembraneValidationDisposition::NeedsReview
+    );
+    assert!(validation.validated_text.is_some());
+    assert!(validation.findings.iter().any(|finding| {
+        finding.category == ValidationCategory::Relevance
+            && finding.severity == emily_membrane::contracts::ValidationFindingSeverity::Caution
+    }));
+    assert!(validation.assessments.iter().any(|assessment| {
+        assessment.category == ValidationCategory::Confidence
+            && assessment.status == ValidationAssessmentStatus::NeedsReview
+    }));
+}
+
+#[tokio::test]
+async fn validate_rejects_local_output_without_body() {
+    let runtime = MembraneRuntime::new(Arc::new(StubEmilyApi::default()));
+    let validation = runtime
+        .validate(&emily_membrane::contracts::DispatchResult {
+            task_id: "task-1".into(),
+            route: MembraneRouteKind::LocalOnly,
+            status: emily_membrane::contracts::DispatchStatus::LocalCompleted,
+            response_text: "LOCAL:   ".into(),
+            remote_reference: None,
+        })
+        .await
+        .expect("validate");
+
+    assert_eq!(
+        validation.disposition,
+        MembraneValidationDisposition::Rejected
+    );
+    assert_eq!(validation.validated_text, None);
+    assert!(validation.findings.iter().any(|finding| {
+        finding.category == ValidationCategory::Relevance
+            && finding.severity == emily_membrane::contracts::ValidationFindingSeverity::Block
+    }));
 }
 
 #[tokio::test]
@@ -441,6 +497,7 @@ async fn reconstruct_rejects_rejected_validation() {
         .reconstruct(&ValidationEnvelope {
             task_id: "task-1".into(),
             disposition: MembraneValidationDisposition::Rejected,
+            assessments: Vec::new(),
             findings: Vec::new(),
             validated_text: None,
         })

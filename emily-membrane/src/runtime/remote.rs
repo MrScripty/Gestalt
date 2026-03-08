@@ -3,9 +3,10 @@ use super::{
 };
 use crate::contracts::{
     CompileResult, DispatchResult, DispatchStatus, MembraneRouteKind, MembraneTaskRequest,
-    PolicySelectedRemoteExecution, RemoteExecutionPersistence, RemoteExecutionRecord,
-    RemoteRoutingPreference, RoutingPlan, RoutingPolicyOutcome, RoutingPolicyRequest,
-    RoutingTarget, ValidationEnvelope, ValidationFinding,
+    MembraneValidationDisposition, PolicySelectedRemoteExecution, RemoteExecutionPersistence,
+    RemoteExecutionRecord, RemoteRoutingPreference, RoutingPlan, RoutingPolicyOutcome,
+    RoutingPolicyRequest, RoutingTarget, ValidationAssessment, ValidationAssessmentStatus,
+    ValidationCategory, ValidationEnvelope, ValidationFinding, ValidationFindingSeverity,
 };
 use crate::providers::{
     ProviderDispatchKind, ProviderDispatchRequest, ProviderDispatchResult, ProviderDispatchStatus,
@@ -236,7 +237,7 @@ where
         };
 
         let reconstruction = match validation.disposition {
-            crate::contracts::MembraneValidationDisposition::Rejected => {
+            MembraneValidationDisposition::Rejected => {
                 return Err(MembraneRuntimeError::InvalidState(
                     "remote execution was rejected during validation".to_string(),
                 ));
@@ -511,24 +512,94 @@ fn build_remote_validation_envelope(
     match provider_result.status {
         ProviderDispatchStatus::Completed => ValidationEnvelope {
             task_id: dispatch.task_id.clone(),
-            disposition: crate::contracts::MembraneValidationDisposition::Accepted,
+            disposition: MembraneValidationDisposition::Accepted,
+            assessments: vec![
+                remote_assessment(
+                    ValidationCategory::Coherence,
+                    ValidationAssessmentStatus::Satisfied,
+                    "remote provider returned a completed response payload",
+                ),
+                remote_assessment(
+                    ValidationCategory::Relevance,
+                    ValidationAssessmentStatus::Satisfied,
+                    "remote provider returned task-facing output text",
+                ),
+                remote_assessment(
+                    ValidationCategory::Confidence,
+                    ValidationAssessmentStatus::Satisfied,
+                    "remote provider completed without a membrane-side failure signal",
+                ),
+                remote_assessment(
+                    ValidationCategory::ProvenanceSufficiency,
+                    ValidationAssessmentStatus::Satisfied,
+                    "remote response is linked to a persisted remote episode",
+                ),
+            ],
             findings: Vec::new(),
             validated_text: Some(provider_result.output_text.clone()),
         },
         ProviderDispatchStatus::Failed => ValidationEnvelope {
             task_id: dispatch.task_id.clone(),
-            disposition: crate::contracts::MembraneValidationDisposition::NeedsReview,
+            disposition: MembraneValidationDisposition::NeedsReview,
+            assessments: vec![
+                remote_assessment(
+                    ValidationCategory::Coherence,
+                    ValidationAssessmentStatus::NeedsReview,
+                    "remote provider failed after dispatch, so coherence should be reviewed",
+                ),
+                remote_assessment(
+                    ValidationCategory::Relevance,
+                    ValidationAssessmentStatus::NeedsReview,
+                    "remote provider failure leaves relevance unresolved",
+                ),
+                remote_assessment(
+                    ValidationCategory::Confidence,
+                    ValidationAssessmentStatus::NeedsReview,
+                    "remote provider failure lowers confidence in the result",
+                ),
+                remote_assessment(
+                    ValidationCategory::ProvenanceSufficiency,
+                    ValidationAssessmentStatus::Satisfied,
+                    "remote failure is still tied to a persisted remote episode",
+                ),
+            ],
             findings: vec![ValidationFinding {
                 code: "provider-failed".to_string(),
+                category: ValidationCategory::Confidence,
+                severity: ValidationFindingSeverity::Caution,
                 detail: fallback_provider_message(provider_result),
             }],
             validated_text: Some(fallback_provider_message(provider_result)),
         },
         ProviderDispatchStatus::Rejected => ValidationEnvelope {
             task_id: dispatch.task_id.clone(),
-            disposition: crate::contracts::MembraneValidationDisposition::Rejected,
+            disposition: MembraneValidationDisposition::Rejected,
+            assessments: vec![
+                remote_assessment(
+                    ValidationCategory::Coherence,
+                    ValidationAssessmentStatus::Failed,
+                    "remote provider rejected the dispatch before producing usable output",
+                ),
+                remote_assessment(
+                    ValidationCategory::Relevance,
+                    ValidationAssessmentStatus::Failed,
+                    "remote provider rejection leaves no task-facing output to evaluate",
+                ),
+                remote_assessment(
+                    ValidationCategory::Confidence,
+                    ValidationAssessmentStatus::Failed,
+                    "remote provider rejection blocks confidence in the result",
+                ),
+                remote_assessment(
+                    ValidationCategory::ProvenanceSufficiency,
+                    ValidationAssessmentStatus::Satisfied,
+                    "remote rejection is still tied to a persisted remote episode",
+                ),
+            ],
             findings: vec![ValidationFinding {
                 code: "provider-rejected".to_string(),
+                category: ValidationCategory::Coherence,
+                severity: ValidationFindingSeverity::Block,
                 detail: fallback_provider_message(provider_result),
             }],
             validated_text: None,
@@ -544,6 +615,18 @@ fn fallback_provider_message(provider_result: &ProviderDispatchResult) -> String
         )
     } else {
         provider_result.output_text.clone()
+    }
+}
+
+fn remote_assessment(
+    category: ValidationCategory,
+    status: ValidationAssessmentStatus,
+    summary: &str,
+) -> ValidationAssessment {
+    ValidationAssessment {
+        category,
+        status,
+        summary: summary.to_string(),
     }
 }
 
@@ -564,7 +647,7 @@ fn build_remote_validation_outcome(
             .iter()
             .map(|finding| EmilyFinding {
                 code: finding.code.clone(),
-                severity: to_emily_finding_severity(validation.disposition),
+                severity: to_emily_finding_severity(finding.severity),
                 message: finding.detail.clone(),
             })
             .collect(),
@@ -573,6 +656,15 @@ fn build_remote_validation_outcome(
             "mode": "single-remote",
             "task_id": validation.task_id.clone(),
             "validated_text": validation.validated_text.clone(),
+            "assessments": validation
+                .assessments
+                .iter()
+                .map(|assessment| json!({
+                    "category": assessment.category,
+                    "status": assessment.status,
+                    "summary": assessment.summary,
+                }))
+                .collect::<Vec<_>>(),
         }),
     }
 }

@@ -4,8 +4,10 @@ use crate::providers::ProviderTarget;
 use serde::{Deserialize, Serialize};
 
 mod ir;
+mod validation;
 
 pub use ir::*;
+pub use validation::*;
 
 /// Host-provided context fragment already deemed safe for membrane use.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -168,32 +170,6 @@ pub enum DispatchStatus {
     RemoteDispatched,
     RemoteCompleted,
     Blocked,
-}
-
-/// Validation output produced by the membrane before local reconstruction.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ValidationEnvelope {
-    pub task_id: String,
-    pub disposition: MembraneValidationDisposition,
-    /// Defaults to an empty list when omitted.
-    #[serde(default)]
-    pub findings: Vec<ValidationFinding>,
-    pub validated_text: Option<String>,
-}
-
-/// High-level validation result for one membrane output.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum MembraneValidationDisposition {
-    Accepted,
-    NeedsReview,
-    Rejected,
-}
-
-/// Human-readable validation finding.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ValidationFinding {
-    pub code: String,
-    pub detail: String,
 }
 
 /// Final local reconstruction result returned to the host.
@@ -511,8 +487,15 @@ mod tests {
         let envelope = ValidationEnvelope {
             task_id: "task-1".into(),
             disposition: MembraneValidationDisposition::NeedsReview,
+            assessments: vec![ValidationAssessment {
+                category: ValidationCategory::Confidence,
+                status: ValidationAssessmentStatus::NeedsReview,
+                summary: "local review required before host output".into(),
+            }],
             findings: vec![ValidationFinding {
                 code: "review-required".into(),
+                category: ValidationCategory::Confidence,
+                severity: ValidationFindingSeverity::Caution,
                 detail: "local review required before host output".into(),
             }],
             validated_text: None,
@@ -527,6 +510,7 @@ mod tests {
             r#"{"task_id":"task-2","disposition":"Accepted","validated_text":"safe"}"#,
         )
         .expect("deserialize validation defaults");
+        assert!(restored_default.assessments.is_empty());
         assert!(restored_default.findings.is_empty());
     }
 
@@ -598,6 +582,11 @@ mod tests {
             validation: ValidationEnvelope {
                 task_id: "task-1".into(),
                 disposition: MembraneValidationDisposition::Accepted,
+                assessments: vec![ValidationAssessment {
+                    category: ValidationCategory::Confidence,
+                    status: ValidationAssessmentStatus::Satisfied,
+                    summary: "local output length supports first-pass confidence".into(),
+                }],
                 findings: Vec::new(),
                 validated_text: Some("LOCAL: bounded prompt".into()),
             },
@@ -676,6 +665,12 @@ mod tests {
             validation: ValidationEnvelope {
                 task_id: "task-1".into(),
                 disposition: MembraneValidationDisposition::Accepted,
+                assessments: vec![ValidationAssessment {
+                    category: ValidationCategory::Confidence,
+                    status: ValidationAssessmentStatus::Satisfied,
+                    summary: "remote provider completed without a membrane-side failure signal"
+                        .into(),
+                }],
                 findings: Vec::new(),
                 validated_text: Some("REMOTE: bounded prompt".into()),
             },
@@ -785,6 +780,11 @@ mod tests {
                 validation: ValidationEnvelope {
                     task_id: "task-1".into(),
                     disposition: MembraneValidationDisposition::Accepted,
+                    assessments: vec![ValidationAssessment {
+                        category: ValidationCategory::Confidence,
+                        status: ValidationAssessmentStatus::Satisfied,
+                        summary: "local output length supports first-pass confidence".into(),
+                    }],
                     findings: Vec::new(),
                     validated_text: Some("LOCAL: bounded prompt".into()),
                 },

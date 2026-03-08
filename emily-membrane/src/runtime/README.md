@@ -13,6 +13,7 @@ focused files.
 | ----------- | ----------- |
 | `policy.rs` | Deterministic routing-policy evaluation over registered membrane targets |
 | `remote.rs` | Remote execution helpers and provider-registry-backed runtime methods |
+| `validation.rs` | Deterministic local validation rules and disposition derivation |
 
 ## Problem
 
@@ -44,6 +45,8 @@ runtime type in `runtime.rs`.
 - `policy.rs` owns deterministic routing-policy evaluation for the first
   sovereign routing slice.
 - `remote.rs` owns provider-registry-backed remote execution helpers.
+- `validation.rs` owns the first stronger local-validation slice and its
+  deterministic disposition rules.
 - Compile now builds typed membrane IR first and renders the current prompt
   payload from that IR.
 - Remote execution remains synchronous and request-scoped in this milestone.
@@ -90,6 +93,9 @@ runtime type in `runtime.rs`.
   local-plus-remote execution through one typed entrypoint.
 - Provider-bound dispatch requests now carry typed membrane IR alongside the
   rendered payload so adapters translate from membrane-owned structure.
+- Validation results now include typed assessments for coherence, relevance,
+  confidence, and provenance sufficiency before mapping back into Emily
+  validation outcomes.
 - This directory does not expose a separate public facade.
 - Revisit trigger: a separate runtime builder or worker owner becomes necessary.
 

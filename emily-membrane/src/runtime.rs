@@ -6,7 +6,7 @@ use crate::contracts::{
     MembraneIrRenderMode, MembraneRouteKind, MembraneTaskPayload, MembraneTaskRequest,
     MembraneValidationDisposition, PolicyExecutionPersistence, PolicySelectedExecution,
     ReconstructionResult, RoutingPlan, RoutingPolicyOutcome, RoutingPolicyRequest,
-    ValidationEnvelope, ValidationFinding,
+    ValidationEnvelope,
 };
 use crate::providers::{
     InMemoryProviderRegistry, MembraneProvider, MembraneProviderError, MembraneProviderRegistry,
@@ -15,7 +15,7 @@ use emily::EmilyApi;
 use emily::error::EmilyError;
 use emily::{
     RoutingDecision, RoutingDecisionKind, ValidationDecision, ValidationFinding as EmilyFinding,
-    ValidationFindingSeverity, ValidationOutcome,
+    ValidationFindingSeverity as EmilyValidationFindingSeverity, ValidationOutcome,
 };
 use serde_json::json;
 use std::error::Error;
@@ -24,6 +24,7 @@ use std::sync::Arc;
 
 mod policy;
 mod remote;
+mod validation;
 
 /// Minimal membrane runtime error surface for Milestone 1.
 #[derive(Debug)]
@@ -217,37 +218,6 @@ where
             status: DispatchStatus::LocalCompleted,
             response_text,
             remote_reference: None,
-        })
-    }
-
-    /// Validate one local dispatch result before reconstruction.
-    pub async fn validate(
-        &self,
-        dispatch: &DispatchResult,
-    ) -> Result<ValidationEnvelope, MembraneRuntimeError> {
-        if dispatch.status != DispatchStatus::LocalCompleted {
-            return Err(MembraneRuntimeError::InvalidState(
-                "validate currently requires a completed local dispatch".to_string(),
-            ));
-        }
-
-        if dispatch.response_text.trim().is_empty() {
-            return Ok(ValidationEnvelope {
-                task_id: dispatch.task_id.clone(),
-                disposition: MembraneValidationDisposition::Rejected,
-                findings: vec![ValidationFinding {
-                    code: "empty-local-response".to_string(),
-                    detail: "local dispatch returned an empty response".to_string(),
-                }],
-                validated_text: None,
-            });
-        }
-
-        Ok(ValidationEnvelope {
-            task_id: dispatch.task_id.clone(),
-            disposition: MembraneValidationDisposition::Accepted,
-            findings: Vec::new(),
-            validated_text: Some(dispatch.response_text.clone()),
         })
     }
 
@@ -520,7 +490,7 @@ fn build_local_validation_outcome(
             .iter()
             .map(|finding| EmilyFinding {
                 code: finding.code.clone(),
-                severity: to_emily_finding_severity(validation.disposition),
+                severity: to_emily_finding_severity(finding.severity),
                 message: finding.detail.clone(),
             })
             .collect(),
@@ -529,6 +499,15 @@ fn build_local_validation_outcome(
             "mode": "local-only",
             "task_id": validation.task_id.clone(),
             "validated_text": validation.validated_text.clone(),
+            "assessments": validation
+                .assessments
+                .iter()
+                .map(|assessment| json!({
+                    "category": assessment.category,
+                    "status": assessment.status,
+                    "summary": assessment.summary,
+                }))
+                .collect::<Vec<_>>(),
         }),
     }
 }
@@ -542,12 +521,14 @@ fn to_emily_validation_decision(disposition: MembraneValidationDisposition) -> V
 }
 
 fn to_emily_finding_severity(
-    disposition: MembraneValidationDisposition,
-) -> ValidationFindingSeverity {
-    match disposition {
-        MembraneValidationDisposition::Accepted => ValidationFindingSeverity::Info,
-        MembraneValidationDisposition::NeedsReview => ValidationFindingSeverity::Warning,
-        MembraneValidationDisposition::Rejected => ValidationFindingSeverity::Error,
+    severity: crate::contracts::ValidationFindingSeverity,
+) -> EmilyValidationFindingSeverity {
+    match severity {
+        crate::contracts::ValidationFindingSeverity::Info => EmilyValidationFindingSeverity::Info,
+        crate::contracts::ValidationFindingSeverity::Caution => {
+            EmilyValidationFindingSeverity::Warning
+        }
+        crate::contracts::ValidationFindingSeverity::Block => EmilyValidationFindingSeverity::Error,
     }
 }
 

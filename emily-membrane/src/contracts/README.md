@@ -12,6 +12,7 @@ one file.
 | File | Description |
 | ---- | ----------- |
 | `ir.rs` | Typed membrane IR contracts and render-mode metadata |
+| `validation.rs` | Typed membrane validation contracts and category assessments |
 
 ## Problem
 
@@ -25,6 +26,7 @@ rendering.
 
 - DTOs in this directory must remain transport-agnostic.
 - IR contracts must be append-only.
+- Validation contracts must stay membrane-owned and modest in their claims.
 - Provider adapters must translate from membrane IR rather than inventing their
   own primary task representation.
 
@@ -36,13 +38,14 @@ surface stable.
 ## Invariants
 
 - The typed IR is the primary compile representation.
+- Validation assessments are a first deterministic slice toward richer local
+  membrane validation, not a claim of full `ECCR`.
 - Rendered prompt text remains an adapter-oriented view derived from the IR.
 - No type in this directory may depend on Emily store internals or Gestalt app
   modules.
 
 ## Revisit Triggers
 
-- Validation contracts become large enough to justify their own submodule.
 - Retry or reconstruction contracts need additional focused directories.
 
 ## Dependencies

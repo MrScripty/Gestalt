@@ -113,6 +113,8 @@ async fn run_local(api: Arc<dyn EmilyApi>) {
   including local-only persistence envelopes.
 - `contracts/ir.rs` now exposes typed membrane IR, and compiled tasks carry
   that IR as the primary pre-render boundary representation.
+- `contracts/validation.rs` now exposes typed validation categories,
+  assessments, and severities for the first stronger local-validation slice.
 - `contracts.rs` now also carries typed routing-policy request/result contracts
   for the next membrane policy layer.
 - `providers/` now exposes the membrane-owned remote adapter boundary for the
@@ -139,5 +141,7 @@ async fn run_local(api: Arc<dyn EmilyApi>) {
   serde-backed DTOs.
 - That artifact set now includes typed membrane IR plus the rendered prompt
   view derived from it.
+- That artifact set now also includes structured validation assessments for
+  coherence, relevance, confidence, and provenance sufficiency.
 - Those artifacts are intentionally narrow and local-first in this milestone.
 - Revisit trigger: the first provider-facing or leakage-budget contract lands.
