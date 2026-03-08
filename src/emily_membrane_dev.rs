@@ -173,6 +173,10 @@ pub async fn run_membrane_dev_scenario<A: EmilyApi + ?Sized>(
                     provider_id: None,
                     profile_id: None,
                     required_capability_tags: Vec::new(),
+                    preferred_provider_classes: Vec::new(),
+                    max_latency_class: None,
+                    max_cost_class: None,
+                    minimum_validation_compatibility: None,
                 },
             },
             PolicyExecutionPersistence {

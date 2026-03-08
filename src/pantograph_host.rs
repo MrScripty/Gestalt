@@ -1,9 +1,16 @@
 use emily::error::EmilyError;
 use emily::inference::{
-    EmbeddingProvider, PantographEmbeddingProvider, PantographWorkflowBinding,
-    PantographWorkflowEmbeddingConfig, PantographWorkflowServiceClient,
+    EmbeddingProvider, PantographEmbeddingProvider,
+    PantographWorkflowBinding as EmilyWorkflowBinding, PantographWorkflowEmbeddingConfig,
+    PantographWorkflowServiceClient,
 };
 use emily::model::EmbeddingProviderStatus;
+use emily_membrane::providers::{
+    InMemoryProviderRegistry, MembraneProvider, MembraneProviderRegistry, PantographProviderConfig,
+    PantographWorkflowBinding as MembraneWorkflowBinding, PantographWorkflowProvider,
+    ProviderCostClass, ProviderLatencyClass, ProviderMetadataClass, ProviderTarget,
+    ProviderValidationCompatibility, RegisteredProviderTarget,
+};
 use inference::{BackendConfig, InferenceGateway, StdProcessSpawner};
 use pantograph_workflow_service::{
     WorkflowHost, WorkflowIoRequest, WorkflowOutputTarget, WorkflowPortBinding, WorkflowRunOptions,
@@ -21,6 +28,10 @@ use workflow_nodes as _;
 
 const DEFAULT_TIMEOUT_MS: u64 = 120_000;
 const DEFAULT_EMBED_DIMENSIONS: usize = 1024;
+const DEFAULT_REASONING_PROVIDER_ID: &str = "pantograph-qwen-reasoning";
+const DEFAULT_REASONING_MODEL_ID: &str = "Qwen3.5-35B-A3B-GGUF";
+const DEFAULT_REASONING_PROFILE_ID: &str = "reasoning";
+const DEFAULT_REASONING_CAPABILITY_TAGS: [&str; 2] = ["analysis", "reasoning"];
 const EMBEDDING_MODEL_INPUT_ALIASES: [&str; 6] = [
     "model",
     "model_path",
@@ -169,11 +180,7 @@ pub struct PantographRuntimeConfig {
 
 impl PantographRuntimeConfig {
     pub fn from_env() -> Result<Self, String> {
-        let pantograph_root = std::env::var("GESTALT_PANTOGRAPH_ROOT")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| {
-                PathBuf::from("/media/jeremy/OrangeCream/Linux Software/Pantograph")
-            });
+        let pantograph_root = pantograph_root_from_env();
 
         let workflow_id = std::env::var("GESTALT_PANTOGRAPH_WORKFLOW_ID")
             .ok()
@@ -181,10 +188,7 @@ impl PantographRuntimeConfig {
             .filter(|value| !value.is_empty())
             .unwrap_or_else(|| "Embedding".to_string());
 
-        let timeout_ms = std::env::var("GESTALT_PANTOGRAPH_WORKFLOW_TIMEOUT_MS")
-            .ok()
-            .and_then(|value| value.parse::<u64>().ok())
-            .or(Some(DEFAULT_TIMEOUT_MS));
+        let timeout_ms = timeout_ms_from_env("GESTALT_PANTOGRAPH_WORKFLOW_TIMEOUT_MS");
 
         let expected_dimensions = std::env::var("GESTALT_EMBEDDING_DIMENSIONS")
             .ok()
@@ -251,6 +255,158 @@ impl PantographRuntimeConfig {
     fn data_dir(&self) -> PathBuf {
         self.pantograph_root.join("launcher-data")
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PantographReasoningRuntimeConfig {
+    pub pantograph_root: PathBuf,
+    pub workflow_id: String,
+    pub timeout_ms: Option<u64>,
+    pub provider_id: String,
+    pub model_id: String,
+    pub profile_id: String,
+    pub capability_tags: Vec<String>,
+    pub text_input_node_id: Option<String>,
+    pub text_input_port_id: Option<String>,
+    pub text_output_node_id: Option<String>,
+    pub text_output_port_id: Option<String>,
+}
+
+impl PantographReasoningRuntimeConfig {
+    pub fn from_env() -> Result<Option<Self>, String> {
+        Self::from_env_with(|key| std::env::var(key).ok())
+    }
+
+    fn from_env_with<F>(mut getenv: F) -> Result<Option<Self>, String>
+    where
+        F: FnMut(&str) -> Option<String>,
+    {
+        let workflow_id = getenv("GESTALT_PANTOGRAPH_REASONING_WORKFLOW_ID")
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let Some(workflow_id) = workflow_id else {
+            return Ok(None);
+        };
+
+        let pantograph_root = pantograph_root_from(getenv("GESTALT_PANTOGRAPH_ROOT"));
+        if !pantograph_root.exists() {
+            return Err(format!(
+                "pantograph root does not exist: {}",
+                pantograph_root.display()
+            ));
+        }
+
+        let provider_id = getenv("GESTALT_PANTOGRAPH_REASONING_PROVIDER_ID")
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| DEFAULT_REASONING_PROVIDER_ID.to_string());
+        let model_id = getenv("GESTALT_PANTOGRAPH_REASONING_MODEL_ID")
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| DEFAULT_REASONING_MODEL_ID.to_string());
+        let profile_id = getenv("GESTALT_PANTOGRAPH_REASONING_PROFILE_ID")
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| DEFAULT_REASONING_PROFILE_ID.to_string());
+        let capability_tags = getenv("GESTALT_PANTOGRAPH_REASONING_CAPABILITY_TAGS")
+            .map(|value| {
+                value
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(ToOwned::to_owned)
+                    .collect::<Vec<_>>()
+            })
+            .filter(|tags| !tags.is_empty())
+            .unwrap_or_else(|| {
+                DEFAULT_REASONING_CAPABILITY_TAGS
+                    .iter()
+                    .map(|value| (*value).to_string())
+                    .collect()
+            });
+
+        Ok(Some(Self {
+            pantograph_root,
+            workflow_id,
+            timeout_ms: timeout_ms_from(getenv("GESTALT_PANTOGRAPH_REASONING_TIMEOUT_MS")),
+            provider_id,
+            model_id,
+            profile_id,
+            capability_tags,
+            text_input_node_id: optional_env_from(getenv(
+                "GESTALT_PANTOGRAPH_REASONING_TEXT_NODE_ID",
+            )),
+            text_input_port_id: optional_env_from(getenv(
+                "GESTALT_PANTOGRAPH_REASONING_TEXT_PORT_ID",
+            )),
+            text_output_node_id: optional_env_from(getenv(
+                "GESTALT_PANTOGRAPH_REASONING_OUTPUT_NODE_ID",
+            )),
+            text_output_port_id: optional_env_from(getenv(
+                "GESTALT_PANTOGRAPH_REASONING_OUTPUT_PORT_ID",
+            )),
+        }))
+    }
+
+    fn to_host_runtime_config(&self) -> PantographRuntimeConfig {
+        PantographRuntimeConfig {
+            pantograph_root: self.pantograph_root.clone(),
+            workflow_id: self.workflow_id.clone(),
+            timeout_ms: self.timeout_ms,
+            expected_dimensions: DEFAULT_EMBED_DIMENSIONS,
+            text_input_node_id: self.text_input_node_id.clone(),
+            text_input_port_id: self.text_input_port_id.clone(),
+            vector_output_node_id: None,
+            vector_output_port_id: None,
+            model_path_override: None,
+        }
+    }
+
+    fn registered_target(&self) -> RegisteredProviderTarget {
+        RegisteredProviderTarget {
+            target: ProviderTarget {
+                provider_id: self.provider_id.clone(),
+                model_id: Some(self.model_id.clone()),
+                profile_id: Some(self.profile_id.clone()),
+                capability_tags: self.capability_tags.clone(),
+                metadata: serde_json::json!({
+                    "source": "gestalt-pantograph-host",
+                    "workflow_id": self.workflow_id,
+                }),
+            },
+            metadata_class: ProviderMetadataClass::Preferred,
+            latency_class: ProviderLatencyClass::High,
+            cost_class: ProviderCostClass::High,
+            validation_compatibility: ProviderValidationCompatibility::ReviewFriendly,
+            telemetry: None,
+        }
+    }
+}
+
+fn pantograph_root_from_env() -> PathBuf {
+    pantograph_root_from(std::env::var("GESTALT_PANTOGRAPH_ROOT").ok())
+}
+
+fn pantograph_root_from(value: Option<String>) -> PathBuf {
+    value
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/media/jeremy/OrangeCream/Linux Software/Pantograph"))
+}
+
+fn timeout_ms_from_env(key: &str) -> Option<u64> {
+    timeout_ms_from(std::env::var(key).ok())
+}
+
+fn timeout_ms_from(value: Option<String>) -> Option<u64> {
+    value
+        .and_then(|value| value.parse::<u64>().ok())
+        .or(Some(DEFAULT_TIMEOUT_MS))
+}
+
+fn optional_env_from(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
 #[derive(Debug, Default)]
@@ -628,12 +784,12 @@ impl WorkflowHost for GestaltPantographHost {
 fn binding_from_io(
     io: &pantograph_workflow_service::WorkflowIoResponse,
     config: &PantographRuntimeConfig,
-) -> Result<(PantographWorkflowBinding, PantographWorkflowBinding), String> {
+) -> Result<(EmilyWorkflowBinding, EmilyWorkflowBinding), String> {
     let input_binding = if let (Some(node_id), Some(port_id)) = (
         config.text_input_node_id.as_ref(),
         config.text_input_port_id.as_ref(),
     ) {
-        PantographWorkflowBinding::new(node_id.clone(), port_id.clone())
+        EmilyWorkflowBinding::new(node_id.clone(), port_id.clone())
             .map_err(|error| error.to_string())?
     } else {
         let node = io
@@ -648,7 +804,7 @@ fn binding_from_io(
             .find(|port| port.port_id == "text")
             .or_else(|| node.ports.first())
             .ok_or_else(|| "selected input node has no bindable ports".to_string())?;
-        PantographWorkflowBinding::new(node.node_id.clone(), port.port_id.clone())
+        EmilyWorkflowBinding::new(node.node_id.clone(), port.port_id.clone())
             .map_err(|error| error.to_string())?
     };
 
@@ -656,7 +812,7 @@ fn binding_from_io(
         config.vector_output_node_id.as_ref(),
         config.vector_output_port_id.as_ref(),
     ) {
-        PantographWorkflowBinding::new(node_id.clone(), port_id.clone())
+        EmilyWorkflowBinding::new(node_id.clone(), port_id.clone())
             .map_err(|error| error.to_string())?
     } else {
         let node = io
@@ -671,11 +827,64 @@ fn binding_from_io(
             .find(|port| port.port_id == "vector")
             .or_else(|| node.ports.first())
             .ok_or_else(|| "selected output node has no bindable ports".to_string())?;
-        PantographWorkflowBinding::new(node.node_id.clone(), port.port_id.clone())
+        EmilyWorkflowBinding::new(node.node_id.clone(), port.port_id.clone())
             .map_err(|error| error.to_string())?
     };
 
     Ok((input_binding, output_binding))
+}
+
+fn reasoning_bindings_from_io(
+    io: &pantograph_workflow_service::WorkflowIoResponse,
+    config: &PantographReasoningRuntimeConfig,
+) -> Result<(MembraneWorkflowBinding, Vec<MembraneWorkflowBinding>), String> {
+    let input_binding = if let (Some(node_id), Some(port_id)) = (
+        config.text_input_node_id.as_ref(),
+        config.text_input_port_id.as_ref(),
+    ) {
+        MembraneWorkflowBinding::new(node_id.clone(), port_id.clone())
+            .map_err(|error| error.to_string())?
+    } else {
+        let node = io
+            .inputs
+            .iter()
+            .find(|node| node.node_type == "text-input")
+            .or_else(|| io.inputs.first())
+            .ok_or_else(|| "workflow_get_io returned no input nodes".to_string())?;
+        let port = node
+            .ports
+            .iter()
+            .find(|port| port.port_id == "text")
+            .or_else(|| node.ports.first())
+            .ok_or_else(|| "selected input node has no bindable ports".to_string())?;
+        MembraneWorkflowBinding::new(node.node_id.clone(), port.port_id.clone())
+            .map_err(|error| error.to_string())?
+    };
+
+    let output_binding = if let (Some(node_id), Some(port_id)) = (
+        config.text_output_node_id.as_ref(),
+        config.text_output_port_id.as_ref(),
+    ) {
+        MembraneWorkflowBinding::new(node_id.clone(), port_id.clone())
+            .map_err(|error| error.to_string())?
+    } else {
+        let node = io
+            .outputs
+            .iter()
+            .find(|node| node.node_type == "text-output")
+            .or_else(|| io.outputs.first())
+            .ok_or_else(|| "workflow_get_io returned no output nodes".to_string())?;
+        let port = node
+            .ports
+            .iter()
+            .find(|port| port.port_id == "text")
+            .or_else(|| node.ports.first())
+            .ok_or_else(|| "selected output node has no bindable ports".to_string())?;
+        MembraneWorkflowBinding::new(node.node_id.clone(), port.port_id.clone())
+            .map_err(|error| error.to_string())?
+    };
+
+    Ok((input_binding, vec![output_binding]))
 }
 
 fn bootstrap_embedding_provider(
@@ -725,6 +934,80 @@ pub fn build_deferred_embedding_provider_from_env() -> Result<Arc<dyn EmbeddingP
     Ok(DeferredEmbeddingProvider::spawn(move || {
         bootstrap_embedding_provider(config)
     }))
+}
+
+fn build_membrane_provider_registry(
+    config: PantographReasoningRuntimeConfig,
+) -> Result<Arc<dyn MembraneProviderRegistry>, String> {
+    let host_config = config.to_host_runtime_config();
+    let host = Arc::new(GestaltPantographHost::new(host_config)?);
+    let service = WorkflowService::new();
+
+    let provider = run_bootstrap_blocking({
+        let host = host.clone();
+        let config = config.clone();
+        async move {
+            let (text_input, output_targets) = if config.text_input_node_id.is_some()
+                && config.text_input_port_id.is_some()
+                && config.text_output_node_id.is_some()
+                && config.text_output_port_id.is_some()
+            {
+                (
+                    MembraneWorkflowBinding::new(
+                        config.text_input_node_id.clone().expect("checked above"),
+                        config.text_input_port_id.clone().expect("checked above"),
+                    )
+                    .map_err(|error| error.to_string())?,
+                    vec![
+                        MembraneWorkflowBinding::new(
+                            config.text_output_node_id.clone().expect("checked above"),
+                            config.text_output_port_id.clone().expect("checked above"),
+                        )
+                        .map_err(|error| error.to_string())?,
+                    ],
+                )
+            } else {
+                let io = service
+                    .workflow_get_io(
+                        host.as_ref(),
+                        WorkflowIoRequest {
+                            workflow_id: config.workflow_id.clone(),
+                        },
+                    )
+                    .await
+                    .map_err(|error| format!("workflow_get_io bootstrap failed: {error}"))?;
+                reasoning_bindings_from_io(&io, &config)?
+            };
+
+            let provider_config = PantographProviderConfig::new(
+                config.provider_id.clone(),
+                config.workflow_id.clone(),
+                text_input,
+                output_targets,
+                config.timeout_ms,
+            )
+            .map_err(|error| error.to_string())?;
+
+            let provider: Arc<dyn MembraneProvider> = Arc::new(
+                PantographWorkflowProvider::new(host, provider_config)
+                    .map_err(|error| error.to_string())?,
+            );
+            Ok(provider)
+        }
+    })?;
+
+    Ok(Arc::new(InMemoryProviderRegistry::single_target(
+        config.registered_target(),
+        provider,
+    )) as Arc<dyn MembraneProviderRegistry>)
+}
+
+pub fn build_membrane_provider_registry_from_env()
+-> Result<Option<Arc<dyn MembraneProviderRegistry>>, String> {
+    let Some(config) = PantographReasoningRuntimeConfig::from_env()? else {
+        return Ok(None);
+    };
+    build_membrane_provider_registry(config).map(Some)
 }
 
 fn run_bootstrap_blocking<F, T>(future: F) -> Result<T, String>
@@ -786,11 +1069,13 @@ pub async fn run_workflow_once_from_env(text: &str) -> Result<WorkflowRunRespons
 #[cfg(test)]
 mod tests {
     use super::{
-        DeferredEmbeddingProvider, PantographRuntimeConfig, binding_from_io,
+        DeferredEmbeddingProvider, PantographReasoningRuntimeConfig, PantographRuntimeConfig,
+        binding_from_io, build_membrane_provider_registry,
         resolve_embedding_model_path_from_inputs,
     };
     use emily::inference::EmbeddingProvider;
     use emily::model::EmbeddingProviderStatus;
+    use emily_membrane::providers::MembraneProviderRegistry;
     use pantograph_workflow_service::{WorkflowHost, WorkflowIoRequest, WorkflowService};
     use std::collections::HashMap;
     use std::path::{Path, PathBuf};
@@ -866,6 +1151,132 @@ mod tests {
             vector_output_port_id: None,
             model_path_override: None,
         }
+    }
+
+    fn pantograph_root_string() -> String {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../Pantograph")
+            .display()
+            .to_string()
+    }
+
+    #[test]
+    fn reasoning_runtime_config_returns_none_without_workflow_id() {
+        let config = PantographReasoningRuntimeConfig::from_env_with(|_| None)
+            .expect("config parse should succeed");
+        assert_eq!(config, None);
+    }
+
+    #[test]
+    fn reasoning_runtime_config_applies_defaults_from_host_env_shape() {
+        let pantograph_root = pantograph_root_string();
+        let config = PantographReasoningRuntimeConfig::from_env_with(|key| match key {
+            "GESTALT_PANTOGRAPH_ROOT" => Some(pantograph_root.clone()),
+            "GESTALT_PANTOGRAPH_REASONING_WORKFLOW_ID" => Some("Qwen Reasoning".to_string()),
+            _ => None,
+        })
+        .expect("config parse should succeed")
+        .expect("workflow id should enable config");
+
+        assert_eq!(config.pantograph_root, PathBuf::from(pantograph_root));
+        assert_eq!(config.workflow_id, "Qwen Reasoning");
+        assert_eq!(config.timeout_ms, Some(super::DEFAULT_TIMEOUT_MS));
+        assert_eq!(config.provider_id, super::DEFAULT_REASONING_PROVIDER_ID);
+        assert_eq!(config.model_id, super::DEFAULT_REASONING_MODEL_ID);
+        assert_eq!(config.profile_id, super::DEFAULT_REASONING_PROFILE_ID);
+        assert_eq!(
+            config.capability_tags,
+            super::DEFAULT_REASONING_CAPABILITY_TAGS
+                .iter()
+                .map(|value| (*value).to_string())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(config.text_input_node_id, None);
+        assert_eq!(config.text_input_port_id, None);
+        assert_eq!(config.text_output_node_id, None);
+        assert_eq!(config.text_output_port_id, None);
+    }
+
+    #[test]
+    fn reasoning_runtime_config_parses_custom_overrides() {
+        let pantograph_root = pantograph_root_string();
+        let config = PantographReasoningRuntimeConfig::from_env_with(|key| match key {
+            "GESTALT_PANTOGRAPH_ROOT" => Some(pantograph_root.clone()),
+            "GESTALT_PANTOGRAPH_REASONING_WORKFLOW_ID" => Some("Qwen Reasoning".to_string()),
+            "GESTALT_PANTOGRAPH_REASONING_TIMEOUT_MS" => Some("45000".to_string()),
+            "GESTALT_PANTOGRAPH_REASONING_PROVIDER_ID" => Some("pantograph-qwen".to_string()),
+            "GESTALT_PANTOGRAPH_REASONING_MODEL_ID" => Some("Qwen3.5".to_string()),
+            "GESTALT_PANTOGRAPH_REASONING_PROFILE_ID" => Some("remote-reasoning".to_string()),
+            "GESTALT_PANTOGRAPH_REASONING_CAPABILITY_TAGS" => {
+                Some("analysis, synthesis ,planning".to_string())
+            }
+            "GESTALT_PANTOGRAPH_REASONING_TEXT_NODE_ID" => Some("text-input-1".to_string()),
+            "GESTALT_PANTOGRAPH_REASONING_TEXT_PORT_ID" => Some("text".to_string()),
+            "GESTALT_PANTOGRAPH_REASONING_OUTPUT_NODE_ID" => Some("text-output-1".to_string()),
+            "GESTALT_PANTOGRAPH_REASONING_OUTPUT_PORT_ID" => Some("text".to_string()),
+            _ => None,
+        })
+        .expect("config parse should succeed")
+        .expect("workflow id should enable config");
+
+        assert_eq!(config.timeout_ms, Some(45_000));
+        assert_eq!(config.provider_id, "pantograph-qwen");
+        assert_eq!(config.model_id, "Qwen3.5");
+        assert_eq!(config.profile_id, "remote-reasoning");
+        assert_eq!(
+            config.capability_tags,
+            vec![
+                "analysis".to_string(),
+                "synthesis".to_string(),
+                "planning".to_string(),
+            ]
+        );
+        assert_eq!(config.text_input_node_id.as_deref(), Some("text-input-1"));
+        assert_eq!(config.text_input_port_id.as_deref(), Some("text"));
+        assert_eq!(config.text_output_node_id.as_deref(), Some("text-output-1"));
+        assert_eq!(config.text_output_port_id.as_deref(), Some("text"));
+    }
+
+    #[test]
+    fn build_membrane_provider_registry_returns_registered_reasoning_target() {
+        let config = PantographReasoningRuntimeConfig {
+            pantograph_root: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../Pantograph"),
+            workflow_id: "Qwen Reasoning".to_string(),
+            timeout_ms: Some(30_000),
+            provider_id: "pantograph-qwen-reasoning".to_string(),
+            model_id: "Qwen3.5-35B-A3B-GGUF".to_string(),
+            profile_id: "reasoning".to_string(),
+            capability_tags: vec!["analysis".to_string(), "reasoning".to_string()],
+            text_input_node_id: Some("text-input-1".to_string()),
+            text_input_port_id: Some("text".to_string()),
+            text_output_node_id: Some("text-output-1".to_string()),
+            text_output_port_id: Some("text".to_string()),
+        };
+
+        let registry = build_membrane_provider_registry(config.clone())
+            .expect("registry bootstrap should succeed");
+        let targets = registry.targets();
+
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].target.provider_id, config.provider_id);
+        assert_eq!(
+            targets[0].target.model_id.as_deref(),
+            Some(config.model_id.as_str())
+        );
+        assert_eq!(
+            targets[0].target.profile_id.as_deref(),
+            Some(config.profile_id.as_str())
+        );
+        assert_eq!(targets[0].target.capability_tags, config.capability_tags);
+        assert_eq!(
+            targets[0].target.metadata["source"],
+            serde_json::json!("gestalt-pantograph-host")
+        );
+        assert_eq!(
+            targets[0].target.metadata["workflow_id"],
+            serde_json::json!(config.workflow_id)
+        );
+        assert!(registry.provider("pantograph-qwen-reasoning").is_some());
     }
 
     #[test]

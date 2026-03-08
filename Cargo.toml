@@ -16,7 +16,7 @@ async-trait = "0.1"
 parking_lot = "0.12"
 notify = "7"
 emily = { path = "emily", features = ["pantograph"] }
-emily-membrane = { path = "emily-membrane" }
+emily-membrane = { path = "emily-membrane", features = ["pantograph"] }
 pantograph_workflow_service = { package = "pantograph-workflow-service", path = "../Pantograph/crates/pantograph-workflow-service" }
 node-engine = { path = "../Pantograph/crates/node-engine", features = ["inference-nodes"] }
 inference = { path = "../Pantograph/crates/inference", features = ["backend-llamacpp", "std-process"] }
