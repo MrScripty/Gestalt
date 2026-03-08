@@ -12,7 +12,7 @@ allowing the membrane to depend on Emily's public APIs.
 | File/Folder | Description |
 | ----------- | ----------- |
 | `lib.rs` | Crate exports and top-level membrane boundary |
-| `contracts.rs` | Placeholder module for future executable membrane contracts |
+| `contracts.rs` | Executable membrane DTOs for task, compile, route, dispatch, validation, and reconstruction |
 | `runtime.rs` | Placeholder module for the future membrane runtime facade |
 
 ## Problem
@@ -70,21 +70,28 @@ until those responsibilities become real in code.
 ## Usage Examples
 
 ```rust
-use emily_membrane::{contracts, runtime};
+use emily_membrane::contracts::{MembraneRouteKind, RoutingPlan};
 
-assert_eq!(contracts::MODULE_NAME, "contracts");
-assert_eq!(runtime::MODULE_NAME, "runtime");
+let plan = RoutingPlan {
+    task_id: "task-1".into(),
+    decision: MembraneRouteKind::LocalOnly,
+    targets: Vec::new(),
+    rationale: Some("remote execution disabled".into()),
+};
+
+assert!(matches!(plan.decision, MembraneRouteKind::LocalOnly));
 ```
 
 ## API Consumer Contract
 
-- No stable runtime API is exposed yet beyond the module boundary.
-- Consumers should treat this source tree as pre-contract until Milestone 1B and
-  1C land.
-- Revisit trigger: the first public membrane facade or DTO lands.
+- `contracts.rs` now exposes the first stable DTO families for Milestone 1.
+- `runtime.rs` remains pre-contract until the membrane facade lands in Milestone
+  1C.
+- Revisit trigger: the first public membrane runtime method lands.
 
 ## Structured Producer Contract
 
-- None identified as of 2026-03-08.
-- Reason: the skeleton modules do not yet publish structured artifacts.
-- Revisit trigger: the first membrane DTO or validation envelope lands.
+- `contracts.rs` publishes the first structured membrane artifacts through
+  serde-backed DTOs.
+- Those artifacts are intentionally narrow and local-first in this milestone.
+- Revisit trigger: the first provider-facing or leakage-budget contract lands.

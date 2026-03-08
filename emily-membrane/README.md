@@ -77,23 +77,44 @@ and defer real provider adapters until after the local-only boundary is proven.
 ## Usage Examples
 
 ```rust
-use emily_membrane::{contracts, runtime};
+use emily_membrane::contracts::{
+    MembraneTaskRequest,
+    MembraneValidationDisposition,
+    ValidationEnvelope,
+};
 
-let _ = (contracts::MODULE_NAME, runtime::MODULE_NAME);
+let request = MembraneTaskRequest {
+    task_id: "task-1".into(),
+    episode_id: "episode-1".into(),
+    task_text: "Summarize the local context.".into(),
+    context_fragments: Vec::new(),
+    allow_remote: false,
+};
+
+let validation = ValidationEnvelope {
+    task_id: request.task_id.clone(),
+    disposition: MembraneValidationDisposition::Accepted,
+    findings: Vec::new(),
+    validated_text: Some("Summarized response".into()),
+};
+
+assert_eq!(validation.task_id, request.task_id);
 ```
 
 ## API Consumer Contract
 
-- The public surface is not finalized in this skeleton commit.
-- Current exposed modules are placeholders for later membrane contracts and
-  runtime entrypoints.
+- The public surface is intentionally narrow in this slice.
+- `contracts` now exposes typed DTOs for task input, compile results, routing,
+  dispatch, validation, and reconstruction.
+- `runtime` remains a placeholder until Milestone 1C lands.
 - Compatibility policy for this crate will be append-only while the initial
   membrane boundary is stabilized.
-- Revisit trigger: the first real runtime facade or public DTO lands.
+- Revisit trigger: the first real runtime facade lands.
 
 ## Structured Producer Contract
 
-- None identified as of 2026-03-08.
-- Reason: this skeleton does not yet publish machine-consumed structured
+- The public DTO families in `contracts` are the first structured membrane
   artifacts.
-- Revisit trigger: the first membrane DTO or executable boundary contract lands.
+- They are transport-agnostic and local-first in this milestone.
+- Revisit trigger: the first provider-facing membrane envelope or leakage-budget
+  contract lands.
