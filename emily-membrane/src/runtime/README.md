@@ -81,6 +81,8 @@ runtime type in `runtime.rs`.
   before provider dispatch.
 - Policy evaluation now consumes Emily episode state plus the latest durable
   `EARL` evaluation before provider scoring.
+- Registry-backed runtimes can now also execute the policy-selected remote path
+  through one helper while preserving the existing direct-target APIs.
 - This directory does not expose a separate public facade.
 - Revisit trigger: a separate runtime builder or worker owner becomes necessary.
 

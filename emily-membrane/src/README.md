@@ -123,6 +123,9 @@ async fn run_local(api: Arc<dyn EmilyApi>) {
   the provider registry.
 - That routing-policy path now reads Emily episode state and the latest durable
   `EARL` evaluation before ranking provider targets.
+- `contracts.rs` now also exposes a typed result for policy-selected remote
+  execution so hosts can observe both policy findings and any resulting remote
+  write path through one call.
 - Revisit trigger: the first provider-backed runtime path lands.
 
 ## Structured Producer Contract

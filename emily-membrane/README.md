@@ -129,6 +129,9 @@ async fn compile_locally(api: Arc<dyn EmilyApi>) {
   `EARL` evaluation before provider scoring, so missing episodes, blocked
   episodes, and `EARL REFLEX` states can reject remote dispatch while
   cautioned states preserve a remote path with explicit caution findings.
+- The preferred host-facing remote path can now evaluate routing policy and,
+  when a single remote target is selected, execute the existing sovereign write
+  path through one helper call.
 - Compatibility policy for this crate will be append-only while the initial
   membrane boundary is stabilized.
 - Revisit trigger: the first provider-backed adapter lands.

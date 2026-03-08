@@ -333,6 +333,8 @@ crate.
 - `cargo test -q`
 - acceptance coverage through the new policy-selected execution path
 
+**Status:** Completed on 2026-03-08 in commit `0ea0324`
+
 ## Re-Plan Triggers
 
 - The first routing-policy slice requires background provider-health tracking
@@ -402,6 +404,23 @@ Update during implementation:
   - `cargo fmt --manifest-path emily-membrane/Cargo.toml`
   - `cargo test --manifest-path emily/Cargo.toml -q`
   - `cargo clippy --manifest-path emily/Cargo.toml --all-targets -- -D warnings`
+  - `cargo test --manifest-path emily-membrane/Cargo.toml -q --offline`
+  - `cargo clippy --manifest-path emily-membrane/Cargo.toml --all-targets --offline -- -D warnings`
+  - `cargo test --manifest-path emily-membrane/Cargo.toml -q --offline --features pantograph`
+  - `cargo clippy --manifest-path emily-membrane/Cargo.toml --all-targets --offline --features pantograph -- -D warnings`
+- 2026-03-08: Milestone 4 completed in commit `0ea0324`.
+- 2026-03-08: Milestone 4 scope:
+  - Added a policy-selected remote execution helper that reuses the existing
+    routing-policy evaluator plus the existing direct-target sovereign write
+    path.
+  - Preserved direct-target and direct-registry execution APIs for
+    compatibility.
+  - Added a typed result that returns the routing-policy outcome plus any
+    resulting remote execution record.
+  - Added acceptance coverage proving the preferred host-facing path preserves
+    the existing routing, remote-episode, validation, and audit writes.
+- 2026-03-08: Milestone 4 verification passed with:
+  - `cargo fmt --manifest-path emily-membrane/Cargo.toml`
   - `cargo test --manifest-path emily-membrane/Cargo.toml -q --offline`
   - `cargo clippy --manifest-path emily-membrane/Cargo.toml --all-targets --offline -- -D warnings`
   - `cargo test --manifest-path emily-membrane/Cargo.toml -q --offline --features pantograph`
