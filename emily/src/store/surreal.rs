@@ -397,7 +397,7 @@ mod tests {
             stability_factor: 1.0,
             learning_weight: 1.0,
             gate_score: None,
-            integrated: true,
+            integrated: false,
             quarantine_score: 0.0,
         }
     }

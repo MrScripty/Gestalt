@@ -1,9 +1,13 @@
 # emily/src
 
 ## Purpose
-`emily/src` implements the in-process memory subsystem API, runtime orchestration, data model, and storage abstractions used by Gestalt.
+
+`emily/src` implements the in-process Emily memory subsystem API, runtime orchestration, data model, and storage abstractions used by Gestalt.
+
+This source tree currently covers the memory-side runtime, not the full Emily sovereign-cognition architecture described in the local March 2026 paper.
 
 ## Contents
+
 | File/Folder | Description |
 | ----------- | ----------- |
 | `lib.rs` | Library exports |
@@ -15,38 +19,59 @@
 | `store/` | Storage interfaces and concrete backends |
 
 ## Problem
-Provide a modular memory layer that can ingest terminal text and answer context/history queries.
+
+Provide a modular memory layer that can ingest terminal text, persist text/vector state, and answer context/history queries without coupling Gestalt to one database API or one embedding provider.
 
 ## Constraints
+
 - Must support typed async APIs.
 - Storage backend should be swappable behind trait boundaries.
 - Pantograph integration must use workflow-session contracts, not direct inference APIs.
+- The current boundary should stay narrow enough that broader Emily layers can be added later without destabilizing Gestalt.
 
 ## Decision
-Use trait-based API/store abstractions with a default runtime wiring.
 
-## Alternatives Rejected
-- Hard-coding one backend in runtime: rejected due to extensibility.
+Use trait-based API/store abstractions with a default runtime wiring focused on persistence, retrieval, vectorization, and runtime diagnostics.
+
+## What This Layer Does Not Yet Cover
+
+The local paper set describes broader Emily components that are not implemented here today:
+
+- `Semantic Membrane`
+- provider routing / multi-model dispatch
+- local legend mapping and reconstruction
+- `ECCR`
+- `AOPO/APC`
+
+Those belong above this crate boundary unless the crate is intentionally expanded later.
 
 ## Invariants
-- `EmilyApi` remains the primary integration contract.
+
+- `EmilyApi` remains the primary integration contract for the current memory runtime.
 - Runtime validates inputs at API boundaries.
 - Text vectors are persisted separately from text object records.
 - Vectorization configuration and job state are Emily-owned runtime data.
 - Pantograph session lifecycle is managed by embedding providers, not by store modules.
+- Newly ingested text objects are not treated as integrated memory by default.
+- Health diagnostics describe real in-flight work, not implied queue state.
 
 ## Revisit Triggers
+
 - Multi-tenant storage requirements expand.
 - Streaming query APIs are introduced.
+- Emily grows from a memory runtime into a fuller sovereign-dispatch runtime.
 
 ## Dependencies
+
 **Internal:** `store`  
 **External:** `tokio`, `async-trait`, `serde`, `pantograph-workflow-service` (feature-gated)
 
 ## Related ADRs
+
 None.
 
-## Usage Examples
+## Usage Example
+
 ```rust
 use emily::runtime::EmilyRuntime;
 use emily::store::surreal::SurrealEmilyStore;

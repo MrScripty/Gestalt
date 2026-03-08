@@ -23,6 +23,10 @@ pub struct IngestTextRequest {
 }
 
 /// Canonical text object stored by Emily.
+///
+/// The policy-related fields are storage slots for Emily's future policy runtime.
+/// Until active `EARL` / `ECGL` behavior exists, hosts should treat these values
+/// as provisional metadata rather than authoritative integration decisions.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TextObject {
     pub id: String,
@@ -40,6 +44,10 @@ pub struct TextObject {
     pub stability_factor: f32,
     pub learning_weight: f32,
     pub gate_score: Option<f32>,
+    /// Whether the object has been admitted into integrated memory.
+    ///
+    /// New objects should remain `false` until an explicit integration policy
+    /// decides otherwise.
     pub integrated: bool,
     pub quarantine_score: f32,
 }
@@ -143,11 +151,15 @@ impl Default for MemoryPolicy {
     }
 }
 
-/// Health and queue snapshot for diagnostics.
+/// Health and pending-work snapshot for diagnostics.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthSnapshot {
     pub db_open: bool,
     pub db_locator: Option<DatabaseLocator>,
+    /// Number of ingest operations currently in progress.
+    ///
+    /// Emily currently performs direct ingest rather than enqueueing work on a
+    /// durable ingest queue, so this reflects in-flight ingest operations.
     pub queued_ingest_events: usize,
     pub dropped_ingest_events: u64,
 }

@@ -10,7 +10,7 @@ use crate::model::{
 use crate::store::EmilyStore;
 use async_trait::async_trait;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use tokio::sync::{Mutex, RwLock, broadcast};
 
 #[derive(Debug)]
@@ -19,21 +19,11 @@ struct RuntimeState {
     dropped_ingest_events: u64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 struct VectorizationRuntimeState {
     config: VectorizationConfig,
     active_job: Option<VectorizationJobSnapshot>,
     last_job: Option<VectorizationJobSnapshot>,
-}
-
-impl Default for VectorizationRuntimeState {
-    fn default() -> Self {
-        Self {
-            config: VectorizationConfig::default(),
-            active_job: None,
-            last_job: None,
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -42,13 +32,31 @@ struct ActiveJobControl {
     cancel: Arc<AtomicBool>,
 }
 
+#[derive(Debug)]
+struct InFlightIngestGuard<'a> {
+    counter: &'a AtomicUsize,
+}
+
+impl<'a> InFlightIngestGuard<'a> {
+    fn new(counter: &'a AtomicUsize) -> Self {
+        counter.fetch_add(1, Ordering::Relaxed);
+        Self { counter }
+    }
+}
+
+impl Drop for InFlightIngestGuard<'_> {
+    fn drop(&mut self) {
+        self.counter.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
 /// Default in-process Emily runtime.
 pub struct EmilyRuntime<S: EmilyStore> {
     store: Arc<S>,
     embedding_provider: Option<Arc<dyn EmbeddingProvider>>,
     state: Arc<RwLock<RuntimeState>>,
     policy: Arc<RwLock<MemoryPolicy>>,
-    ingest_queue_depth: Arc<Mutex<usize>>,
+    in_flight_ingest_events: AtomicUsize,
     vectorization: Arc<RwLock<VectorizationRuntimeState>>,
     active_job_control: Arc<Mutex<Option<ActiveJobControl>>>,
     vectorization_events: broadcast::Sender<VectorizationStatus>,
@@ -73,7 +81,7 @@ impl<S: EmilyStore + 'static> EmilyRuntime<S> {
                 dropped_ingest_events: 0,
             })),
             policy: Arc::new(RwLock::new(MemoryPolicy::default())),
-            ingest_queue_depth: Arc::new(Mutex::new(0)),
+            in_flight_ingest_events: AtomicUsize::new(0),
             vectorization: Arc::new(RwLock::new(VectorizationRuntimeState::default())),
             active_job_control: Arc::new(Mutex::new(None)),
             vectorization_events,
@@ -105,19 +113,19 @@ impl<S: EmilyStore + 'static> EmilyRuntime<S> {
     }
 
     fn validate_vectorization_patch(patch: &VectorizationConfigPatch) -> Result<(), EmilyError> {
-        if let Some(expected_dimensions) = patch.expected_dimensions {
-            if expected_dimensions == 0 {
-                return Err(EmilyError::InvalidRequest(
-                    "expected_dimensions must be greater than zero".to_string(),
-                ));
-            }
+        if let Some(expected_dimensions) = patch.expected_dimensions
+            && expected_dimensions == 0
+        {
+            return Err(EmilyError::InvalidRequest(
+                "expected_dimensions must be greater than zero".to_string(),
+            ));
         }
-        if let Some(profile_id) = patch.profile_id.as_ref() {
-            if profile_id.trim().is_empty() {
-                return Err(EmilyError::InvalidRequest(
-                    "profile_id cannot be empty".to_string(),
-                ));
-            }
+        if let Some(profile_id) = patch.profile_id.as_ref()
+            && profile_id.trim().is_empty()
+        {
+            return Err(EmilyError::InvalidRequest(
+                "profile_id cannot be empty".to_string(),
+            ));
         }
         Ok(())
     }
@@ -140,7 +148,7 @@ impl<S: EmilyStore + 'static> EmilyRuntime<S> {
             stability_factor: 1.0,
             learning_weight: 1.0,
             gate_score: None,
-            integrated: true,
+            integrated: false,
             quarantine_score: 0.0,
         }
     }
@@ -560,6 +568,7 @@ impl<S: EmilyStore + 'static> EmilyApi for EmilyRuntime<S> {
             ));
         }
 
+        let _in_flight_ingest = InFlightIngestGuard::new(&self.in_flight_ingest_events);
         let object = Self::build_text_object(request);
         self.store.insert_text_object(&object).await?;
 
@@ -603,11 +612,10 @@ impl<S: EmilyStore + 'static> EmilyApi for EmilyRuntime<S> {
 
     async fn health(&self) -> Result<HealthSnapshot, EmilyError> {
         let state = self.state.read().await;
-        let queued_ingest_events = *self.ingest_queue_depth.lock().await;
         Ok(HealthSnapshot {
             db_open: state.db_locator.is_some(),
             db_locator: state.db_locator.clone(),
-            queued_ingest_events,
+            queued_ingest_events: self.in_flight_ingest_events.load(Ordering::Relaxed),
             dropped_ingest_events: state.dropped_ingest_events,
         })
     }
@@ -682,6 +690,7 @@ mod tests {
     use crate::model::{TextObjectKind, VectorizationConfig};
     use crate::store::EmilyStore;
     use serde_json::json;
+    use tokio::sync::Notify;
     use tokio::time::{Duration, sleep};
 
     #[derive(Default)]
@@ -689,6 +698,8 @@ mod tests {
         objects: Mutex<Vec<TextObject>>,
         vectors: Mutex<Vec<TextVector>>,
         config: Mutex<Option<VectorizationConfig>>,
+        insert_started: Option<Arc<Notify>>,
+        release_insert: Option<Arc<Notify>>,
     }
 
     #[async_trait]
@@ -702,6 +713,12 @@ mod tests {
         }
 
         async fn insert_text_object(&self, object: &TextObject) -> Result<(), EmilyError> {
+            if let Some(insert_started) = self.insert_started.as_ref() {
+                insert_started.notify_one();
+            }
+            if let Some(release_insert) = self.release_insert.as_ref() {
+                release_insert.notified().await;
+            }
             self.objects.lock().await.push(object.clone());
             Ok(())
         }
@@ -848,6 +865,51 @@ mod tests {
 
         let vectors = store.vectors.lock().await;
         assert!(vectors.is_empty());
+    }
+
+    #[tokio::test]
+    async fn ingest_text_starts_objects_as_unintegrated() {
+        let store = Arc::new(MockStore::default());
+        let runtime = EmilyRuntime::new(store);
+        runtime.open_db(locator()).await.expect("open");
+
+        let object = runtime
+            .ingest_text(ingest_request(1))
+            .await
+            .expect("ingest should succeed");
+
+        assert!(!object.integrated);
+    }
+
+    #[tokio::test]
+    async fn health_reports_in_flight_ingest_operations() {
+        let insert_started = Arc::new(Notify::new());
+        let release_insert = Arc::new(Notify::new());
+        let store = Arc::new(MockStore {
+            insert_started: Some(insert_started.clone()),
+            release_insert: Some(release_insert.clone()),
+            ..MockStore::default()
+        });
+        let runtime = Arc::new(EmilyRuntime::new(store));
+        runtime.open_db(locator()).await.expect("open");
+
+        let ingest_runtime = runtime.clone();
+        let ingest_task =
+            tokio::spawn(async move { ingest_runtime.ingest_text(ingest_request(1)).await });
+
+        insert_started.notified().await;
+
+        let during_ingest = runtime.health().await.expect("health during ingest");
+        assert_eq!(during_ingest.queued_ingest_events, 1);
+
+        release_insert.notify_one();
+        ingest_task
+            .await
+            .expect("join ingest task")
+            .expect("ingest should succeed");
+
+        let after_ingest = runtime.health().await.expect("health after ingest");
+        assert_eq!(after_ingest.queued_ingest_events, 0);
     }
 
     #[tokio::test]
