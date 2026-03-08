@@ -13,6 +13,7 @@ Current scope is the memory and embedding-integrity core. This crate does not ye
 - Sovereign record surface: record routing decisions, remote episodes, explicit remote state transitions, validation outcomes, and structured sovereign audits
 - Sovereign query surface: read routing decisions, remote episodes, validation outcomes, and sovereign audits by episode
 - `EARL` control surface: evaluate episode risk and receive `OK / CAUTION / REFLEX` results
+- `EARL` query surface: read the latest durable `EARL` evaluation for an episode
 - Integrity surface: read the latest durable cognitive-integrity snapshot
 - Retrieval policy surface: read/update `MemoryPolicy`
 - Vectorization control surface: config updates, status, backfill/revectorize jobs, cancellation
@@ -42,6 +43,9 @@ do not require breaking changes for databases that only contain text/vector data
 The current `EARL` runtime is a deterministic first slice. It gives hosts a
 typed pre-cognitive gate and durable decision trail without yet claiming the
 full learned manifold or Mahalanobis implementation described in the papers.
+Hosts can now also read the latest durable `EARL` result for one episode
+through the public facade when higher layers need pre-dispatch gating without
+reaching into Emily storage.
 
 The current `ECGL` runtime is also a deterministic first slice. It runs
 synchronously on outcome ingestion, assigns explicit memory states, updates

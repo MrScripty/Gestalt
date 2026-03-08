@@ -313,6 +313,8 @@ crate.
 - acceptance tests from Emily state -> routing result -> durable sovereign
   records
 
+**Status:** Completed on 2026-03-08 in commit `0eafbad`
+
 ### Milestone 4: Runtime Integration
 
 **Goal:** Make policy selection the preferred host-facing membrane path.
@@ -379,6 +381,27 @@ Update during implementation:
   - Exposed policy evaluation through `MembraneRuntime::evaluate_routing_policy`.
 - 2026-03-08: Milestone 2 verification passed with:
   - `cargo fmt --manifest-path emily-membrane/Cargo.toml`
+  - `cargo test --manifest-path emily-membrane/Cargo.toml -q --offline`
+  - `cargo clippy --manifest-path emily-membrane/Cargo.toml --all-targets --offline -- -D warnings`
+  - `cargo test --manifest-path emily-membrane/Cargo.toml -q --offline --features pantograph`
+  - `cargo clippy --manifest-path emily-membrane/Cargo.toml --all-targets --offline --features pantograph -- -D warnings`
+- 2026-03-08: Milestone 3 completed in commit `0eafbad`.
+- 2026-03-08: Milestone 3 scope:
+  - Added a membrane-owned Emily policy snapshot composed from episode reads
+    plus the latest durable `EARL` evaluation.
+  - Added conservative gating for missing episodes, closed episodes, blocked
+    episodes, and `EARL REFLEX` states before provider scoring.
+  - Added caution propagation for `EARL CAUTION` and already-cautioned episode
+    states without moving routing logic into the `emily` crate.
+  - Added one additive Emily API read for the latest durable `EARL`
+    evaluation per episode.
+  - Added acceptance coverage proving Emily `EARL` state can caution or block
+    remote routing before provider dispatch and before sovereign writes.
+- 2026-03-08: Milestone 3 verification passed with:
+  - `cargo fmt --manifest-path emily/Cargo.toml`
+  - `cargo fmt --manifest-path emily-membrane/Cargo.toml`
+  - `cargo test --manifest-path emily/Cargo.toml -q`
+  - `cargo clippy --manifest-path emily/Cargo.toml --all-targets -- -D warnings`
   - `cargo test --manifest-path emily-membrane/Cargo.toml -q --offline`
   - `cargo clippy --manifest-path emily-membrane/Cargo.toml --all-targets --offline -- -D warnings`
   - `cargo test --manifest-path emily-membrane/Cargo.toml -q --offline --features pantograph`

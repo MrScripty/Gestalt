@@ -23,7 +23,7 @@ This source tree currently covers the memory-side runtime, not the full Emily so
 
 ## Problem
 
-Provide a modular Emily core that can ingest arbitrary host text, persist text/vector state, record and read episode-oriented runtime artifacts, run the first EARL gate, apply synchronous ECGL state transitions, and answer context/history queries without coupling one host to one database API or one embedding provider.
+Provide a modular Emily core that can ingest arbitrary host text, persist text/vector state, record and read episode-oriented runtime artifacts, run the first EARL gate, expose the latest durable EARL result per episode, apply synchronous ECGL state transitions, and answer context/history queries without coupling one host to one database API or one embedding provider.
 
 ## Constraints
 

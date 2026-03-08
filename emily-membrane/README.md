@@ -125,6 +125,10 @@ async fn compile_locally(api: Arc<dyn EmilyApi>) {
   provider metadata through a small routing-preference contract.
 - The runtime now also exposes a deterministic routing-policy evaluator above
   the registered-target layer.
+- That evaluator now consumes Emily episode state plus the latest durable
+  `EARL` evaluation before provider scoring, so missing episodes, blocked
+  episodes, and `EARL REFLEX` states can reject remote dispatch while
+  cautioned states preserve a remote path with explicit caution findings.
 - Compatibility policy for this crate will be append-only while the initial
   membrane boundary is stabilized.
 - Revisit trigger: the first provider-backed adapter lands.

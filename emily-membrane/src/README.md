@@ -121,6 +121,8 @@ async fn run_local(api: Arc<dyn EmilyApi>) {
   preference contract for host-facing target selection.
 - `runtime.rs` now also exposes deterministic routing-policy evaluation over
   the provider registry.
+- That routing-policy path now reads Emily episode state and the latest durable
+  `EARL` evaluation before ranking provider targets.
 - Revisit trigger: the first provider-backed runtime path lands.
 
 ## Structured Producer Contract

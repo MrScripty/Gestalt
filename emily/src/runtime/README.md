@@ -44,7 +44,7 @@ Keep `runtime.rs` as the public runtime entrypoint and move focused subdomains u
 ## Invariants
 
 - `EmilyRuntime` remains the public runtime type.
-- EARL evaluation logic remains internal to the runtime implementation rather than a host-facing helper API.
+- EARL evaluation logic remains internal to the runtime implementation rather than a host-facing helper API; the public facade only exposes evaluation requests plus latest durable evaluation reads.
 - ECGL evaluation logic remains internal to the runtime implementation rather than a host-facing helper API.
 - Retrieval logic remains internal to the runtime implementation rather than a host-facing helper API.
 - Episode, outcome, and audit writes remain host-agnostic runtime behavior behind `EmilyApi`.
@@ -95,7 +95,7 @@ let runtime = EmilyRuntime::new(Arc::new(SurrealEmilyStore::new()));
 - `retrieval.rs` produces semantic edges and context packets through existing Emily contracts.
 - `vectorization.rs` updates runtime job snapshots and vector records through existing crate contracts.
 - `episodes.rs` produces episode records, episode reads, trace links, outcome records, and audit records through existing crate contracts.
-- `earl.rs` produces EARL evaluations, guarded episode states, and durable EARL audit records through existing crate contracts.
+- `earl.rs` produces EARL evaluations, latest-evaluation reads, guarded episode states, and durable EARL audit records through existing crate contracts.
 - `ecgl.rs` produces explicit memory states on text objects and durable integrity snapshots through existing crate contracts.
 - `sovereign.rs` produces routing decisions, remote episodes, explicit remote state transitions, validation outcomes, deterministic sovereign audit records, and bounded sovereign lifecycle reconciliation through existing crate contracts. Automatic audit generation is intentionally limited to write-side lifecycle events for now, and future sovereign record families should default to that write-side auditing behavior unless explicitly exempted.
 - Compatibility expectations for those records remain defined by `emily/src/model.rs` and store implementations.

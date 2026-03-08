@@ -79,6 +79,8 @@ runtime type in `runtime.rs`.
   `RemoteRoutingPreference` instead of requiring the host to prebuild targets.
 - Registry-backed runtimes can now evaluate typed routing-policy requests
   before provider dispatch.
+- Policy evaluation now consumes Emily episode state plus the latest durable
+  `EARL` evaluation before provider scoring.
 - This directory does not expose a separate public facade.
 - Revisit trigger: a separate runtime builder or worker owner becomes necessary.
 
