@@ -201,16 +201,16 @@ Facade-first preservation is required:
 without leaking model/workflow knowledge into Emily core crates.
 
 **Tasks:**
-- [ ] Define Gestalt host config shape for:
+- [x] Define Gestalt host config shape for:
   - reasoning workflow using `Qwen3.5-35B-A3B-GGUF`
   - embedding workflow using `Qwen3-Embedding-4B-GGUF`
-- [ ] Record which existing adapter each workflow uses:
+- [x] Record which existing adapter each workflow uses:
   - session-backed embedding provider for Emily
   - one-shot membrane provider for remote reasoning
-- [ ] Define required Pantograph bindings and timeout defaults
-- [ ] Ensure workflow IDs and node/port bindings remain Gestalt-owned
+- [x] Define required Pantograph bindings and timeout defaults
+- [x] Ensure workflow IDs and node/port bindings remain Gestalt-owned
   configuration only
-- [ ] Define fallback behavior when one or both workflows are unavailable
+- [x] Define fallback behavior when one or both workflows are unavailable
 
 **Verification:**
 - `cargo fmt`
@@ -219,7 +219,7 @@ without leaking model/workflow knowledge into Emily core crates.
   surfaces without modifying crate contracts
 - documentation traceability review for any changed module/directory boundaries
 
-**Status:** In progress
+**Status:** Complete
 
 ### Milestone 2: Retrieval Hardening For Real Emily Use
 
@@ -325,6 +325,10 @@ Update during implementation:
 - 2026-03-08: Plan created after reviewing the current Pantograph embedding
   bootstrap path, membrane Pantograph provider path, and existing Emily
   adoption work.
+- 2026-03-08: Milestone 1 completed. Gestalt now owns a separate reasoning
+  workflow config path, builds a Pantograph-backed membrane provider registry
+  from host env/config, and verifies the mapping through focused integration
+  coverage.
 
 ## Commit Cadence Notes
 
@@ -354,22 +358,32 @@ Update during implementation:
 
 ### Completed
 
-- None yet.
+- Milestone 1: Host configuration and provider mapping
 
 ### Deviations
 
-- None yet.
+- `cargo clippy --test pantograph_host_reasoning -- -D warnings` remains blocked
+  by pre-existing unrelated warnings/errors in app modules such as
+  `src/persistence/paths.rs`, `src/emily_bridge.rs`, `src/orchestrator/`,
+  `src/run_checkpoints/mod.rs`, and `src/ui/`.
 
 ### Follow-Ups
 
-- Create a narrower execution checklist once Milestone 1 is complete.
+- Start Milestone 2: retrieval hardening for real Emily use.
 
 ### Verification Summary
 
-- Not yet executed.
+- `cargo fmt`
+- `cargo test -q --test pantograph_host_reasoning`
+- `cargo check -q`
+- `cargo clippy --test pantograph_host_reasoning -- -D warnings`
+  - blocked by pre-existing unrelated warnings/errors outside this slice
 
 ### Traceability Links
 
-- Module README updated: pending implementation
+- Module README updated:
+  - [src/README.md](/media/jeremy/OrangeCream/Linux%20Software/Gestalt/src/README.md)
+  - [tests/README.md](/media/jeremy/OrangeCream/Linux%20Software/Gestalt/tests/README.md)
 - ADR added/updated: N/A
-- PR notes completed per `templates/PULL_REQUEST_TEMPLATE.md`: pending implementation
+- PR notes completed per `templates/PULL_REQUEST_TEMPLATE.md`: not applicable in
+  local branch workflow

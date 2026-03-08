@@ -12,6 +12,7 @@ Integration tests for persistence and resume behavior.
 | `emily_local_agent_context.rs` | Emily-backed local-agent prompt assembly and display-line logging coverage |
 | `emily_local_agent_episode.rs` | Emily local-agent episode recording and seeded EARL gate coverage |
 | `emily_membrane_dev.rs` | Dev-only membrane execution flow coverage through the Gestalt host helper |
+| `pantograph_host_reasoning.rs` | Pantograph reasoning config and provider-registry mapping coverage through Gestalt's host adapter |
 | `resume_startup.rs` | Startup resume flow with workspace state restored but terminal history omitted |
 | `emily_seed_corpus.rs` | Emily seed corpus acceptance coverage through the public runtime facade |
 | `git_panel_ops.rs` | Git panel orchestration action flow tests against temp repos |
@@ -20,3 +21,4 @@ Integration tests for persistence and resume behavior.
 ## Notes
 - Tests use `GESTALT_WORKSPACE_PATH` to isolate persistence files under `tmp`.
 - Environment variable mutation is guarded by a process-wide mutex to avoid test races.
+- Pantograph host tests set workflow env vars explicitly so reasoning workflow ids and node bindings remain host-owned configuration, not reusable Emily crate contracts.

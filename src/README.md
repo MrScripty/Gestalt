@@ -15,6 +15,7 @@ Application source modules for Gestalt's state model, command library, terminal 
 | `emily_seed/` | Deterministic Emily seed corpus helpers for diagnostics and acceptance tests |
 | `local_agent_context.rs` | Host-side Emily-backed prompt assembly for the local-agent flow |
 | `local_agent_episode.rs` | Host-side Emily episode recording and gate interpretation for local-agent runs |
+| `pantograph_host.rs` | Gestalt-owned Pantograph composition for Emily embedding and membrane reasoning providers |
 | `local_restore.rs` | SQLite-backed restore projection for terminal UI/runtime metadata |
 | `orchestration_log/` | Durable SQLite command/event/receipt timelines for orchestrated actions |
 | `run_checkpoints/` | Durable Git-backed run baselines and derived review diffs |
@@ -37,6 +38,7 @@ Application source modules for Gestalt's state model, command library, terminal 
 - `emily_seed` owns synthetic host-side Emily fixture datasets and seeds them only through Emily public facades.
 - `local_agent_context` keeps Emily-backed local-agent prompt assembly out of the Dioxus component layer and preserves the human-entered command separately from the dispatched prompt payload.
 - `local_agent_episode` records real local-agent actions as Emily episodes and interprets episode plus EARL state into a narrow host-facing gate.
+- `pantograph_host` keeps workflow ids, node bindings, and provider-registry composition inside Gestalt so reusable Emily crates stay host-agnostic.
 - `emily_bridge` surfaces bridge worker failures as request errors and keeps recent-history reads failure-tolerant by degrading to an empty chunk instead of panicking.
 - `orchestration_log` persists exact command lifecycles using timeline sequence plus timestamps.
 - `run_checkpoints` persists coarse repo baselines so run review can compare current Git state against the moment a run started.
@@ -47,5 +49,5 @@ Application source modules for Gestalt's state model, command library, terminal 
 - `persistence` is isolated infrastructure with a versioned schema.
 
 ## Dependencies
-**Internal:** `commands`, `state`, `terminal`, `emily_bridge`, `emily_inspect`, `emily_membrane_dev`, `emily_seed`, `local_agent_context`, `local_agent_episode`, `orchestrator`, `orchestration_log`, `run_checkpoints`, `git`, `persistence`  
+**Internal:** `commands`, `state`, `terminal`, `emily_bridge`, `emily_inspect`, `emily_membrane_dev`, `emily_seed`, `local_agent_context`, `local_agent_episode`, `pantograph_host`, `orchestrator`, `orchestration_log`, `run_checkpoints`, `git`, `persistence`  
 **External:** `dioxus`, `portable-pty`, `vt100`, `serde`, `emily`, `emily-membrane`, `rusqlite`
