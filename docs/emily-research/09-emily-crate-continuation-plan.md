@@ -342,6 +342,8 @@ Update during implementation:
   - `507be15` `feat(emily): add bounded sovereign lifecycle policy`
 - 2026-03-08: Follow-on episode-read slice completed through one commit:
   - `fc8ca99` `feat(emily): expose episode reads`
+- 2026-03-08: Follow-on explicit remote-state slice completed through one commit:
+  - `8f239c4` `feat(emily): add remote episode state transitions`
 
 ## Commit Cadence Notes
 
@@ -389,8 +391,9 @@ Update during implementation:
 ### Follow-Ups
 
 - Decide whether the next sovereign slice belongs inside `emily` as richer policy/runtime behavior or in a sibling membrane crate.
-- Decide whether remote episodes need an explicit host-facing state-transition API beyond the current validation-driven reconciliation path.
 - Decide whether future sovereign record types should inherit automatic audit generation by default inside `emily`.
+- Decide whether Emily should expose episode lists or stream-scoped episode queries now that single-episode reads exist through the public facade.
+- Decide whether explicit remote-state transitions should later support non-terminal transitions or remain limited to terminal closure events.
 - Decide whether Emily should keep the current explicit sovereign query facade or later add generic query primitives above the same persisted records.
 
 ### Verification Summary
@@ -453,6 +456,11 @@ Update during implementation:
   - `cargo test --manifest-path emily/Cargo.toml -q`
   - `cargo clippy --manifest-path emily/Cargo.toml --all-targets -- -D warnings`
   - Runtime episode-read coverage in `emily/src/runtime/episode_tests.rs`
+- Explicit remote-state slice verification:
+  - `cargo fmt --manifest-path emily/Cargo.toml`
+  - `cargo test --manifest-path emily/Cargo.toml -q`
+  - `cargo clippy --manifest-path emily/Cargo.toml --all-targets -- -D warnings`
+  - Runtime remote-state coverage in `emily/src/runtime/sovereign_tests.rs`
 - Plan reviewed against:
   - `PLAN-STANDARDS.md`
   - `ARCHITECTURE-PATTERNS.md`
