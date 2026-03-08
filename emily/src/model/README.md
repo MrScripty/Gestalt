@@ -11,7 +11,7 @@
 | `earl.rs` | EARL signal and evaluation contracts for pre-cognitive episode gating |
 | `ecgl.rs` | ECGL memory-state and integrity-snapshot contracts |
 | `episode.rs` | Episode, trace-link, outcome, and audit contracts for host-agnostic policy inputs |
-| `sovereign.rs` | Additive sovereign-preparation contracts for routing, remote episodes, validation, and audit metadata |
+| `sovereign.rs` | Additive sovereign-preparation contracts for routing, remote episodes, explicit remote state transitions, validation, and audit metadata |
 
 ## Problem
 

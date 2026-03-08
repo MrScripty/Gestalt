@@ -4,8 +4,8 @@ use crate::api::EmilyApi;
 use crate::model::{
     AppendSovereignAuditRecordRequest, AuditRecordKind, CreateEpisodeRequest, EpisodeState,
     RemoteEpisodeRequest, RemoteEpisodeState, RoutingDecision, RoutingDecisionKind, RoutingTarget,
-    SovereignAuditMetadata, ValidationDecision, ValidationFinding, ValidationFindingSeverity,
-    ValidationOutcome,
+    SovereignAuditMetadata, UpdateRemoteEpisodeStateRequest, ValidationDecision, ValidationFinding,
+    ValidationFindingSeverity, ValidationOutcome,
 };
 use serde_json::json;
 use std::sync::Arc;
@@ -278,6 +278,151 @@ async fn rejected_validation_rejects_remote_episode_and_blocks_episode() {
     assert_eq!(remote_episode.state, RemoteEpisodeState::Rejected);
     assert_eq!(remote_episode.completed_at_unix_ms, Some(4));
     assert_eq!(store.episodes.lock().await[0].state, EpisodeState::Blocked);
+}
+
+#[tokio::test]
+async fn explicit_remote_state_transition_marks_failed_and_cautions_episode() {
+    let store = Arc::new(MockStore::default());
+    let runtime = EmilyRuntime::new(store.clone());
+    runtime.open_db(locator()).await.expect("open");
+    runtime
+        .create_episode(episode_request())
+        .await
+        .expect("create episode");
+    runtime
+        .record_routing_decision(routing_decision())
+        .await
+        .expect("record route");
+    runtime
+        .create_remote_episode(RemoteEpisodeRequest {
+            remote_episode_id: "remote-1".to_string(),
+            episode_id: "ep-sovereign".to_string(),
+            route_decision_id: Some("route-1".to_string()),
+            dispatch_kind: "bounded_program".to_string(),
+            dispatched_at_unix_ms: 3,
+            metadata: json!({"provider": "provider-a"}),
+        })
+        .await
+        .expect("create remote episode");
+
+    let remote_episode = runtime
+        .update_remote_episode_state(UpdateRemoteEpisodeStateRequest {
+            remote_episode_id: "remote-1".to_string(),
+            next_state: RemoteEpisodeState::Failed,
+            transitioned_at_unix_ms: 5,
+            summary: Some("provider timeout".to_string()),
+            metadata: json!({"origin": "host"}),
+        })
+        .await
+        .expect("mark remote episode failed");
+
+    assert_eq!(remote_episode.state, RemoteEpisodeState::Failed);
+    assert_eq!(remote_episode.completed_at_unix_ms, Some(5));
+    assert_eq!(
+        store.episodes.lock().await[0].state,
+        EpisodeState::Cautioned
+    );
+    assert_eq!(store.audits.lock().await.len(), 3);
+}
+
+#[tokio::test]
+async fn explicit_remote_state_transition_is_idempotent() {
+    let store = Arc::new(MockStore::default());
+    let runtime = EmilyRuntime::new(store.clone());
+    runtime.open_db(locator()).await.expect("open");
+    runtime
+        .create_episode(episode_request())
+        .await
+        .expect("create episode");
+    runtime
+        .record_routing_decision(routing_decision())
+        .await
+        .expect("record route");
+    runtime
+        .create_remote_episode(RemoteEpisodeRequest {
+            remote_episode_id: "remote-1".to_string(),
+            episode_id: "ep-sovereign".to_string(),
+            route_decision_id: Some("route-1".to_string()),
+            dispatch_kind: "bounded_program".to_string(),
+            dispatched_at_unix_ms: 3,
+            metadata: json!({"provider": "provider-a"}),
+        })
+        .await
+        .expect("create remote episode");
+
+    let first = runtime
+        .update_remote_episode_state(UpdateRemoteEpisodeStateRequest {
+            remote_episode_id: "remote-1".to_string(),
+            next_state: RemoteEpisodeState::Cancelled,
+            transitioned_at_unix_ms: 5,
+            summary: Some("host cancelled remote work".to_string()),
+            metadata: json!({"origin": "host"}),
+        })
+        .await
+        .expect("cancel remote episode");
+    let second = runtime
+        .update_remote_episode_state(UpdateRemoteEpisodeStateRequest {
+            remote_episode_id: "remote-1".to_string(),
+            next_state: RemoteEpisodeState::Cancelled,
+            transitioned_at_unix_ms: 5,
+            summary: Some("host cancelled remote work".to_string()),
+            metadata: json!({"origin": "host"}),
+        })
+        .await
+        .expect("replay cancel remote episode");
+
+    assert_eq!(first, second);
+    assert_eq!(store.remote_episodes.lock().await.len(), 1);
+    assert_eq!(store.audits.lock().await.len(), 3);
+}
+
+#[tokio::test]
+async fn explicit_remote_state_transition_rejects_conflicting_terminal_change() {
+    let store = Arc::new(MockStore::default());
+    let runtime = EmilyRuntime::new(store);
+    runtime.open_db(locator()).await.expect("open");
+    runtime
+        .create_episode(episode_request())
+        .await
+        .expect("create episode");
+    runtime
+        .record_routing_decision(routing_decision())
+        .await
+        .expect("record route");
+    runtime
+        .create_remote_episode(RemoteEpisodeRequest {
+            remote_episode_id: "remote-1".to_string(),
+            episode_id: "ep-sovereign".to_string(),
+            route_decision_id: Some("route-1".to_string()),
+            dispatch_kind: "bounded_program".to_string(),
+            dispatched_at_unix_ms: 3,
+            metadata: json!({"provider": "provider-a"}),
+        })
+        .await
+        .expect("create remote episode");
+    runtime
+        .update_remote_episode_state(UpdateRemoteEpisodeStateRequest {
+            remote_episode_id: "remote-1".to_string(),
+            next_state: RemoteEpisodeState::Succeeded,
+            transitioned_at_unix_ms: 5,
+            summary: Some("remote work completed".to_string()),
+            metadata: json!({"origin": "host"}),
+        })
+        .await
+        .expect("mark remote episode succeeded");
+
+    let error = runtime
+        .update_remote_episode_state(UpdateRemoteEpisodeStateRequest {
+            remote_episode_id: "remote-1".to_string(),
+            next_state: RemoteEpisodeState::Failed,
+            transitioned_at_unix_ms: 6,
+            summary: Some("conflicting failure".to_string()),
+            metadata: json!({"origin": "host"}),
+        })
+        .await
+        .expect_err("conflicting terminal change should fail");
+
+    assert!(matches!(error, EmilyError::InvalidRequest(_)));
 }
 
 #[tokio::test]

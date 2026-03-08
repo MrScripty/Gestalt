@@ -3,8 +3,8 @@ use crate::error::EmilyError;
 use crate::model::{
     AppendAuditRecordRequest, AppendSovereignAuditRecordRequest, AuditRecord, EpisodeState,
     RemoteEpisodeRecord, RemoteEpisodeRequest, RemoteEpisodeState, RoutingDecision,
-    RoutingDecisionKind, RoutingTarget, SovereignAuditMetadata, ValidationDecision,
-    ValidationFinding, ValidationOutcome,
+    RoutingDecisionKind, RoutingTarget, SovereignAuditMetadata, UpdateRemoteEpisodeStateRequest,
+    ValidationDecision, ValidationFinding, ValidationOutcome,
 };
 use crate::store::EmilyStore;
 use serde_json::json;
@@ -198,6 +198,82 @@ impl<S: EmilyStore + 'static> EmilyRuntime<S> {
         }
     }
 
+    fn update_remote_episode_terminal_state(
+        mut remote_episode: RemoteEpisodeRecord,
+        next_state: RemoteEpisodeState,
+        transitioned_at_unix_ms: i64,
+    ) -> Result<Option<RemoteEpisodeRecord>, EmilyError> {
+        match next_state {
+            RemoteEpisodeState::Succeeded
+            | RemoteEpisodeState::Failed
+            | RemoteEpisodeState::Cancelled
+            | RemoteEpisodeState::Rejected => {}
+            RemoteEpisodeState::Planned | RemoteEpisodeState::Dispatched => {
+                return Err(EmilyError::InvalidRequest(format!(
+                    "explicit remote state updates cannot transition '{}' to '{next_state:?}'",
+                    remote_episode.id
+                )));
+            }
+        }
+
+        let target_completed_at = Some(
+            remote_episode
+                .completed_at_unix_ms
+                .map_or(transitioned_at_unix_ms, |existing| {
+                    existing.max(transitioned_at_unix_ms)
+                }),
+        );
+
+        match remote_episode.state {
+            RemoteEpisodeState::Planned | RemoteEpisodeState::Dispatched => {
+                remote_episode.state = next_state;
+                remote_episode.completed_at_unix_ms = target_completed_at;
+                Ok(Some(remote_episode))
+            }
+            state if state == next_state => {
+                if remote_episode.completed_at_unix_ms != target_completed_at {
+                    remote_episode.completed_at_unix_ms = target_completed_at;
+                    Ok(Some(remote_episode))
+                } else {
+                    Ok(None)
+                }
+            }
+            RemoteEpisodeState::Succeeded
+            | RemoteEpisodeState::Failed
+            | RemoteEpisodeState::Cancelled
+            | RemoteEpisodeState::Rejected => Err(EmilyError::InvalidRequest(format!(
+                "remote episode '{}' is already in terminal state '{:?}'",
+                remote_episode.id, remote_episode.state
+            ))),
+        }
+    }
+
+    fn apply_explicit_remote_state_to_episode(
+        state: EpisodeState,
+        next_state: RemoteEpisodeState,
+    ) -> EpisodeState {
+        match next_state {
+            RemoteEpisodeState::Succeeded => state,
+            RemoteEpisodeState::Failed => {
+                if matches!(state, EpisodeState::Open) {
+                    EpisodeState::Cautioned
+                } else {
+                    state
+                }
+            }
+            RemoteEpisodeState::Rejected => {
+                if matches!(state, EpisodeState::Cancelled) {
+                    state
+                } else {
+                    EpisodeState::Blocked
+                }
+            }
+            RemoteEpisodeState::Cancelled
+            | RemoteEpisodeState::Planned
+            | RemoteEpisodeState::Dispatched => state,
+        }
+    }
+
     async fn reconcile_routing_episode_projection(
         &self,
         decision: &RoutingDecision,
@@ -263,6 +339,30 @@ impl<S: EmilyStore + 'static> EmilyRuntime<S> {
         self.store
             .upsert_remote_episode(&updated_remote_episode)
             .await
+    }
+
+    async fn reconcile_explicit_remote_state_episode_projection(
+        &self,
+        episode_id: &str,
+        next_state: RemoteEpisodeState,
+        transitioned_at_unix_ms: i64,
+    ) -> Result<(), EmilyError> {
+        let Some(mut episode) = self.store.get_episode(episode_id).await? else {
+            return Err(EmilyError::InvalidRequest(format!(
+                "episode '{}' does not exist",
+                episode_id
+            )));
+        };
+        let next_episode_state =
+            Self::apply_explicit_remote_state_to_episode(episode.state, next_state);
+        if next_episode_state != episode.state
+            || transitioned_at_unix_ms > episode.updated_at_unix_ms
+        {
+            episode.state = next_episode_state;
+            episode.updated_at_unix_ms = episode.updated_at_unix_ms.max(transitioned_at_unix_ms);
+            self.store.upsert_episode(&episode).await?;
+        }
+        Ok(())
     }
 
     fn sovereign_metadata_value(metadata: SovereignAuditMetadata) -> serde_json::Value {
@@ -425,6 +525,85 @@ impl<S: EmilyStore + 'static> EmilyRuntime<S> {
                 metadata: json!({"dispatch_kind": persisted.dispatch_kind}),
             },
             &persisted.id,
+        )
+        .await?;
+
+        Ok(persisted)
+    }
+
+    pub(super) async fn update_remote_episode_state_internal(
+        &self,
+        request: UpdateRemoteEpisodeStateRequest,
+    ) -> Result<RemoteEpisodeRecord, EmilyError> {
+        Self::validate_required_text("remote_episode_id", &request.remote_episode_id)?;
+        Self::validate_optional_text("summary", request.summary.as_deref())?;
+
+        let Some(remote_episode) = self
+            .store
+            .get_remote_episode(&request.remote_episode_id)
+            .await?
+        else {
+            return Err(EmilyError::InvalidRequest(format!(
+                "remote episode '{}' does not exist",
+                request.remote_episode_id
+            )));
+        };
+
+        let persisted = match Self::update_remote_episode_terminal_state(
+            remote_episode,
+            request.next_state,
+            request.transitioned_at_unix_ms,
+        )? {
+            Some(updated_remote_episode) => {
+                self.store
+                    .upsert_remote_episode(&updated_remote_episode)
+                    .await?;
+                updated_remote_episode
+            }
+            None => self
+                .store
+                .get_remote_episode(&request.remote_episode_id)
+                .await?
+                .ok_or_else(|| {
+                    EmilyError::Store(format!(
+                        "remote episode '{}' disappeared during state update",
+                        request.remote_episode_id
+                    ))
+                })?,
+        };
+
+        self.reconcile_explicit_remote_state_episode_projection(
+            &persisted.episode_id,
+            persisted.state,
+            request.transitioned_at_unix_ms,
+        )
+        .await?;
+
+        self.append_generated_sovereign_audit(
+            &persisted.episode_id,
+            crate::model::AuditRecordKind::BoundaryEvent,
+            request.transitioned_at_unix_ms,
+            request.summary.unwrap_or_else(|| {
+                format!(
+                    "remote episode '{}' transitioned to '{:?}'",
+                    persisted.id, persisted.state
+                )
+            }),
+            SovereignAuditMetadata {
+                remote_episode_id: Some(persisted.id.clone()),
+                route_decision_id: persisted.route_decision_id.clone(),
+                validation_id: None,
+                boundary_profile: None,
+                metadata: json!({
+                    "remote_state": persisted.state,
+                    "origin": "explicit_remote_state",
+                    "request": request.metadata,
+                }),
+            },
+            &format!(
+                "remote-state:{}:{:?}:{}",
+                persisted.id, persisted.state, request.transitioned_at_unix_ms
+            ),
         )
         .await?;
 

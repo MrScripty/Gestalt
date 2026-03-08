@@ -14,6 +14,17 @@ pub struct RemoteEpisodeRequest {
     pub metadata: Value,
 }
 
+/// Request to transition one remote episode through an explicit host-observed
+/// lifecycle change.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UpdateRemoteEpisodeStateRequest {
+    pub remote_episode_id: String,
+    pub next_state: RemoteEpisodeState,
+    pub transitioned_at_unix_ms: i64,
+    pub summary: Option<String>,
+    pub metadata: Value,
+}
+
 /// Durable remote reasoning episode reference.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RemoteEpisodeRecord {
@@ -174,5 +185,17 @@ mod tests {
         let restored: ValidationOutcome =
             serde_json::from_str(&text).expect("deserialize validation outcome");
         assert_eq!(validation, restored);
+
+        let update = UpdateRemoteEpisodeStateRequest {
+            remote_episode_id: "remote-1".to_string(),
+            next_state: RemoteEpisodeState::Failed,
+            transitioned_at_unix_ms: 13,
+            summary: Some("provider timed out".to_string()),
+            metadata: json!({"origin": "host"}),
+        };
+        let text = serde_json::to_string(&update).expect("serialize remote state update");
+        let restored: UpdateRemoteEpisodeStateRequest =
+            serde_json::from_str(&text).expect("deserialize remote state update");
+        assert_eq!(update, restored);
     }
 }

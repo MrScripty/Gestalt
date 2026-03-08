@@ -10,7 +10,7 @@ Current scope is the memory and embedding-integrity core. This crate does not ye
 
 - `EmilyApi`: open/switch/close database, ingest text, query context, page history
 - Episode contract surface: create episodes, read episodes, link traces, record outcomes, append audits
-- Sovereign record surface: record routing decisions, remote episodes, validation outcomes, and structured sovereign audits
+- Sovereign record surface: record routing decisions, remote episodes, explicit remote state transitions, validation outcomes, and structured sovereign audits
 - Sovereign query surface: read routing decisions, remote episodes, validation outcomes, and sovereign audits by episode
 - `EARL` control surface: evaluate episode risk and receive `OK / CAUTION / REFLEX` results
 - Integrity surface: read the latest durable cognitive-integrity snapshot
@@ -65,6 +65,8 @@ crate: routes marked `LocalOnly` or `Rejected` cannot be used for remote
 dispatch, rejected routing decisions block the host episode, and validation
 outcomes reconcile remote-episode terminal state plus episode caution/blocking
 without introducing provider-specific transport logic.
+Hosts can also record explicit terminal remote-episode transitions for failure,
+cancel, rejection, or success when validation is not the source of closure.
 
 ## Host Responsibilities
 

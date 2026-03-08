@@ -55,7 +55,8 @@ cover only stable host-agnostic records such as route decisions, remote episode
 references, validation outcomes, and structured sovereign audit metadata.
 They now also include bounded sovereign lifecycle policy inside the runtime:
 route-shape guards for remote dispatch and validation-driven projection updates
-for remote episodes and host episodes.
+for remote episodes and host episodes, plus explicit host-facing terminal
+remote-state transitions when validation is not the closure path.
 
 ## Invariants
 

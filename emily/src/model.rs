@@ -19,8 +19,8 @@ pub use episode::{
 pub use sovereign::{
     AppendSovereignAuditRecordRequest, RemoteEpisodeRecord, RemoteEpisodeRequest,
     RemoteEpisodeState, RoutingDecision, RoutingDecisionKind, RoutingTarget,
-    SovereignAuditMetadata, ValidationDecision, ValidationFinding, ValidationFindingSeverity,
-    ValidationOutcome,
+    SovereignAuditMetadata, UpdateRemoteEpisodeStateRequest, ValidationDecision, ValidationFinding,
+    ValidationFindingSeverity, ValidationOutcome,
 };
 
 /// Address of an embedded database instance that can be opened or switched at runtime.

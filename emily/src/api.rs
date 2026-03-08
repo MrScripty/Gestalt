@@ -5,8 +5,9 @@ use crate::model::{
     EarlEvaluationRequest, EpisodeRecord, EpisodeTraceLink, HealthSnapshot, HistoryPage,
     HistoryPageRequest, IngestTextRequest, IntegritySnapshot, MemoryPolicy, OutcomeRecord,
     RecordOutcomeRequest, RemoteEpisodeRecord, RemoteEpisodeRequest, RoutingDecision, TextObject,
-    TraceLinkRequest, ValidationOutcome, VectorizationConfig, VectorizationConfigPatch,
-    VectorizationJobSnapshot, VectorizationRunRequest, VectorizationStatus,
+    TraceLinkRequest, UpdateRemoteEpisodeStateRequest, ValidationOutcome, VectorizationConfig,
+    VectorizationConfigPatch, VectorizationJobSnapshot, VectorizationRunRequest,
+    VectorizationStatus,
 };
 use async_trait::async_trait;
 
@@ -62,6 +63,13 @@ pub trait EmilyApi: Send + Sync {
     async fn create_remote_episode(
         &self,
         request: RemoteEpisodeRequest,
+    ) -> Result<RemoteEpisodeRecord, EmilyError>;
+
+    /// Transition one durable remote episode through an explicit host-observed
+    /// lifecycle change.
+    async fn update_remote_episode_state(
+        &self,
+        request: UpdateRemoteEpisodeStateRequest,
     ) -> Result<RemoteEpisodeRecord, EmilyError>;
 
     /// Record one durable validation outcome for local or remote outputs.

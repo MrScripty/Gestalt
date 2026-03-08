@@ -34,8 +34,8 @@ pub use model::{
     MemoryPolicy, MemoryState, OutcomeRecord, OutcomeStatus, RecordOutcomeRequest,
     RemoteEpisodeRecord, RemoteEpisodeRequest, RemoteEpisodeState, RoutingDecision,
     RoutingDecisionKind, RoutingTarget, SovereignAuditMetadata, TextEdge, TextEdgeType, TextObject,
-    TextObjectKind, TextVector, TraceLinkRequest, ValidationDecision, ValidationFinding,
-    ValidationFindingSeverity, ValidationOutcome, VectorizationConfig, VectorizationConfigPatch,
-    VectorizationJobKind, VectorizationJobSnapshot, VectorizationJobState, VectorizationRunRequest,
-    VectorizationStatus,
+    TextObjectKind, TextVector, TraceLinkRequest, UpdateRemoteEpisodeStateRequest,
+    ValidationDecision, ValidationFinding, ValidationFindingSeverity, ValidationOutcome,
+    VectorizationConfig, VectorizationConfigPatch, VectorizationJobKind, VectorizationJobSnapshot,
+    VectorizationJobState, VectorizationRunRequest, VectorizationStatus,
 };

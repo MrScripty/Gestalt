@@ -7,8 +7,9 @@ use crate::model::{
     EarlEvaluationRequest, EpisodeRecord, EpisodeTraceLink, HealthSnapshot, HistoryPage,
     HistoryPageRequest, IngestTextRequest, IntegritySnapshot, MemoryPolicy, OutcomeRecord,
     RecordOutcomeRequest, RemoteEpisodeRecord, RemoteEpisodeRequest, RoutingDecision, TextObject,
-    TraceLinkRequest, ValidationOutcome, VectorizationConfig, VectorizationConfigPatch,
-    VectorizationJobKind, VectorizationJobSnapshot, VectorizationRunRequest, VectorizationStatus,
+    TraceLinkRequest, UpdateRemoteEpisodeStateRequest, ValidationOutcome, VectorizationConfig,
+    VectorizationConfigPatch, VectorizationJobKind, VectorizationJobSnapshot,
+    VectorizationRunRequest, VectorizationStatus,
 };
 use crate::store::EmilyStore;
 use async_trait::async_trait;
@@ -209,6 +210,13 @@ impl<S: EmilyStore + 'static> EmilyApi for EmilyRuntime<S> {
         request: RemoteEpisodeRequest,
     ) -> Result<RemoteEpisodeRecord, EmilyError> {
         self.create_remote_episode_internal(request).await
+    }
+
+    async fn update_remote_episode_state(
+        &self,
+        request: UpdateRemoteEpisodeStateRequest,
+    ) -> Result<RemoteEpisodeRecord, EmilyError> {
+        self.update_remote_episode_state_internal(request).await
     }
 
     async fn record_validation_outcome(
