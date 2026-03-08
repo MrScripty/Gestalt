@@ -29,3 +29,4 @@ Files:
 - `10-emily-membrane-crate-design-plan.md`: sibling-crate design plan for the sovereign-dispatch membrane layer above `emily`
 - `11-emily-membrane-milestone-1-implementation-plan.md`: standards-aligned implementation plan for the first membrane crate slice using a narrow internal test adapter
 - `12-emily-membrane-milestone-3-implementation-plan.md`: standards-aligned implementation plan for the first remote adapter slice using a provider-neutral boundary before Pantograph transport
+- `13-emily-membrane-routing-policy-plan.md`: standards-aligned plan for evolving deterministic registry lookup into Emily-informed sovereign routing policy
