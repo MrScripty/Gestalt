@@ -282,6 +282,23 @@ Update during implementation:
   - `cargo clippy --manifest-path emily-membrane/Cargo.toml --all-targets --offline -- -D warnings`
   - `cargo test --manifest-path emily-membrane/Cargo.toml -q --offline --features pantograph`
   - `cargo clippy --manifest-path emily-membrane/Cargo.toml --all-targets --offline --features pantograph -- -D warnings`
+- 2026-03-08: Registry-backed target selection implemented in commit `421e9cc`.
+- 2026-03-08: Target-selection scope:
+  - Added `RemoteRoutingPreference` as a host-facing routing contract.
+  - Extended `MembraneProviderRegistry` with deterministic registered-target
+    metadata.
+  - Added `RegisteredProviderTarget` and explicit-target registry builders.
+  - Added `select_remote_target(...)` for registry-backed target resolution.
+  - Added `execute_remote_with_registry_and_record(...)` as a host-facing
+    wrapper over target selection plus remote execution.
+  - Updated acceptance coverage so the remote path now proves registry-based
+    target selection instead of a prebuilt `ProviderTarget`.
+- 2026-03-08: Target-selection verification passed with:
+  - `cargo fmt --manifest-path emily-membrane/Cargo.toml`
+  - `cargo test --manifest-path emily-membrane/Cargo.toml -q --offline`
+  - `cargo clippy --manifest-path emily-membrane/Cargo.toml --all-targets --offline -- -D warnings`
+  - `cargo test --manifest-path emily-membrane/Cargo.toml -q --offline --features pantograph`
+  - `cargo clippy --manifest-path emily-membrane/Cargo.toml --all-targets --offline --features pantograph -- -D warnings`
 
 ## Commit Cadence Notes
 
