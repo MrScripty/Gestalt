@@ -11,6 +11,7 @@ Application source modules for Gestalt's state model, command library, terminal 
 | `commands/` | Insert-command models, matching, and validation helpers |
 | `emily_bridge.rs` | Gestalt adapter for Emily memory ingest/query APIs |
 | `emily_inspect/` | Deterministic Emily inspection helpers for host-side diagnostics |
+| `emily_membrane_dev.rs` | Dev-only membrane execution helpers for controlled Gestalt host flows |
 | `emily_seed/` | Deterministic Emily seed corpus helpers for diagnostics and acceptance tests |
 | `local_agent_context.rs` | Host-side Emily-backed prompt assembly for the local-agent flow |
 | `local_agent_episode.rs` | Host-side Emily episode recording and gate interpretation for local-agent runs |
@@ -32,6 +33,7 @@ Application source modules for Gestalt's state model, command library, terminal 
 - `terminal` should avoid redundant scrollback cloning on hot PTY read and resize paths; snapshot rebuild work should use locked line views where possible before publishing a new immutable snapshot.
 - `emily_bridge` adapts terminal line events into Emily generic text objects.
 - `emily_inspect` gathers deterministic host-side snapshots from Emily public reads for debug loops.
+- `emily_membrane_dev` hosts development-only membrane runs against isolated Emily databases and inspects the resulting sovereign artifacts.
 - `emily_seed` owns synthetic host-side Emily fixture datasets and seeds them only through Emily public facades.
 - `local_agent_context` keeps Emily-backed local-agent prompt assembly out of the Dioxus component layer and preserves the human-entered command separately from the dispatched prompt payload.
 - `local_agent_episode` records real local-agent actions as Emily episodes and interprets episode plus EARL state into a narrow host-facing gate.
@@ -45,5 +47,5 @@ Application source modules for Gestalt's state model, command library, terminal 
 - `persistence` is isolated infrastructure with a versioned schema.
 
 ## Dependencies
-**Internal:** `commands`, `state`, `terminal`, `emily_bridge`, `emily_inspect`, `emily_seed`, `local_agent_context`, `local_agent_episode`, `orchestrator`, `orchestration_log`, `run_checkpoints`, `git`, `persistence`  
-**External:** `dioxus`, `portable-pty`, `vt100`, `serde`, `emily`, `rusqlite`
+**Internal:** `commands`, `state`, `terminal`, `emily_bridge`, `emily_inspect`, `emily_membrane_dev`, `emily_seed`, `local_agent_context`, `local_agent_episode`, `orchestrator`, `orchestration_log`, `run_checkpoints`, `git`, `persistence`  
+**External:** `dioxus`, `portable-pty`, `vt100`, `serde`, `emily`, `emily-membrane`, `rusqlite`

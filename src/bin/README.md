@@ -7,6 +7,7 @@
 | File/Folder | Description |
 | ----------- | ----------- |
 | `emily_inspect.rs` | Deterministic Emily inspection runner for seeded or live local DBs |
+| `emily_membrane_dev.rs` | Dev-only membrane execution runner for controlled local Gestalt flows |
 | `emily_seed.rs` | Deterministic Emily seed corpus runner for local diagnostics and host acceptance prep |
 | `profile_terminal.rs` | PTY input latency profiling utility |
 
@@ -41,4 +42,5 @@ None.
 cargo run --bin profile_terminal
 cargo run --bin emily_seed -- --reset
 cargo run --bin emily_inspect -- --dataset synthetic-agent-round --reseed --reset --query "provider registry"
+GESTALT_ENABLE_MEMBRANE_DEV=1 cargo run --bin emily_membrane_dev -- --reseed --reset
 ```

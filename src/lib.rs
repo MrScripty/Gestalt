@@ -4,6 +4,8 @@ pub mod commands;
 pub mod emily_bridge;
 /// Deterministic Emily inspection helpers for host-side diagnostics.
 pub mod emily_inspect;
+/// Dev-only membrane execution helpers for controlled Gestalt host flows.
+pub mod emily_membrane_dev;
 /// Deterministic Emily seed corpus support for diagnostics and host acceptance tests.
 pub mod emily_seed;
 /// Git repository query and mutation services.
