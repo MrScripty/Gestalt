@@ -13,8 +13,9 @@ use emily::{
 };
 use emily_membrane::contracts::{
     ContextFragment, MembraneRouteKind, MembraneTaskRequest, MembraneValidationDisposition,
-    RemoteExecutionPersistence, RemoteRoutingPreference, RoutingPlan, RoutingPolicyFindingSeverity,
-    RoutingPolicyOutcome, RoutingPolicyRequest, RoutingSensitivity, ValidationEnvelope,
+    PolicyExecutionPersistence, RemoteExecutionPersistence, RemoteRoutingPreference, RoutingPlan,
+    RoutingPolicyFindingSeverity, RoutingPolicyOutcome, RoutingPolicyRequest, RoutingSensitivity,
+    ValidationEnvelope,
 };
 use emily_membrane::providers::{
     InMemoryProviderRegistry, MembraneProvider, MembraneProviderError, ProviderDispatchRequest,
@@ -993,5 +994,56 @@ async fn execute_remote_with_policy_and_record_returns_policy_only_for_rejected_
         .expect("execute policy-selected route");
 
     assert_eq!(result.policy.outcome, RoutingPolicyOutcome::Rejected);
+    assert!(result.remote_execution.is_none());
+}
+
+#[tokio::test]
+async fn execute_with_policy_and_record_returns_policy_only_for_rejected_route() {
+    let registry = Arc::new(InMemoryProviderRegistry::with_targets([(
+        RegisteredProviderTarget {
+            target: ProviderTarget {
+                provider_id: "provider-a".into(),
+                model_id: Some("model-a".into()),
+                profile_id: Some("reasoning".into()),
+                capability_tags: vec!["analysis".into()],
+                metadata: serde_json::json!({}),
+            },
+        },
+        Arc::new(StubProvider {
+            provider_id: "provider-a",
+        }) as Arc<dyn MembraneProvider>,
+    )]));
+    let runtime = MembraneRuntime::with_provider_registry(
+        Arc::new(StubEmilyApi::with_latest_earl(emily::EarlDecision::Reflex)),
+        registry,
+    );
+
+    let result = runtime
+        .execute_with_policy_and_record(
+            MembraneTaskRequest {
+                task_id: "task-1".into(),
+                episode_id: "episode-1".into(),
+                task_text: "remote task".into(),
+                context_fragments: Vec::new(),
+                allow_remote: true,
+            },
+            RoutingPolicyRequest {
+                task_id: "task-1".into(),
+                episode_id: "episode-1".into(),
+                allow_remote: true,
+                sensitivity: RoutingSensitivity::Normal,
+                preference: RemoteRoutingPreference {
+                    provider_id: None,
+                    profile_id: Some("reasoning".into()),
+                    required_capability_tags: vec!["analysis".into()],
+                },
+            },
+            PolicyExecutionPersistence::default(),
+        )
+        .await
+        .expect("execute broader policy path");
+
+    assert_eq!(result.policy.outcome, RoutingPolicyOutcome::Rejected);
+    assert!(result.local_execution.is_none());
     assert!(result.remote_execution.is_none());
 }

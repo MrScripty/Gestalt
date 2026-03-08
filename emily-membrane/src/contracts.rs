@@ -272,6 +272,24 @@ pub struct PolicySelectedRemoteExecution {
     pub remote_execution: Option<RemoteExecutionRecord>,
 }
 
+/// Persistence payloads required for broader policy-selected execution.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct PolicyExecutionPersistence {
+    #[serde(default)]
+    pub local: Option<LocalExecutionPersistence>,
+    #[serde(default)]
+    pub remote: Option<RemoteExecutionPersistence>,
+}
+
+/// Result of evaluating routing policy and executing the selected local or
+/// remote path when allowed.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PolicySelectedExecution {
+    pub policy: RoutingPolicyResult,
+    pub local_execution: Option<LocalExecutionRecord>,
+    pub remote_execution: Option<RemoteExecutionRecord>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -633,5 +651,86 @@ mod tests {
         let restored: RemoteExecutionPersistence =
             serde_json::from_str(&text).expect("deserialize remote execution persistence");
         assert_eq!(restored, persistence);
+    }
+
+    #[test]
+    fn policy_selected_execution_contracts_roundtrip() {
+        let persistence = PolicyExecutionPersistence {
+            local: Some(LocalExecutionPersistence {
+                route_decision_id: "route-local-1".into(),
+                route_decided_at_unix_ms: 10,
+                validation_id: "validation-local-1".into(),
+                validated_at_unix_ms: 11,
+            }),
+            remote: Some(RemoteExecutionPersistence {
+                route_decision_id: "route-remote-1".into(),
+                route_decided_at_unix_ms: 20,
+                provider_request_id: "provider-request-1".into(),
+                remote_episode_id: "remote-1".into(),
+                remote_dispatched_at_unix_ms: 21,
+                validation_id: "validation-remote-1".into(),
+                validated_at_unix_ms: 22,
+            }),
+        };
+        let text =
+            serde_json::to_string(&persistence).expect("serialize policy execution persistence");
+        let restored: PolicyExecutionPersistence =
+            serde_json::from_str(&text).expect("deserialize policy execution persistence");
+        assert_eq!(restored, persistence);
+
+        let record = PolicySelectedExecution {
+            policy: RoutingPolicyResult {
+                task_id: "task-1".into(),
+                outcome: RoutingPolicyOutcome::LocalOnly,
+                caution: false,
+                selected_target: None,
+                findings: Vec::new(),
+                rationale: Some("local path selected".into()),
+            },
+            local_execution: Some(LocalExecutionRecord {
+                compile: CompileResult {
+                    compiled_task: CompiledMembraneTask {
+                        task_id: "task-1".into(),
+                        episode_id: "episode-1".into(),
+                        bounded_prompt: "bounded prompt".into(),
+                        context_fragment_ids: Vec::new(),
+                    },
+                    truncated: false,
+                },
+                route: RoutingPlan {
+                    task_id: "task-1".into(),
+                    decision: MembraneRouteKind::LocalOnly,
+                    targets: Vec::new(),
+                    rationale: Some("local route".into()),
+                },
+                dispatch: DispatchResult {
+                    task_id: "task-1".into(),
+                    route: MembraneRouteKind::LocalOnly,
+                    status: DispatchStatus::LocalCompleted,
+                    response_text: "LOCAL: bounded prompt".into(),
+                    remote_reference: None,
+                },
+                validation: ValidationEnvelope {
+                    task_id: "task-1".into(),
+                    disposition: MembraneValidationDisposition::Accepted,
+                    findings: Vec::new(),
+                    validated_text: Some("LOCAL: bounded prompt".into()),
+                },
+                reconstruction: ReconstructionResult {
+                    task_id: "task-1".into(),
+                    output_text: "LOCAL: bounded prompt".into(),
+                    references: Vec::new(),
+                    caution: false,
+                },
+                route_decision_id: "route-local-1".into(),
+                validation_id: "validation-local-1".into(),
+            }),
+            remote_execution: None,
+        };
+        let text =
+            serde_json::to_string(&record).expect("serialize policy selected execution record");
+        let restored: PolicySelectedExecution =
+            serde_json::from_str(&text).expect("deserialize policy selected execution record");
+        assert_eq!(restored, record);
     }
 }

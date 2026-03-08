@@ -2,7 +2,10 @@ use emily::api::EmilyApi;
 use emily::runtime::EmilyRuntime;
 use emily::store::surreal::SurrealEmilyStore;
 use emily::{CreateEpisodeRequest, DatabaseLocator, EpisodeState};
-use emily_membrane::contracts::{LocalExecutionPersistence, MembraneTaskRequest};
+use emily_membrane::contracts::{
+    LocalExecutionPersistence, MembraneTaskRequest, PolicyExecutionPersistence,
+    RoutingPolicyOutcome, RoutingPolicyRequest, RoutingSensitivity,
+};
 use emily_membrane::runtime::MembraneRuntime;
 use serde_json::json;
 use std::sync::Arc;
@@ -105,6 +108,66 @@ async fn local_only_execution_records_route_validation_and_audits_idempotently()
     assert_eq!(validations.len(), 1);
     assert_eq!(audits.len(), 2);
     assert_eq!(episode.state, EpisodeState::Open);
+
+    emily.close_db().await.expect("close db");
+    let _ = std::fs::remove_dir_all(locator.storage_path);
+}
+
+#[tokio::test]
+async fn broader_policy_execution_runs_local_path_and_records_sovereign_state() {
+    let store = Arc::new(SurrealEmilyStore::new());
+    let emily = Arc::new(EmilyRuntime::new(store));
+    let runtime = MembraneRuntime::new(emily.clone());
+    let locator = locator();
+
+    emily.open_db(locator.clone()).await.expect("open db");
+    emily
+        .create_episode(episode_request())
+        .await
+        .expect("create episode");
+
+    let result = runtime
+        .execute_with_policy_and_record(
+            task_request(),
+            RoutingPolicyRequest {
+                task_id: "task-local-1".to_string(),
+                episode_id: "ep-membrane-local".to_string(),
+                allow_remote: false,
+                sensitivity: RoutingSensitivity::Normal,
+                preference: emily_membrane::contracts::RemoteRoutingPreference {
+                    provider_id: None,
+                    profile_id: None,
+                    required_capability_tags: Vec::new(),
+                },
+            },
+            PolicyExecutionPersistence {
+                local: Some(persistence()),
+                remote: None,
+            },
+        )
+        .await
+        .expect("execute broader policy path");
+
+    assert_eq!(result.policy.outcome, RoutingPolicyOutcome::LocalOnly);
+    assert!(result.local_execution.is_some());
+    assert!(result.remote_execution.is_none());
+
+    let routes = emily
+        .routing_decisions_for_episode("ep-membrane-local")
+        .await
+        .expect("list routes");
+    let validations = emily
+        .validation_outcomes_for_episode("ep-membrane-local")
+        .await
+        .expect("list validations");
+    let audits = emily
+        .sovereign_audit_records_for_episode("ep-membrane-local")
+        .await
+        .expect("list audits");
+
+    assert_eq!(routes.len(), 1);
+    assert_eq!(validations.len(), 1);
+    assert_eq!(audits.len(), 2);
 
     emily.close_db().await.expect("close db");
     let _ = std::fs::remove_dir_all(locator.storage_path);

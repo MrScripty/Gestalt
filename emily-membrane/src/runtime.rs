@@ -3,7 +3,8 @@
 use crate::contracts::{
     CompileResult, CompiledMembraneTask, DispatchResult, DispatchStatus, LocalExecutionPersistence,
     LocalExecutionRecord, MembraneRouteKind, MembraneTaskRequest, MembraneValidationDisposition,
-    ReconstructionResult, RoutingPlan, ValidationEnvelope, ValidationFinding,
+    PolicyExecutionPersistence, PolicySelectedExecution, ReconstructionResult, RoutingPlan,
+    RoutingPolicyOutcome, RoutingPolicyRequest, ValidationEnvelope, ValidationFinding,
 };
 use crate::providers::{
     InMemoryProviderRegistry, MembraneProvider, MembraneProviderError, MembraneProviderRegistry,
@@ -340,6 +341,62 @@ where
             validation_id: validation_outcome.validation_id,
         })
     }
+
+    /// Evaluate routing policy and execute the selected local or remote path
+    /// through the existing write flows.
+    pub async fn execute_with_policy_and_record(
+        &self,
+        request: MembraneTaskRequest,
+        policy_request: RoutingPolicyRequest,
+        persistence: PolicyExecutionPersistence,
+    ) -> Result<PolicySelectedExecution, MembraneRuntimeError> {
+        validate_policy_task_alignment(&request, &policy_request)?;
+
+        let policy = self.evaluate_routing_policy(policy_request).await?;
+
+        match policy.outcome {
+            RoutingPolicyOutcome::LocalOnly => {
+                let local_persistence = persistence.local.ok_or_else(|| {
+                    MembraneRuntimeError::InvalidRequest(
+                        "policy-selected local execution requires local persistence".to_string(),
+                    )
+                })?;
+                let local_execution = self
+                    .execute_local_only_and_record(request, local_persistence)
+                    .await?;
+                Ok(PolicySelectedExecution {
+                    policy,
+                    local_execution: Some(local_execution),
+                    remote_execution: None,
+                })
+            }
+            RoutingPolicyOutcome::SingleRemote => {
+                let remote_persistence = persistence.remote.ok_or_else(|| {
+                    MembraneRuntimeError::InvalidRequest(
+                        "policy-selected remote execution requires remote persistence".to_string(),
+                    )
+                })?;
+                let target = policy.selected_target.clone().ok_or_else(|| {
+                    MembraneRuntimeError::InvalidState(
+                        "policy-selected remote execution requires a selected target".to_string(),
+                    )
+                })?;
+                let remote_execution = self
+                    .execute_remote_and_record(request, target, remote_persistence)
+                    .await?;
+                Ok(PolicySelectedExecution {
+                    policy,
+                    local_execution: None,
+                    remote_execution: Some(remote_execution),
+                })
+            }
+            RoutingPolicyOutcome::Rejected => Ok(PolicySelectedExecution {
+                policy,
+                local_execution: None,
+                remote_execution: None,
+            }),
+        }
+    }
 }
 
 fn bounded_prompt(request: &MembraneTaskRequest) -> String {
@@ -373,6 +430,28 @@ fn validate_local_persistence(
         return Err(MembraneRuntimeError::InvalidRequest(
             "validated_at_unix_ms must be greater than or equal to route_decided_at_unix_ms"
                 .to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_policy_task_alignment(
+    request: &MembraneTaskRequest,
+    policy_request: &RoutingPolicyRequest,
+) -> Result<(), MembraneRuntimeError> {
+    if request.task_id != policy_request.task_id {
+        return Err(MembraneRuntimeError::InvalidRequest(
+            "policy-selected execution requires matching task_id values".to_string(),
+        ));
+    }
+    if request.episode_id != policy_request.episode_id {
+        return Err(MembraneRuntimeError::InvalidRequest(
+            "policy-selected execution requires matching episode_id values".to_string(),
+        ));
+    }
+    if request.allow_remote != policy_request.allow_remote {
+        return Err(MembraneRuntimeError::InvalidRequest(
+            "policy-selected execution requires matching allow_remote values".to_string(),
         ));
     }
     Ok(())
