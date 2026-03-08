@@ -293,10 +293,10 @@ introducing opaque heuristics.
 behavior.
 
 **Tasks:**
-- [ ] Add multi-target routing and result DTOs
-- [ ] Define bounded fanout and reconciliation rules
-- [ ] Keep lifecycle and cancellation explicit
-- [ ] Persist durable route/remote/validation/audit records through Emily
+- [x] Add multi-target routing and result DTOs
+- [x] Define bounded fanout and reconciliation rules
+- [x] Keep lifecycle and cancellation explicit
+- [x] Persist durable route/remote/validation/audit records through Emily
   without inventing a second durability system
 
 **Verification:**
@@ -304,6 +304,8 @@ behavior.
 - `cargo clippy --all-targets -- -D warnings`
 - `cargo test -q`
 - acceptance tests for bounded multi-target execution and reconciliation
+
+**Status:** Completed on 2026-03-08 via `feat(emily-membrane): add multi-target execution`.
 
 ### Milestone 11: Deeper Reconstruction
 
