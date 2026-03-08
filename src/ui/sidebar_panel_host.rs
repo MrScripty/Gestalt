@@ -59,6 +59,7 @@ pub(crate) fn SidebarPanelHost(
                                         ui_state: ui_state,
                                         terminal_manager: terminal_manager,
                                         group_id: group_id,
+                                        git_refresh_nonce: git_refresh_nonce,
                                         group_orchestrator: group_orchestrator,
                                     }
                                 }
