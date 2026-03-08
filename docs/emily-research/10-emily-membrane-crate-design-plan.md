@@ -275,7 +275,7 @@ provider-specific runtime behavior.
 - `cargo test -q`
 - review crate README and package boundary against `ARCHITECTURE-PATTERNS.md`
 
-**Status:** Not started
+**Status:** Completed on 2026-03-08 through Milestone 1 implementation commits
 
 ### Milestone 2: Local-Only Membrane Path
 
@@ -296,7 +296,7 @@ dispatch.
 - `cargo test -q`
 - acceptance test from membrane facade input to Emily sovereign writes
 
-**Status:** Not started
+**Status:** Completed on 2026-03-08 through Milestone 1 local-only runtime commits
 
 ### Milestone 3: First Remote Dispatch Adapter
 
