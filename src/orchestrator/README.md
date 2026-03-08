@@ -45,6 +45,7 @@ starts, while keeping autosave worker state outside presentation code.
 - Startup/session helpers may own coordination state, but UI remains responsible for rendering and transient signals.
 - Autosave coordination may debounce and defer requests, but persistence payload construction remains typed and deterministic.
 - Local-agent run start owns checkpoint capture sequencing; UI callers do not create checkpoints directly.
+- Durable receipt status is derived strictly from per-session write outcomes at finalize time.
 
 ## Revisit Triggers
 - External API/IPC layer is introduced.

@@ -594,7 +594,25 @@ fn split_prompt_prefix(line: &str) -> Option<(&str, &str)> {
 
 #[cfg(test)]
 mod tests {
-    use super::latest_round_from_lines;
+    use super::{SessionWriteResult, finalize_group_write, latest_round_from_lines};
+    use crate::orchestration_log::{
+        OrchestrationLogStore, ReceiptPayload, ReceiptStatus, TimelineEntry,
+    };
+    use std::path::PathBuf;
+    use std::sync::{Mutex, OnceLock};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn unique_db_path(name: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |duration| duration.as_nanos());
+        std::env::temp_dir().join(format!("gestalt-{name}-{nonce}.sqlite3"))
+    }
 
     #[test]
     fn latest_round_starts_on_last_prompt_row() {
@@ -625,5 +643,149 @@ mod tests {
         assert_eq!(round.start_row, 1);
         assert_eq!(round.end_row, 2);
         assert_eq!(round.lines[0], "$ cargo check");
+    }
+
+    #[test]
+    fn finalize_group_write_records_succeeded_receipt_when_all_sessions_succeed() {
+        let _guard = env_lock().lock().expect("env lock");
+        let path = unique_db_path("runtime-receipt-success");
+        let store = OrchestrationLogStore::new(path.clone());
+        let command_id = "cmd-success";
+        let started_at = 1000;
+
+        store
+            .record_command(crate::orchestration_log::NewCommandRecord {
+                command_id: command_id.to_string(),
+                timeline_id: command_id.to_string(),
+                requested_at_unix_ms: started_at,
+                recorded_at_unix_ms: started_at,
+                payload: crate::orchestration_log::CommandPayload::BroadcastSendLine {
+                    group_id: 1,
+                    group_path: "/tmp/runtime".to_string(),
+                    session_ids: vec![7, 8],
+                    line: "cargo test".to_string(),
+                },
+            })
+            .expect("command should record");
+
+        finalize_group_write(
+            &store,
+            command_id,
+            &[
+                SessionWriteResult {
+                    session_id: 7,
+                    error: None,
+                },
+                SessionWriteResult {
+                    session_id: 8,
+                    error: None,
+                },
+            ],
+            started_at,
+            ReceiptPayload::Broadcast {
+                ok_count: 0,
+                fail_count: 0,
+            },
+        );
+
+        let timeline = store
+            .load_timeline(command_id)
+            .expect("timeline should load");
+        match timeline.last().expect("receipt should exist") {
+            TimelineEntry::Receipt(receipt) => {
+                assert_eq!(receipt.status, ReceiptStatus::Succeeded);
+                assert!(matches!(
+                    receipt.payload,
+                    ReceiptPayload::Broadcast {
+                        ok_count: 2,
+                        fail_count: 0
+                    }
+                ));
+            }
+            other => panic!("expected receipt entry, got {other:?}"),
+        }
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn finalize_group_write_records_partial_receipt_when_results_mixed() {
+        let _guard = env_lock().lock().expect("env lock");
+        let path = unique_db_path("runtime-receipt-partial");
+        let store = OrchestrationLogStore::new(path.clone());
+        let command_id = "cmd-partial";
+        let started_at = 1000;
+
+        store
+            .record_command(crate::orchestration_log::NewCommandRecord {
+                command_id: command_id.to_string(),
+                timeline_id: command_id.to_string(),
+                requested_at_unix_ms: started_at,
+                recorded_at_unix_ms: started_at,
+                payload: crate::orchestration_log::CommandPayload::LocalAgentSendLine {
+                    group_id: 2,
+                    group_path: "/tmp/runtime".to_string(),
+                    session_ids: vec![3, 4],
+                    line: "cargo check".to_string(),
+                    run_id: Some("run-1".to_string()),
+                },
+            })
+            .expect("command should record");
+
+        finalize_group_write(
+            &store,
+            command_id,
+            &[
+                SessionWriteResult {
+                    session_id: 3,
+                    error: None,
+                },
+                SessionWriteResult {
+                    session_id: 4,
+                    error: Some("session unavailable".to_string()),
+                },
+            ],
+            started_at,
+            ReceiptPayload::LocalAgent {
+                ok_count: 0,
+                fail_count: 0,
+                action: "send_line".to_string(),
+            },
+        );
+
+        let timeline = store
+            .load_timeline(command_id)
+            .expect("timeline should load");
+        let failed_events = timeline
+            .iter()
+            .filter(|entry| {
+                matches!(
+                    entry,
+                    TimelineEntry::Event(event)
+                        if matches!(
+                            event.payload,
+                            crate::orchestration_log::EventPayload::BroadcastWriteFailed { .. }
+                        )
+                )
+            })
+            .count();
+        assert_eq!(failed_events, 1);
+
+        match timeline.last().expect("receipt should exist") {
+            TimelineEntry::Receipt(receipt) => {
+                assert_eq!(receipt.status, ReceiptStatus::PartiallySucceeded);
+                assert!(matches!(
+                    receipt.payload,
+                    ReceiptPayload::LocalAgent {
+                        ok_count: 1,
+                        fail_count: 1,
+                        ..
+                    }
+                ));
+            }
+            other => panic!("expected receipt entry, got {other:?}"),
+        }
+
+        let _ = std::fs::remove_file(path);
     }
 }
