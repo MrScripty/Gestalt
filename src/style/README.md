@@ -22,6 +22,7 @@ The desktop UI needs cohesive styling with clear ownership per panel, including 
 
 ## Decision
 Partition CSS by feature panel plus a base stylesheet for shared primitives so new sidebar surfaces can be added without growing one catch-all stylesheet.
+Shared theme tokens that are reused across tool-style auxiliary panels belong in `base.css`; panel files consume those tokens and keep only layout- or workflow-specific selectors locally.
 
 ## Alternatives Rejected
 - Inline style strings in components: rejected due to readability and reuse limits.
@@ -31,10 +32,12 @@ Partition CSS by feature panel plus a base stylesheet for shared primitives so n
 - Shared variables live in `base.css`.
 - Feature files scope panel-specific classes.
 - Run review styling stays in its own file instead of expanding `workspace.css` further.
+- Shared auxiliary tool-panel colors, borders, and control states are defined once in `base.css` instead of duplicated across panel files.
 
 ## Revisit Triggers
 - Styling duplication grows across files.
 - Theme system requires runtime switching.
+- More than one panel needs the same structural card primitives, indicating a reusable panel partial or naming scheme should replace ad hoc selectors.
 
 ## Dependencies
 **Internal:** `ui.rs` stylesheet concat  

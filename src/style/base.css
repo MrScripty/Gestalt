@@ -14,6 +14,32 @@
   --runner-blue-soft: #1a2840;
   --line: #2e4a3f;
   --line-strong: #3b5f50;
+  --tool-panel-surface-start: #f7fdfd;
+  --tool-panel-surface-end: #ebf7f8;
+  --tool-panel-surface-strong: #f4fbfc;
+  --tool-panel-surface-muted: #f3fafb;
+  --tool-panel-surface-disabled: #e3edf0;
+  --tool-panel-border: #a7cbd0;
+  --tool-panel-border-strong: #91bac1;
+  --tool-panel-divider: #cee4e7;
+  --tool-panel-divider-strong: #b8d4d9;
+  --tool-panel-heading: #174149;
+  --tool-panel-text: #2f5f67;
+  --tool-panel-text-strong: #13363d;
+  --tool-panel-text-muted: #49747d;
+  --tool-panel-control-bg: #e2eff1;
+  --tool-panel-control-border: #95b7be;
+  --tool-panel-control-text: #254249;
+  --tool-panel-control-bg-hover: #ebf5f7;
+  --tool-panel-control-border-hover: #7fa8b0;
+  --tool-panel-selected-border: #2f6fe4;
+  --tool-panel-selected-shadow: #2f6fe455;
+  --tool-panel-status-bg: #dce8ff;
+  --tool-panel-status-text: #1a3d78;
+  --tool-panel-warning-bg: #f2e2ba;
+  --tool-panel-warning-text: #5a4314;
+  --tool-panel-muted-tag-bg: #d7e1d7;
+  --tool-panel-muted-tag-text: #425442;
 }
 
 * {
