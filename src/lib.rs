@@ -2,6 +2,8 @@
 pub mod commands;
 /// Emily integration bridge for ingest/query APIs.
 pub mod emily_bridge;
+/// Deterministic Emily inspection helpers for host-side diagnostics.
+pub mod emily_inspect;
 /// Deterministic Emily seed corpus support for diagnostics and host acceptance tests.
 pub mod emily_seed;
 /// Git repository query and mutation services.
