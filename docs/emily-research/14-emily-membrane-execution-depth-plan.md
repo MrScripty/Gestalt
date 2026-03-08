@@ -202,21 +202,23 @@ That suggests the next depth sequence should be:
 typed membrane IR.
 
 **Tasks:**
-- [ ] Add membrane IR DTOs for:
+- [x] Add membrane IR DTOs for:
   - task payload
   - context handles
   - boundary metadata
   - optional reconstruction handles
-- [ ] Keep provider transport adapters translating from IR rather than owning
+- [x] Keep provider transport adapters translating from IR rather than owning
   the only meaningful task representation
-- [ ] Preserve current simple prompt compilation as one IR rendering mode
-- [ ] Add serde roundtrip and runtime acceptance tests
+- [x] Preserve current simple prompt compilation as one IR rendering mode
+- [x] Add serde roundtrip and runtime acceptance tests
 
 **Verification:**
 - `cargo fmt`
 - `cargo clippy --all-targets -- -D warnings`
 - `cargo test -q`
 - acceptance coverage from task request -> IR -> execution
+
+**Status:** Completed on 2026-03-08 via `feat(emily-membrane): add typed membrane ir`.
 
 ### Milestone 7: Stronger Local Validation
 
