@@ -77,28 +77,29 @@ and defer real provider adapters until after the local-only boundary is proven.
 ## Usage Examples
 
 ```rust
-use emily_membrane::contracts::{
-    MembraneTaskRequest,
-    MembraneValidationDisposition,
-    ValidationEnvelope,
-};
+use std::sync::Arc;
 
-let request = MembraneTaskRequest {
-    task_id: "task-1".into(),
-    episode_id: "episode-1".into(),
-    task_text: "Summarize the local context.".into(),
-    context_fragments: Vec::new(),
-    allow_remote: false,
-};
+use emily::EmilyApi;
+use emily_membrane::contracts::MembraneTaskRequest;
+use emily_membrane::runtime::MembraneRuntime;
 
-let validation = ValidationEnvelope {
-    task_id: request.task_id.clone(),
-    disposition: MembraneValidationDisposition::Accepted,
-    findings: Vec::new(),
-    validated_text: Some("Summarized response".into()),
-};
+async fn compile_locally(api: Arc<dyn EmilyApi>) {
+    let runtime = MembraneRuntime::new(api);
+    let request = MembraneTaskRequest {
+        task_id: "task-1".into(),
+        episode_id: "episode-1".into(),
+        task_text: "Summarize the local context.".into(),
+        context_fragments: Vec::new(),
+        allow_remote: false,
+    };
 
-assert_eq!(validation.task_id, request.task_id);
+    let compiled = runtime.compile(request).await.expect("compile");
+    let route = runtime.route(&compiled).await.expect("route");
+    assert!(matches!(
+        route.decision,
+        emily_membrane::contracts::MembraneRouteKind::LocalOnly
+    ));
+}
 ```
 
 ## API Consumer Contract
@@ -106,10 +107,10 @@ assert_eq!(validation.task_id, request.task_id);
 - The public surface is intentionally narrow in this slice.
 - `contracts` now exposes typed DTOs for task input, compile results, routing,
   dispatch, validation, and reconstruction.
-- `runtime` remains a placeholder until Milestone 1C lands.
+- `runtime` exposes a minimal local-only facade above an injected `EmilyApi`.
 - Compatibility policy for this crate will be append-only while the initial
   membrane boundary is stabilized.
-- Revisit trigger: the first real runtime facade lands.
+- Revisit trigger: the first provider-backed adapter lands.
 
 ## Structured Producer Contract
 

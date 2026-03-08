@@ -987,9 +987,11 @@ dependencies = [
 name = "emily-membrane"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "emily",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]

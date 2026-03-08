@@ -13,7 +13,7 @@ allowing the membrane to depend on Emily's public APIs.
 | ----------- | ----------- |
 | `lib.rs` | Crate exports and top-level membrane boundary |
 | `contracts.rs` | Executable membrane DTOs for task, compile, route, dispatch, validation, and reconstruction |
-| `runtime.rs` | Placeholder module for the future membrane runtime facade |
+| `runtime.rs` | Minimal local-only membrane runtime facade with an internal deterministic adapter |
 
 ## Problem
 
@@ -70,24 +70,37 @@ until those responsibilities become real in code.
 ## Usage Examples
 
 ```rust
-use emily_membrane::contracts::{MembraneRouteKind, RoutingPlan};
+use std::sync::Arc;
 
-let plan = RoutingPlan {
-    task_id: "task-1".into(),
-    decision: MembraneRouteKind::LocalOnly,
-    targets: Vec::new(),
-    rationale: Some("remote execution disabled".into()),
-};
+use emily::EmilyApi;
+use emily_membrane::contracts::MembraneTaskRequest;
+use emily_membrane::runtime::MembraneRuntime;
 
-assert!(matches!(plan.decision, MembraneRouteKind::LocalOnly));
+async fn run_local(api: Arc<dyn EmilyApi>) {
+    let runtime = MembraneRuntime::new(api);
+    let compiled = runtime
+        .compile(MembraneTaskRequest {
+            task_id: "task-1".into(),
+            episode_id: "episode-1".into(),
+            task_text: "Local-only task".into(),
+            context_fragments: Vec::new(),
+            allow_remote: false,
+        })
+        .await
+        .expect("compile");
+    let route = runtime.route(&compiled).await.expect("route");
+    let dispatch = runtime.dispatch_local(&compiled, &route).await.expect("dispatch");
+    let validation = runtime.validate(&dispatch).await.expect("validate");
+    let result = runtime.reconstruct(&validation).await.expect("reconstruct");
+    assert!(result.output_text.starts_with("LOCAL: "));
+}
 ```
 
 ## API Consumer Contract
 
 - `contracts.rs` now exposes the first stable DTO families for Milestone 1.
-- `runtime.rs` remains pre-contract until the membrane facade lands in Milestone
-  1C.
-- Revisit trigger: the first public membrane runtime method lands.
+- `runtime.rs` now exposes the first local-only membrane facade above `EmilyApi`.
+- Revisit trigger: the first provider-backed runtime path lands.
 
 ## Structured Producer Contract
 
