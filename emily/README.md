@@ -55,7 +55,10 @@ crate to one membrane or transport runtime.
 
 Routing, remote-episode, and validation writes now generate deterministic
 sovereign audit records automatically. Hosts can still append explicit
-sovereign audits for additional boundary events or annotations.
+sovereign audits for additional boundary events or annotations. Automatic
+generation is intentionally limited to write-side lifecycle events for now;
+read/query access does not emit sovereign audits until a real boundary-crossing
+host flow requires it.
 
 ## Host Responsibilities
 

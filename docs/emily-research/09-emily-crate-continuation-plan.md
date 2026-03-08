@@ -335,6 +335,9 @@ Update during implementation:
   - `cae97c7` `feat(emily): expose sovereign record queries`
 - 2026-03-08: Follow-on automatic sovereign audit slice completed through one commit:
   - `ff1db62` `feat(emily): auto-generate sovereign audits`
+- 2026-03-08: Sovereign audit scope decision recorded:
+  - automatic audit generation remains write-side only for now
+  - read/query access remains unaudited until a real boundary-crossing host flow requires it
 
 ## Commit Cadence Notes
 
@@ -382,7 +385,6 @@ Update during implementation:
 ### Follow-Ups
 
 - Decide whether the next sovereign slice belongs inside `emily` as richer policy/runtime behavior or in a sibling membrane crate.
-- Decide whether automatic sovereign audits should remain limited to write-side lifecycle events or also cover future read/query-side boundary events.
 - Decide whether future sovereign record types should inherit automatic audit generation by default inside `emily`.
 - Decide whether Emily should keep the current explicit sovereign query facade or later add generic query primitives above the same persisted records.
 
