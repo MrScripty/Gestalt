@@ -10,6 +10,7 @@ mod local_agent_panel;
 mod notes_panel;
 mod run_sidebar_panel_host;
 mod sidebar_panel_host;
+mod state;
 mod tab_rail;
 mod terminal_input;
 mod terminal_view;
@@ -26,8 +27,6 @@ use crate::resource_monitor::{RESOURCE_POLL_MS, ResourceSnapshot, sample_resourc
 use crate::state::{SessionId, SessionStatus, clamp_ui_scale};
 use crate::terminal::{PersistedTerminalState, TerminalManager, TerminalMemorySink};
 use crate::ui::git_refresh::use_git_refresh_coordinator;
-use crate::ui::insert_command_mode::InsertModeState;
-use crate::ui::sidebar_panel_host::SidebarPanelKind;
 use crate::ui::tab_rail::TabRail;
 use crate::ui::terminal_input::measure_terminal_viewport;
 use crate::ui::workspace::WorkspaceMain;
@@ -57,12 +56,7 @@ const RAIL_SPLIT_STEP_PX: i32 = 16;
 const SHELL_SPLITTER_SIZE_PX: i32 = 8;
 const GUI_SCALE_STEP: f64 = 0.1;
 
-#[derive(Debug, Clone, Copy, Default)]
-pub(crate) struct TerminalHistoryState {
-    pub before_sequence: Option<u64>,
-    pub is_loading: bool,
-    pub exhausted: bool,
-}
+pub(crate) use state::{TerminalHistoryState, UiState};
 
 /// Root desktop UI component.
 #[component]
@@ -132,14 +126,10 @@ pub fn App() -> Element {
         })
     };
     let new_group_path = use_signal(String::new);
-    let persistence_feedback = use_signal(String::new);
+    let ui_state = use_signal(UiState::default);
     let autosave_dirty_notify = use_signal(|| Arc::new(tokio::sync::Notify::new()));
     let git_refresh_notify = use_signal(|| Arc::new(tokio::sync::Notify::new()));
     let refresh_tick = use_signal(|| 0_u64);
-    let focused_terminal = use_signal(|| None::<SessionId>);
-    let round_anchor = use_signal(|| None::<(SessionId, u16)>);
-    let local_agent_command = use_signal(String::new);
-    let local_agent_feedback = use_signal(String::new);
     let renaming_tab = use_signal(|| None::<SessionId>);
     let rename_draft = use_signal(String::new);
     let mut rail_width_px = use_signal(|| RAIL_WIDTH_DEFAULT_PX);
@@ -147,11 +137,6 @@ pub fn App() -> Element {
     let git_context = use_signal(|| None::<RepoContext>);
     let git_context_loading = use_signal(|| false);
     let git_refresh_nonce = use_signal(|| 0_u64);
-    let sidebar_panel = use_signal(|| SidebarPanelKind::Commands);
-    let sidebar_open = use_signal(|| true);
-    let insert_mode_state = use_signal(|| None::<InsertModeState>);
-    let terminal_history_state =
-        use_signal(std::collections::HashMap::<SessionId, TerminalHistoryState>::new);
     let mut embedding_settings_open = use_signal(|| false);
     let mut embedding_profile_draft = use_signal(String::new);
     let mut embedding_feedback = use_signal(String::new);
@@ -345,7 +330,7 @@ pub fn App() -> Element {
         let terminal_manager = terminal_manager.read().clone();
         let emily_bridge = emily_bridge.read().clone();
         let mut restored_terminals = restored_terminals;
-        let mut terminal_history_state = terminal_history_state;
+        let mut shared_ui_state = ui_state;
         let startup_notify = startup_notify.read().clone();
         use_future(move || {
             let terminal_manager = terminal_manager.clone();
@@ -376,12 +361,13 @@ pub fn App() -> Element {
                         .iter()
                         .map(|session| session.id)
                         .collect::<HashSet<_>>();
-                    terminal_history_state
+                    shared_ui_state
                         .write()
+                        .terminal_history_by_session
                         .retain(|session_id, _| active_session_ids.contains(session_id));
 
                     apply_history_load_updates(
-                        terminal_history_state,
+                        shared_ui_state,
                         startup_coordinator
                             .load_pending_history(
                                 snapshot.workspace_state(),
@@ -399,7 +385,7 @@ pub fn App() -> Element {
                             &mut restored,
                         )
                     };
-                    apply_history_load_updates(terminal_history_state, result.history_updates);
+                    apply_history_load_updates(shared_ui_state, result.history_updates);
 
                     if !result.failed_session_ids.is_empty() {
                         let mut state = app_state_signal.write();
@@ -416,7 +402,7 @@ pub fn App() -> Element {
         let terminal_manager = terminal_manager.read().clone();
         let autosave_worker = autosave_worker.read().clone();
         let autosave_dirty_notify = autosave_dirty_notify.read().clone();
-        let persistence_feedback = persistence_feedback;
+        let shared_ui_state = ui_state;
         use_future(move || {
             let terminal_manager = terminal_manager.clone();
             let autosave_worker = autosave_worker.clone();
@@ -431,7 +417,7 @@ pub fn App() -> Element {
                             result = autosave_worker.recv_result() => {
                                 if let Some(result) = result {
                                     apply_autosave_feedback(
-                                        persistence_feedback,
+                                        shared_ui_state,
                                         autosave_controller.handle_worker_result(&autosave_worker, result),
                                     );
                                 }
@@ -455,7 +441,7 @@ pub fn App() -> Element {
                             }
                             _ = tokio::time::sleep_until(deadline) => {
                                 apply_autosave_feedback(
-                                    persistence_feedback,
+                                    shared_ui_state,
                                     autosave_controller
                                         .flush_if_due(app_state.read().clone(), terminal_manager.clone(), &autosave_worker)
                                         .await,
@@ -467,7 +453,7 @@ pub fn App() -> Element {
                             result = autosave_worker.recv_result() => {
                                 if let Some(result) = result {
                                     apply_autosave_feedback(
-                                        persistence_feedback,
+                                        shared_ui_state,
                                         autosave_controller.handle_worker_result(&autosave_worker, result),
                                     );
                                 }
@@ -593,23 +579,15 @@ pub fn App() -> Element {
 
             WorkspaceMain {
                 app_state: app_state,
+                ui_state: ui_state,
                 emily_bridge: emily_bridge,
                 vectorization_status: vectorization_status,
                 terminal_manager: terminal_manager,
                 resource_snapshot: resource_snapshot,
-                focused_terminal: focused_terminal,
-                round_anchor: round_anchor,
-                terminal_history_state: terminal_history_state,
-                local_agent_command: local_agent_command,
-                local_agent_feedback: local_agent_feedback,
-                persistence_feedback: persistence_feedback,
                 refresh_tick: refresh_tick,
                 git_context: git_context,
                 git_context_loading: git_context_loading,
                 git_refresh_nonce: git_refresh_nonce,
-                sidebar_panel: sidebar_panel,
-                sidebar_open: sidebar_open,
-                insert_mode_state: insert_mode_state,
                 on_open_embedding_settings: move |_| {
                     let status = vectorization_status.read().clone();
                     embedding_profile_draft.set(status.config.profile_id.clone());
@@ -837,16 +815,16 @@ pub fn App() -> Element {
 }
 
 fn apply_history_load_updates(
-    mut terminal_history_state: Signal<HashMap<SessionId, TerminalHistoryState>>,
+    mut ui_state: Signal<UiState>,
     updates: Vec<orchestrator::HistoryLoadUpdate>,
 ) {
     if updates.is_empty() {
         return;
     }
 
-    let mut history_state = terminal_history_state.write();
+    let mut state = ui_state.write();
     for update in updates {
-        history_state.insert(
+        state.terminal_history_by_session.insert(
             update.session_id,
             TerminalHistoryState {
                 before_sequence: update.state.before_sequence,
@@ -857,11 +835,11 @@ fn apply_history_load_updates(
     }
 }
 
-fn apply_autosave_feedback(mut persistence_feedback: Signal<String>, feedback: AutosaveFeedback) {
+fn apply_autosave_feedback(mut ui_state: Signal<UiState>, feedback: AutosaveFeedback) {
     match feedback {
         AutosaveFeedback::Unchanged => {}
-        AutosaveFeedback::Clear => persistence_feedback.set(String::new()),
-        AutosaveFeedback::Set(message) => persistence_feedback.set(message),
+        AutosaveFeedback::Clear => ui_state.write().persistence_feedback.clear(),
+        AutosaveFeedback::Set(message) => ui_state.write().persistence_feedback = message,
     }
 }
 

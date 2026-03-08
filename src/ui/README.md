@@ -7,6 +7,7 @@
 | File/Folder | Description |
 | ----------- | ----------- |
 | `workspace.rs` | Main workspace layout and shell composition |
+| `state.rs` | Root-shared transient `UiState` and terminal history paging state |
 | `terminal_view.rs` | Terminal output rendering |
 | `terminal_input.rs` | Terminal input and viewport measurement |
 | `tab_rail.rs` | Group/session tab strip behavior |
@@ -33,7 +34,8 @@ Provide responsive desktop UI workflows while delegating domain behavior to lowe
 ## Decision
 Keep UI responsibilities component-focused, route runtime/domain mutations through shared services
 and orchestrator APIs, and treat the active path group's visible sessions as the startup critical
-path while leaving startup/session coordination ownership outside presentation modules.
+path while leaving startup/session coordination ownership outside presentation modules. Keep only
+root-shared transient interaction state in `UiState`; feature-local drafts remain component-local.
 
 ## Alternatives Rejected
 - Single monolithic UI file: rejected due to scale.
@@ -41,6 +43,7 @@ path while leaving startup/session coordination ownership outside presentation m
 
 ## Invariants
 - UI state is transient and presentation-oriented.
+- `UiState` owns only root-shared transient state; component-local drafts do not get hoisted into it.
 - Per-panel note selection is transient UI state; it must not be persisted back into `state`.
 - Persistent/business state changes route through `state`, `orchestrator`, or `persistence` paths.
 - UI event handlers and `use_future` lifecycle paths must not call blocking Emily or persistence APIs directly; use async/background facades and apply results back through signals.

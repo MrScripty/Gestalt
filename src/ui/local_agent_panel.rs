@@ -4,6 +4,7 @@ use crate::orchestration_log::{
 use crate::orchestrator::{self, GroupOrchestratorSnapshot, SessionWriteResult};
 use crate::state::{AppState, GroupId, SessionStatus};
 use crate::terminal::TerminalManager;
+use crate::ui::UiState;
 use dioxus::prelude::*;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -11,25 +12,23 @@ use std::time::{SystemTime, UNIX_EPOCH};
 #[component]
 pub(crate) fn LocalAgentPanel(
     app_state: Signal<AppState>,
+    ui_state: Signal<UiState>,
     terminal_manager: Signal<Arc<TerminalManager>>,
     group_id: GroupId,
     group_orchestrator: GroupOrchestratorSnapshot,
-    local_agent_command: Signal<String>,
-    local_agent_feedback: Signal<String>,
 ) -> Element {
     let terminal_manager_for_agent = terminal_manager.read().clone();
     let terminal_manager_for_send = terminal_manager_for_agent.clone();
     let terminal_manager_for_interrupt = terminal_manager_for_agent.clone();
     let tracked_count = group_orchestrator.terminals.len();
     let group_path = group_orchestrator.group_path.clone();
-    let local_agent_command_value = local_agent_command.read().clone();
-    let local_agent_feedback_value = local_agent_feedback.read().clone();
+    let local_agent_command_value = ui_state.read().local_agent_command.clone();
+    let local_agent_feedback_value = ui_state.read().local_agent_feedback.clone();
     let recent_activity = use_signal(Vec::<RecentActivityRecord>::new);
     let activity_feedback = use_signal(String::new);
     let activity_loading = use_signal(|| true);
     let mut activity_loaded_key = use_signal(String::new);
-    let mut local_agent_command = local_agent_command;
-    let mut local_agent_feedback = local_agent_feedback;
+    let mut ui_state = ui_state;
 
     if activity_loaded_key.read().as_str() != group_path.as_str() {
         activity_loaded_key.set(group_path.clone());
@@ -61,16 +60,17 @@ pub(crate) fn LocalAgentPanel(
                     rows: "3",
                     placeholder: "Broadcast command to every terminal in this group",
                     value: "{local_agent_command_value}",
-                    oninput: move |event| local_agent_command.set(event.value()),
+                    oninput: move |event| ui_state.write().local_agent_command = event.value(),
                 }
 
                 div { class: "orchestrator-actions",
                     button {
                         class: "orchestrator-btn send",
                         onclick: move |_| {
-                            let command = local_agent_command.read().trim().to_string();
+                            let command = ui_state.read().local_agent_command.trim().to_string();
                             if command.is_empty() {
-                                local_agent_feedback.set("Enter a command to send.".to_string());
+                                ui_state.write().local_agent_feedback =
+                                    "Enter a command to send.".to_string();
                                 return;
                             }
 
@@ -89,11 +89,11 @@ pub(crate) fn LocalAgentPanel(
                             let ok_count = results.iter().filter(|result| result.error.is_none()).count();
                             let fail_count = results.len().saturating_sub(ok_count);
                             if ok_count > 0 {
-                                local_agent_command.set(String::new());
+                                ui_state.write().local_agent_command.clear();
                             }
-                            local_agent_feedback.set(format!(
+                            ui_state.write().local_agent_feedback = format!(
                                 "Broadcast complete: {ok_count} success, {fail_count} failed."
-                            ));
+                            );
                             refresh_recent_activity(
                                 recent_activity,
                                 activity_loading,
@@ -120,9 +120,9 @@ pub(crate) fn LocalAgentPanel(
 
                             let ok_count = results.iter().filter(|result| result.error.is_none()).count();
                             let fail_count = results.len().saturating_sub(ok_count);
-                            local_agent_feedback.set(format!(
+                            ui_state.write().local_agent_feedback = format!(
                                 "Interrupt complete: {ok_count} success, {fail_count} failed."
-                            ));
+                            );
                             refresh_recent_activity(
                                 recent_activity,
                                 activity_loading,

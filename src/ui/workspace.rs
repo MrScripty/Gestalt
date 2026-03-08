@@ -1,10 +1,9 @@
 use crate::emily_bridge::EmilyBridge;
 use crate::orchestrator::{self, GroupOrchestratorSnapshot};
 use crate::resource_monitor::ResourceSnapshot;
-use crate::state::{AppState, GroupLayout, SessionId};
+use crate::state::{AppState, SessionId};
 use crate::terminal::TerminalManager;
-use crate::ui::TerminalHistoryState;
-use crate::ui::insert_command_mode::InsertModeState;
+use crate::ui::UiState;
 use crate::ui::run_sidebar_panel_host::{RunSidebarPanelHost, RunSidebarPanelKind};
 use crate::ui::sidebar_panel_host::{SidebarPanelHost, SidebarPanelKind};
 use crate::ui::terminal_view::{SnippetHotkeyState, TerminalInteractionSignals, terminal_shell};
@@ -30,23 +29,15 @@ fn run_sidebar_style_for_panel(_panel: SidebarPanelKind, ratio: f64) -> String {
 #[component]
 pub(crate) fn WorkspaceMain(
     app_state: Signal<AppState>,
+    ui_state: Signal<UiState>,
     emily_bridge: Signal<Arc<EmilyBridge>>,
     vectorization_status: Signal<VectorizationStatus>,
     terminal_manager: Signal<Arc<TerminalManager>>,
     resource_snapshot: Signal<ResourceSnapshot>,
-    focused_terminal: Signal<Option<SessionId>>,
-    round_anchor: Signal<Option<(SessionId, u16)>>,
-    terminal_history_state: Signal<HashMap<SessionId, TerminalHistoryState>>,
-    local_agent_command: Signal<String>,
-    local_agent_feedback: Signal<String>,
-    persistence_feedback: Signal<String>,
     refresh_tick: Signal<u64>,
     git_context: Signal<Option<crate::git::RepoContext>>,
     git_context_loading: Signal<bool>,
     git_refresh_nonce: Signal<u64>,
-    sidebar_panel: Signal<SidebarPanelKind>,
-    sidebar_open: Signal<bool>,
-    insert_mode_state: Signal<Option<InsertModeState>>,
     on_open_embedding_settings: EventHandler<()>,
 ) -> Element {
     let _ = *refresh_tick.read();
@@ -147,7 +138,7 @@ pub(crate) fn WorkspaceMain(
     let resource_snapshot_value = resource_snapshot.read().clone();
     let vectorization_status_value = vectorization_status.read().clone();
     let snapshot = app_state.read().clone();
-    let focused_terminal_id = *focused_terminal.read();
+    let focused_terminal_id = ui_state.read().focused_terminal;
     let terminal_manager_for_projection = terminal_manager.read().clone();
     let workspace_projection = orchestrator::active_workspace_projection(
         snapshot.workspace_state(),
@@ -184,8 +175,8 @@ pub(crate) fn WorkspaceMain(
         .as_ref()
         .map(|projection| projection.orchestrator.clone());
 
-    let mut sidebar_open = sidebar_open;
-    let persistence_feedback_value = persistence_feedback.read().clone();
+    let mut ui_state = ui_state;
+    let persistence_feedback_value = ui_state.read().persistence_feedback.clone();
     let mut runner_drag_start = use_signal(|| None::<(f64, i32)>);
     let mut agent_drag_start = use_signal(|| None::<(f64, f64)>);
     let mut sidebar_drag_start = use_signal(|| None::<(f64, f64)>);
@@ -199,7 +190,7 @@ pub(crate) fn WorkspaceMain(
     let active_layout = workspace_projection
         .as_ref()
         .map(|projection| projection.layout)
-        .unwrap_or_else(GroupLayout::default);
+        .unwrap_or_default();
     let runner_width = active_layout
         .runner_width_px
         .clamp(RUNNER_WIDTH_MIN_PX, RUNNER_WIDTH_MAX_PX);
@@ -211,19 +202,18 @@ pub(crate) fn WorkspaceMain(
         .clamp(STACK_SPLIT_MIN_RATIO, STACK_SPLIT_MAX_RATIO);
     let workspace_layout_style =
         format!("--runner-width: {runner_width}px; --side-panel-width: {SIDE_PANEL_WIDTH_PX}px;");
-    let sidebar_open_value = *sidebar_open.read();
+    let sidebar_open_value = ui_state.read().sidebar_open;
     let workspace_layout_class = if sidebar_open_value {
         "workspace-layout with-side-panel"
     } else {
         "workspace-layout"
     };
     let agent_stack_style = format!("--agent-top-ratio: {:.2}%;", agent_ratio * 100.0);
-    let run_sidebar_style = run_sidebar_style_for_panel(*sidebar_panel.read(), sidebar_ratio);
+    let run_sidebar_style =
+        run_sidebar_style_for_panel(ui_state.read().sidebar_panel, sidebar_ratio);
     let interaction = TerminalInteractionSignals {
         app_state,
-        focused_terminal,
-        round_anchor,
-        insert_mode_state,
+        ui_state,
         snippet_hotkey_state,
     };
     let workspace_class = if runner_drag_start.read().is_some()
@@ -346,8 +336,8 @@ pub(crate) fn WorkspaceMain(
                         aria_controls: "workspace-right-panel",
                         aria_expanded: sidebar_open_value,
                         onclick: move |_| {
-                            let next = !*sidebar_open.read();
-                            sidebar_open.set(next);
+                            let next = !ui_state.read().sidebar_open;
+                            ui_state.write().sidebar_open = next;
                         },
                         if sidebar_open_value { "Hide Panels" } else { "Show Panels" }
                     }
@@ -459,7 +449,6 @@ pub(crate) fn WorkspaceMain(
                                                     terminal,
                                                     terminal_manager_for_input,
                                                     emily_bridge_for_history,
-                                                    terminal_history_state,
                                                     interaction,
                                                 )}
                                             }
@@ -651,7 +640,6 @@ pub(crate) fn WorkspaceMain(
                                                     terminal,
                                                     terminal_manager_for_input,
                                                     emily_bridge_for_history,
-                                                    terminal_history_state,
                                                     interaction,
                                                 )}
                                             }
@@ -708,11 +696,10 @@ pub(crate) fn WorkspaceMain(
 
                                 RunSidebarPanelHost {
                                     app_state: app_state,
+                                    ui_state: ui_state,
                                     terminal_manager: terminal_manager,
                                     group_id: group_id,
                                     group_orchestrator: orchestrator_snapshot.clone(),
-                                    local_agent_command: local_agent_command,
-                                    local_agent_feedback: local_agent_feedback,
                                     run_sidebar_panel: run_sidebar_panel,
                                 }
                             }
@@ -723,16 +710,14 @@ pub(crate) fn WorkspaceMain(
                                 aside { id: "workspace-right-panel", class: "workspace-side-panel",
                                     SidebarPanelHost {
                                         app_state: app_state,
+                                        ui_state: ui_state,
                                         terminal_manager: terminal_manager,
                                         group_id: group_id,
                                         group_orchestrator: orchestrator_snapshot.clone(),
-                                        local_agent_command: local_agent_command,
-                                        local_agent_feedback: local_agent_feedback,
                                         active_group_path: active_path.clone(),
                                         repo_context: git_context,
                                         repo_loading: git_context_loading,
                                         git_refresh_nonce: git_refresh_nonce,
-                                        sidebar_panel: sidebar_panel,
                                     }
                                 }
                             }

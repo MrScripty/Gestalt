@@ -2,6 +2,7 @@ use crate::git::RepoContext;
 use crate::orchestrator::GroupOrchestratorSnapshot;
 use crate::state::{AppState, GroupId};
 use crate::terminal::TerminalManager;
+use crate::ui::UiState;
 use crate::ui::commands_panel::CommandsPanel;
 use crate::ui::file_browser_panel::FileBrowserPanel;
 use crate::ui::git_panel::GitPanel;
@@ -28,25 +29,23 @@ pub(crate) fn select_sidebar_panel(
 #[component]
 pub(crate) fn SidebarPanelHost(
     app_state: Signal<AppState>,
+    ui_state: Signal<UiState>,
     terminal_manager: Signal<Arc<TerminalManager>>,
     group_id: GroupId,
     group_orchestrator: Option<GroupOrchestratorSnapshot>,
-    local_agent_command: Signal<String>,
-    local_agent_feedback: Signal<String>,
     active_group_path: String,
     repo_context: Signal<Option<RepoContext>>,
     repo_loading: Signal<bool>,
     git_refresh_nonce: Signal<u64>,
-    sidebar_panel: Signal<SidebarPanelKind>,
 ) -> Element {
-    let active_panel = *sidebar_panel.read();
+    let active_panel = ui_state.read().sidebar_panel;
 
     rsx! {
         div { class: "side-panel-host",
             div { class: "side-panel-switcher", role: "tablist", aria_label: "Sidebar panels",
-                {panel_button("Commands", "Insert command library", SidebarPanelKind::Commands, active_panel, sidebar_panel)}
-                {panel_button("Git", "Git repository context", SidebarPanelKind::Git, active_panel, sidebar_panel)}
-                {panel_button("Files", "Browse files in this path group", SidebarPanelKind::FileBrowser, active_panel, sidebar_panel)}
+                {panel_button("Commands", "Insert command library", SidebarPanelKind::Commands, active_panel, ui_state)}
+                {panel_button("Git", "Git repository context", SidebarPanelKind::Git, active_panel, ui_state)}
+                {panel_button("Files", "Browse files in this path group", SidebarPanelKind::FileBrowser, active_panel, ui_state)}
             }
 
             div { class: "side-panel-body",
@@ -57,11 +56,10 @@ pub(crate) fn SidebarPanelHost(
                                 rsx! {
                                     LocalAgentPanel {
                                         app_state: app_state,
+                                        ui_state: ui_state,
                                         terminal_manager: terminal_manager,
                                         group_id: group_id,
                                         group_orchestrator: group_orchestrator,
-                                        local_agent_command: local_agent_command,
-                                        local_agent_feedback: local_agent_feedback,
                                     }
                                 }
                             } else {
@@ -108,7 +106,7 @@ fn panel_button(
     title: &'static str,
     kind: SidebarPanelKind,
     active_panel: SidebarPanelKind,
-    mut sidebar_panel: Signal<SidebarPanelKind>,
+    mut ui_state: Signal<UiState>,
 ) -> Element {
     let class = if kind == active_panel {
         "side-panel-tab active"
@@ -123,7 +121,9 @@ fn panel_button(
             role: "tab",
             title: "{title}",
             aria_selected: kind == active_panel,
-            onclick: move |_| sidebar_panel.set(select_sidebar_panel(active_panel, kind)),
+            onclick: move |_| {
+                ui_state.write().sidebar_panel = select_sidebar_panel(active_panel, kind)
+            },
             "{label}"
         }
     }

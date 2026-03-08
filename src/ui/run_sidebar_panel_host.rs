@@ -1,6 +1,7 @@
 use crate::orchestrator::GroupOrchestratorSnapshot;
 use crate::state::{AppState, GroupId};
 use crate::terminal::TerminalManager;
+use crate::ui::UiState;
 use crate::ui::local_agent_panel::LocalAgentPanel;
 use crate::ui::notes_panel::NotesPanel;
 use dioxus::prelude::*;
@@ -15,11 +16,10 @@ pub(crate) enum RunSidebarPanelKind {
 #[component]
 pub(crate) fn RunSidebarPanelHost(
     app_state: Signal<AppState>,
+    ui_state: Signal<UiState>,
     terminal_manager: Signal<Arc<TerminalManager>>,
     group_id: GroupId,
     group_orchestrator: Option<GroupOrchestratorSnapshot>,
-    local_agent_command: Signal<String>,
-    local_agent_feedback: Signal<String>,
     run_sidebar_panel: Signal<RunSidebarPanelKind>,
 ) -> Element {
     let active_panel = *run_sidebar_panel.read();
@@ -67,11 +67,10 @@ pub(crate) fn RunSidebarPanelHost(
                     if let Some(group_orchestrator) = group_orchestrator {
                         LocalAgentPanel {
                             app_state: app_state,
+                            ui_state: ui_state,
                             terminal_manager: terminal_manager,
                             group_id: group_id,
                             group_orchestrator: group_orchestrator,
-                            local_agent_command: local_agent_command,
-                            local_agent_feedback: local_agent_feedback,
                         }
                     } else {
                         div { class: "sidebar-panel-empty",

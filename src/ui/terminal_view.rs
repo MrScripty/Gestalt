@@ -13,10 +13,9 @@ use crate::ui::terminal_input::{
     map_click_to_terminal_cell, read_terminal_selection, select_terminal_round,
     take_terminal_paste_buffer,
 };
-use crate::ui::{EMILY_HISTORY_BACKFILL_PAGE_LINES, TerminalHistoryState};
+use crate::ui::{EMILY_HISTORY_BACKFILL_PAGE_LINES, TerminalHistoryState, UiState};
 use dioxus::document;
 use dioxus::prelude::*;
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -32,9 +31,7 @@ pub(crate) struct SnippetHotkeyState {
 #[derive(Clone, Copy)]
 pub(crate) struct TerminalInteractionSignals {
     pub app_state: Signal<AppState>,
-    pub focused_terminal: Signal<Option<SessionId>>,
-    pub round_anchor: Signal<Option<(SessionId, u16)>>,
-    pub insert_mode_state: Signal<Option<InsertModeState>>,
+    pub ui_state: Signal<UiState>,
     pub snippet_hotkey_state: Signal<Option<SnippetHotkeyState>>,
 }
 
@@ -45,15 +42,11 @@ pub(crate) fn terminal_shell(
     terminal: Arc<TerminalSnapshot>,
     terminal_manager: Arc<TerminalManager>,
     emily_bridge: Arc<EmilyBridge>,
-    terminal_history_state: Signal<HashMap<SessionId, TerminalHistoryState>>,
     interaction: TerminalInteractionSignals,
 ) -> Element {
     let app_state = interaction.app_state;
-    let mut focused_terminal = interaction.focused_terminal;
-    let mut round_anchor = interaction.round_anchor;
-    let mut insert_mode_state = interaction.insert_mode_state;
+    let mut ui_state = interaction.ui_state;
     let mut snippet_hotkey_state = interaction.snippet_hotkey_state;
-    let mut terminal_history_state = terminal_history_state;
     let shell_class = if terminal_is_focused {
         "terminal-shell focused"
     } else {
@@ -99,11 +92,11 @@ pub(crate) fn terminal_shell(
     let terminal_manager_for_scroll = terminal_manager_for_keydown.clone();
     let emily_bridge_for_scroll = emily_bridge.clone();
     let emily_bridge_for_snippet = emily_bridge.clone();
-    let round_anchor_row_global = match *round_anchor.read() {
+    let round_anchor_row_global = match ui_state.read().round_anchor {
         Some((anchor_session, row)) if anchor_session == session_id => row,
         _ => cursor_row,
     };
-    let current_insert_mode = insert_mode_state.read().clone();
+    let current_insert_mode = ui_state.read().insert_mode_state.clone();
     let insert_mode_for_session = current_insert_mode
         .as_ref()
         .filter(|mode| mode.session_id == session_id)
@@ -147,20 +140,21 @@ pub(crate) fn terminal_shell(
             id: "{terminal_shell_id}",
             tabindex: "0",
             onfocus: move |_| {
-                focused_terminal.set(Some(session_id));
-                let mode_snapshot = insert_mode_state.read().clone();
-                insert_mode_state.set(mode_after_focus(mode_snapshot, session_id));
+                let mode_snapshot = ui_state.read().insert_mode_state.clone();
+                let mut state = ui_state.write();
+                state.focused_terminal = Some(session_id);
+                state.insert_mode_state = mode_after_focus(mode_snapshot, session_id);
             },
             onblur: move |_| {
-                let is_current = *focused_terminal.read() == Some(session_id);
-                if is_current {
-                    focused_terminal.set(None);
+                let mode_snapshot = ui_state.read().insert_mode_state.clone();
+                let mut state = ui_state.write();
+                if state.focused_terminal == Some(session_id) {
+                    state.focused_terminal = None;
                 }
-                let mode_snapshot = insert_mode_state.read().clone();
-                insert_mode_state.set(mode_after_blur(mode_snapshot, session_id));
+                state.insert_mode_state = mode_after_blur(mode_snapshot, session_id);
             },
             onclick: move |event| {
-                focused_terminal.set(Some(session_id));
+                ui_state.write().focused_terminal = Some(session_id);
                 let click_position = event.data().client_coordinates();
                 let click_x = click_position.x;
                 let click_y = click_position.y;
@@ -182,7 +176,7 @@ pub(crate) fn terminal_shell(
                     let target_row_global = click_window_start.saturating_add(usize::from(target_row));
                     let target_row_global = u16::try_from(target_row_global).unwrap_or(u16::MAX);
 
-                    round_anchor.set(Some((session_id, target_row_global)));
+                    ui_state.write().round_anchor = Some((session_id, target_row_global));
                     if usize::from(target_row) != click_cursor_row_local {
                         return;
                     }
@@ -208,8 +202,9 @@ pub(crate) fn terminal_shell(
                 let shift = modifiers.shift();
                 let meta = modifiers.meta();
 
-                let active_insert_mode = insert_mode_state
+                let active_insert_mode = ui_state
                     .read()
+                    .insert_mode_state
                     .as_ref()
                     .filter(|mode| mode.session_id == session_id)
                     .cloned();
@@ -222,7 +217,7 @@ pub(crate) fn terminal_shell(
                     .and_then(|mode| selected_command_id(&command_matches, mode.highlighted_index));
 
                 if active_insert_mode.is_none() {
-                    let chord_state = snippet_hotkey_state.read().clone();
+                    let chord_state = *snippet_hotkey_state.read();
                     if let Some(chord) = chord_state
                         && chord.session_id == session_id
                     {
@@ -257,11 +252,11 @@ pub(crate) fn terminal_shell(
                                     event.prevent_default();
                                     event.stop_propagation();
                                     snippet_hotkey_state.set(None);
-                                    insert_mode_state.set(Some(InsertModeState {
+                                    ui_state.write().insert_mode_state = Some(InsertModeState {
                                         session_id,
                                         query: String::new(),
                                         highlighted_index: 0,
-                                    }));
+                                    });
                                     return;
                                 }
                                 Key::Escape | Key::Insert => {
@@ -315,11 +310,11 @@ pub(crate) fn terminal_shell(
                     TerminalKeyRoute::OpenMode => {
                         event.prevent_default();
                         event.stop_propagation();
-                        insert_mode_state.set(Some(InsertModeState {
+                        ui_state.write().insert_mode_state = Some(InsertModeState {
                             session_id,
                             query: String::new(),
                             highlighted_index: 0,
-                        }));
+                        });
                         return;
                     }
                     TerminalKeyRoute::HandleMode(outcome) => {
@@ -327,10 +322,10 @@ pub(crate) fn terminal_shell(
                         event.stop_propagation();
                         match outcome {
                             InsertModeOutcome::Keep(next_mode) => {
-                                insert_mode_state.set(Some(next_mode));
+                                ui_state.write().insert_mode_state = Some(next_mode);
                             }
                             InsertModeOutcome::Close => {
-                                insert_mode_state.set(None);
+                                ui_state.write().insert_mode_state = None;
                             }
                             InsertModeOutcome::Submit(command_id) => {
                                 submit_insert_command(
@@ -339,7 +334,7 @@ pub(crate) fn terminal_shell(
                                     app_state,
                                     session_id,
                                 );
-                                insert_mode_state.set(None);
+                                ui_state.write().insert_mode_state = None;
                             }
                             InsertModeOutcome::Ignore => {}
                         }
@@ -411,7 +406,7 @@ pub(crate) fn terminal_shell(
             onpaste: move |event| {
                 event.prevent_default();
                 event.stop_propagation();
-                if let Some(mode) = insert_mode_state.read().clone()
+                if let Some(mode) = ui_state.read().insert_mode_state.clone()
                     && mode.session_id == session_id
                 {
                     return;
@@ -432,8 +427,9 @@ pub(crate) fn terminal_shell(
                 id: "{terminal_body_id}",
                 style: "{body_style}",
                 onscroll: move |_| {
-                    let history_snapshot = terminal_history_state
+                    let history_snapshot = ui_state
                         .read()
+                        .terminal_history_by_session
                         .get(&session_id)
                         .copied()
                         .unwrap_or_default();
@@ -441,8 +437,9 @@ pub(crate) fn terminal_shell(
                         return;
                     }
 
-                    terminal_history_state
+                    ui_state
                         .write()
+                        .terminal_history_by_session
                         .entry(session_id)
                         .and_modify(|state| state.is_loading = true)
                         .or_insert(TerminalHistoryState {
@@ -457,19 +454,26 @@ pub(crate) fn terminal_shell(
                     spawn(async move {
                         const TOP_THRESHOLD_PX: u32 = 20;
                         if !is_terminal_scrolled_near_top(body_id, TOP_THRESHOLD_PX).await {
-                            if let Some(state) = terminal_history_state.write().get_mut(&session_id)
+                            if let Some(state) = ui_state
+                                .write()
+                                .terminal_history_by_session
+                                .get_mut(&session_id)
                             {
                                 state.is_loading = false;
                             }
                             return;
                         }
 
-                        let before_sequence = terminal_history_state
+                        let before_sequence = ui_state
                             .read()
+                            .terminal_history_by_session
                             .get(&session_id)
                             .and_then(|state| state.before_sequence);
                         let Some(before_sequence) = before_sequence else {
-                            if let Some(state) = terminal_history_state.write().get_mut(&session_id)
+                            if let Some(state) = ui_state
+                                .write()
+                                .terminal_history_by_session
+                                .get_mut(&session_id)
                             {
                                 state.is_loading = false;
                                 state.exhausted = true;
@@ -491,7 +495,10 @@ pub(crate) fn terminal_shell(
                                 let inserted = terminal_manager
                                     .prepend_history_lines(session_id, &older_lines)
                                     .unwrap_or(0);
-                                if let Some(state) = terminal_history_state.write().get_mut(&session_id)
+                                if let Some(state) = ui_state
+                                    .write()
+                                    .terminal_history_by_session
+                                    .get_mut(&session_id)
                                 {
                                     state.before_sequence = chunk.next_before_sequence;
                                     state.exhausted =
@@ -500,7 +507,10 @@ pub(crate) fn terminal_shell(
                                 }
                             }
                             Err(_) => {
-                                if let Some(state) = terminal_history_state.write().get_mut(&session_id)
+                                if let Some(state) = ui_state
+                                    .write()
+                                    .terminal_history_by_session
+                                    .get_mut(&session_id)
                                 {
                                     state.is_loading = false;
                                 }
