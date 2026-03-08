@@ -2,9 +2,10 @@ use super::test_support::{MockStore, locator};
 use super::*;
 use crate::api::EmilyApi;
 use crate::model::{
-    AppendSovereignAuditRecordRequest, AuditRecordKind, CreateEpisodeRequest, RemoteEpisodeRequest,
-    RoutingDecision, RoutingDecisionKind, RoutingTarget, SovereignAuditMetadata,
-    ValidationDecision, ValidationFinding, ValidationFindingSeverity, ValidationOutcome,
+    AppendSovereignAuditRecordRequest, AuditRecordKind, CreateEpisodeRequest, EpisodeState,
+    RemoteEpisodeRequest, RemoteEpisodeState, RoutingDecision, RoutingDecisionKind, RoutingTarget,
+    SovereignAuditMetadata, ValidationDecision, ValidationFinding, ValidationFindingSeverity,
+    ValidationOutcome,
 };
 use serde_json::json;
 use std::sync::Arc;
@@ -35,6 +36,30 @@ fn routing_decision() -> RoutingDecision {
             capability_tags: vec!["analysis".to_string()],
             metadata: json!({"priority": 1}),
         }],
+        metadata: json!({"source": "planner"}),
+    }
+}
+
+fn local_only_routing_decision() -> RoutingDecision {
+    RoutingDecision {
+        decision_id: "route-local".to_string(),
+        episode_id: "ep-sovereign".to_string(),
+        kind: RoutingDecisionKind::LocalOnly,
+        decided_at_unix_ms: 2,
+        rationale: Some("stay local".to_string()),
+        targets: Vec::new(),
+        metadata: json!({"source": "planner"}),
+    }
+}
+
+fn rejected_routing_decision() -> RoutingDecision {
+    RoutingDecision {
+        decision_id: "route-rejected".to_string(),
+        episode_id: "ep-sovereign".to_string(),
+        kind: RoutingDecisionKind::Rejected,
+        decided_at_unix_ms: 2,
+        rationale: Some("boundary violation".to_string()),
+        targets: Vec::new(),
         metadata: json!({"source": "planner"}),
     }
 }
@@ -89,6 +114,35 @@ async fn create_remote_episode_requires_matching_route_decision() {
 }
 
 #[tokio::test]
+async fn create_remote_episode_rejects_local_only_route() {
+    let store = Arc::new(MockStore::default());
+    let runtime = EmilyRuntime::new(store);
+    runtime.open_db(locator()).await.expect("open");
+    runtime
+        .create_episode(episode_request())
+        .await
+        .expect("create episode");
+    runtime
+        .record_routing_decision(local_only_routing_decision())
+        .await
+        .expect("record local route");
+
+    let error = runtime
+        .create_remote_episode(RemoteEpisodeRequest {
+            remote_episode_id: "remote-1".to_string(),
+            episode_id: "ep-sovereign".to_string(),
+            route_decision_id: Some("route-local".to_string()),
+            dispatch_kind: "bounded_program".to_string(),
+            dispatched_at_unix_ms: 3,
+            metadata: json!({"provider": "provider-a"}),
+        })
+        .await
+        .expect_err("local-only route should not allow remote dispatch");
+
+    assert!(matches!(error, EmilyError::InvalidRequest(_)));
+}
+
+#[tokio::test]
 async fn record_validation_outcome_requires_matching_remote_episode() {
     let store = Arc::new(MockStore::default());
     let runtime = EmilyRuntime::new(store.clone());
@@ -132,6 +186,98 @@ async fn record_validation_outcome_requires_matching_remote_episode() {
 
     assert_eq!(outcome.validation_id, "validation-1");
     assert_eq!(store.audits.lock().await.len(), 3);
+    assert_eq!(
+        runtime
+            .remote_episode("remote-1")
+            .await
+            .expect("get remote")
+            .expect("remote")
+            .state,
+        RemoteEpisodeState::Succeeded
+    );
+    assert_eq!(
+        runtime
+            .remote_episode("remote-1")
+            .await
+            .expect("get remote")
+            .expect("remote")
+            .completed_at_unix_ms,
+        Some(4)
+    );
+    assert_eq!(
+        store.episodes.lock().await[0].state,
+        EpisodeState::Cautioned
+    );
+}
+
+#[tokio::test]
+async fn rejected_routing_decision_blocks_episode() {
+    let store = Arc::new(MockStore::default());
+    let runtime = EmilyRuntime::new(store.clone());
+    runtime.open_db(locator()).await.expect("open");
+    runtime
+        .create_episode(episode_request())
+        .await
+        .expect("create episode");
+
+    runtime
+        .record_routing_decision(rejected_routing_decision())
+        .await
+        .expect("record rejected route");
+
+    assert_eq!(store.episodes.lock().await[0].state, EpisodeState::Blocked);
+}
+
+#[tokio::test]
+async fn rejected_validation_rejects_remote_episode_and_blocks_episode() {
+    let store = Arc::new(MockStore::default());
+    let runtime = EmilyRuntime::new(store.clone());
+    runtime.open_db(locator()).await.expect("open");
+    runtime
+        .create_episode(episode_request())
+        .await
+        .expect("create episode");
+    runtime
+        .record_routing_decision(routing_decision())
+        .await
+        .expect("record route");
+    runtime
+        .create_remote_episode(RemoteEpisodeRequest {
+            remote_episode_id: "remote-1".to_string(),
+            episode_id: "ep-sovereign".to_string(),
+            route_decision_id: Some("route-1".to_string()),
+            dispatch_kind: "bounded_program".to_string(),
+            dispatched_at_unix_ms: 3,
+            metadata: json!({"provider": "provider-a"}),
+        })
+        .await
+        .expect("create remote episode");
+
+    runtime
+        .record_validation_outcome(ValidationOutcome {
+            validation_id: "validation-1".to_string(),
+            episode_id: "ep-sovereign".to_string(),
+            remote_episode_id: Some("remote-1".to_string()),
+            decision: ValidationDecision::Rejected,
+            validated_at_unix_ms: 4,
+            findings: vec![ValidationFinding {
+                code: "policy_violation".to_string(),
+                severity: ValidationFindingSeverity::Error,
+                message: "output crossed the approved boundary".to_string(),
+            }],
+            metadata: json!({"checker": "eccr"}),
+        })
+        .await
+        .expect("record rejected validation");
+
+    let remote_episode = runtime
+        .remote_episode("remote-1")
+        .await
+        .expect("get remote episode")
+        .expect("remote episode");
+    assert_eq!(remote_episode.state, RemoteEpisodeState::Rejected);
+    assert_eq!(remote_episode.completed_at_unix_ms, Some(4));
+    assert_eq!(store.episodes.lock().await[0].state, EpisodeState::Blocked);
 }
 
 #[tokio::test]

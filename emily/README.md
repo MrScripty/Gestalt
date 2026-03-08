@@ -60,6 +60,12 @@ generation is intentionally limited to write-side lifecycle events for now;
 read/query access does not emit sovereign audits until a real boundary-crossing
 host flow requires it.
 
+The sovereign runtime now also applies bounded lifecycle policy inside the
+crate: routes marked `LocalOnly` or `Rejected` cannot be used for remote
+dispatch, rejected routing decisions block the host episode, and validation
+outcomes reconcile remote-episode terminal state plus episode caution/blocking
+without introducing provider-specific transport logic.
+
 ## Host Responsibilities
 
 Host applications remain responsible for:

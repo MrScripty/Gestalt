@@ -53,6 +53,9 @@ The current sovereign-support contracts and persistence paths stop short of
 defining `Semantic Membrane` IR or remote transport behavior. They intentionally
 cover only stable host-agnostic records such as route decisions, remote episode
 references, validation outcomes, and structured sovereign audit metadata.
+They now also include bounded sovereign lifecycle policy inside the runtime:
+route-shape guards for remote dispatch and validation-driven projection updates
+for remote episodes and host episodes.
 
 ## Invariants
 

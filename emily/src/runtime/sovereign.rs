@@ -1,9 +1,10 @@
 use super::EmilyRuntime;
 use crate::error::EmilyError;
 use crate::model::{
-    AppendAuditRecordRequest, AppendSovereignAuditRecordRequest, AuditRecord, RemoteEpisodeRecord,
-    RemoteEpisodeRequest, RemoteEpisodeState, RoutingDecision, RoutingDecisionKind, RoutingTarget,
-    SovereignAuditMetadata, ValidationFinding, ValidationOutcome,
+    AppendAuditRecordRequest, AppendSovereignAuditRecordRequest, AuditRecord, EpisodeState,
+    RemoteEpisodeRecord, RemoteEpisodeRequest, RemoteEpisodeState, RoutingDecision,
+    RoutingDecisionKind, RoutingTarget, SovereignAuditMetadata, ValidationDecision,
+    ValidationFinding, ValidationOutcome,
 };
 use crate::store::EmilyStore;
 use serde_json::json;
@@ -102,6 +103,168 @@ impl<S: EmilyStore + 'static> EmilyRuntime<S> {
         Ok(())
     }
 
+    fn route_kind_allows_remote_dispatch(kind: RoutingDecisionKind) -> bool {
+        matches!(
+            kind,
+            RoutingDecisionKind::SingleRemote | RoutingDecisionKind::MultiRemote
+        )
+    }
+
+    fn apply_routing_decision_to_episode(
+        state: EpisodeState,
+        kind: RoutingDecisionKind,
+    ) -> EpisodeState {
+        match kind {
+            RoutingDecisionKind::Rejected if !matches!(state, EpisodeState::Cancelled) => {
+                EpisodeState::Blocked
+            }
+            RoutingDecisionKind::LocalOnly
+            | RoutingDecisionKind::SingleRemote
+            | RoutingDecisionKind::MultiRemote
+            | RoutingDecisionKind::Rejected => state,
+        }
+    }
+
+    fn apply_validation_to_episode(
+        state: EpisodeState,
+        decision: ValidationDecision,
+    ) -> EpisodeState {
+        match decision {
+            ValidationDecision::Accepted => state,
+            ValidationDecision::AcceptedWithCaution | ValidationDecision::NeedsReview => {
+                if matches!(state, EpisodeState::Open) {
+                    EpisodeState::Cautioned
+                } else {
+                    state
+                }
+            }
+            ValidationDecision::Rejected => {
+                if matches!(state, EpisodeState::Cancelled) {
+                    state
+                } else {
+                    EpisodeState::Blocked
+                }
+            }
+        }
+    }
+
+    fn validation_target_remote_state(decision: ValidationDecision) -> Option<RemoteEpisodeState> {
+        match decision {
+            ValidationDecision::Accepted | ValidationDecision::AcceptedWithCaution => {
+                Some(RemoteEpisodeState::Succeeded)
+            }
+            ValidationDecision::NeedsReview => None,
+            ValidationDecision::Rejected => Some(RemoteEpisodeState::Rejected),
+        }
+    }
+
+    fn reconcile_remote_episode_from_validation(
+        mut remote_episode: RemoteEpisodeRecord,
+        decision: ValidationDecision,
+        validated_at_unix_ms: i64,
+    ) -> Result<Option<RemoteEpisodeRecord>, EmilyError> {
+        let Some(target_state) = Self::validation_target_remote_state(decision) else {
+            return Ok(None);
+        };
+        let target_completed_at = Some(
+            remote_episode
+                .completed_at_unix_ms
+                .map_or(validated_at_unix_ms, |existing| {
+                    existing.max(validated_at_unix_ms)
+                }),
+        );
+
+        match remote_episode.state {
+            RemoteEpisodeState::Planned | RemoteEpisodeState::Dispatched => {
+                remote_episode.state = target_state;
+                remote_episode.completed_at_unix_ms = target_completed_at;
+                Ok(Some(remote_episode))
+            }
+            state if state == target_state => {
+                if remote_episode.completed_at_unix_ms != target_completed_at {
+                    remote_episode.completed_at_unix_ms = target_completed_at;
+                    Ok(Some(remote_episode))
+                } else {
+                    Ok(None)
+                }
+            }
+            RemoteEpisodeState::Succeeded
+            | RemoteEpisodeState::Failed
+            | RemoteEpisodeState::Cancelled
+            | RemoteEpisodeState::Rejected => Err(EmilyError::InvalidRequest(format!(
+                "remote episode '{}' is already in terminal state '{:?}'",
+                remote_episode.id, remote_episode.state
+            ))),
+        }
+    }
+
+    async fn reconcile_routing_episode_projection(
+        &self,
+        decision: &RoutingDecision,
+    ) -> Result<(), EmilyError> {
+        let Some(mut episode) = self.store.get_episode(&decision.episode_id).await? else {
+            return Err(EmilyError::InvalidRequest(format!(
+                "episode '{}' does not exist",
+                decision.episode_id
+            )));
+        };
+        let next_state = Self::apply_routing_decision_to_episode(episode.state, decision.kind);
+        if next_state != episode.state || decision.decided_at_unix_ms > episode.updated_at_unix_ms {
+            episode.state = next_state;
+            episode.updated_at_unix_ms =
+                episode.updated_at_unix_ms.max(decision.decided_at_unix_ms);
+            self.store.upsert_episode(&episode).await?;
+        }
+        Ok(())
+    }
+
+    async fn reconcile_validation_episode_projection(
+        &self,
+        outcome: &ValidationOutcome,
+    ) -> Result<(), EmilyError> {
+        let Some(mut episode) = self.store.get_episode(&outcome.episode_id).await? else {
+            return Err(EmilyError::InvalidRequest(format!(
+                "episode '{}' does not exist",
+                outcome.episode_id
+            )));
+        };
+        let next_state = Self::apply_validation_to_episode(episode.state, outcome.decision);
+        if next_state != episode.state || outcome.validated_at_unix_ms > episode.updated_at_unix_ms
+        {
+            episode.state = next_state;
+            episode.updated_at_unix_ms =
+                episode.updated_at_unix_ms.max(outcome.validated_at_unix_ms);
+            self.store.upsert_episode(&episode).await?;
+        }
+        Ok(())
+    }
+
+    async fn reconcile_validation_remote_projection(
+        &self,
+        outcome: &ValidationOutcome,
+    ) -> Result<(), EmilyError> {
+        let Some(remote_episode_id) = outcome.remote_episode_id.as_deref() else {
+            return Ok(());
+        };
+        let Some(remote_episode) = self.store.get_remote_episode(remote_episode_id).await? else {
+            return Err(EmilyError::InvalidRequest(format!(
+                "remote episode '{}' does not exist",
+                remote_episode_id
+            )));
+        };
+        let Some(updated_remote_episode) = Self::reconcile_remote_episode_from_validation(
+            remote_episode,
+            outcome.decision,
+            outcome.validated_at_unix_ms,
+        )?
+        else {
+            return Ok(());
+        };
+        self.store
+            .upsert_remote_episode(&updated_remote_episode)
+            .await
+    }
+
     fn sovereign_metadata_value(metadata: SovereignAuditMetadata) -> serde_json::Value {
         json!({ "sovereign": metadata })
     }
@@ -165,6 +328,9 @@ impl<S: EmilyStore + 'static> EmilyRuntime<S> {
             decision
         };
 
+        self.reconcile_routing_episode_projection(&persisted)
+            .await?;
+
         self.append_generated_sovereign_audit(
             &persisted.episode_id,
             crate::model::AuditRecordKind::RoutingDecided,
@@ -192,10 +358,16 @@ impl<S: EmilyStore + 'static> EmilyRuntime<S> {
         Self::validate_required_text("episode_id", &request.episode_id)?;
         Self::validate_required_text("dispatch_kind", &request.dispatch_kind)?;
 
-        if self.store.get_episode(&request.episode_id).await?.is_none() {
+        let Some(episode) = self.store.get_episode(&request.episode_id).await? else {
             return Err(EmilyError::InvalidRequest(format!(
                 "episode '{}' does not exist",
                 request.episode_id
+            )));
+        };
+        if !matches!(episode.state, EpisodeState::Open | EpisodeState::Cautioned) {
+            return Err(EmilyError::InvalidRequest(format!(
+                "episode '{}' does not allow remote dispatch while in state '{:?}'",
+                request.episode_id, episode.state
             )));
         }
 
@@ -211,6 +383,12 @@ impl<S: EmilyStore + 'static> EmilyRuntime<S> {
                 return Err(EmilyError::InvalidRequest(format!(
                     "routing decision '{}' belongs to episode '{}', expected '{}'",
                     route_decision_id, route_decision.episode_id, request.episode_id
+                )));
+            }
+            if !Self::route_kind_allows_remote_dispatch(route_decision.kind) {
+                return Err(EmilyError::InvalidRequest(format!(
+                    "routing decision '{}' does not allow remote dispatch",
+                    route_decision_id
                 )));
             }
         }
@@ -301,6 +479,11 @@ impl<S: EmilyStore + 'static> EmilyRuntime<S> {
             self.store.upsert_validation_outcome(&outcome).await?;
             outcome
         };
+
+        self.reconcile_validation_remote_projection(&persisted)
+            .await?;
+        self.reconcile_validation_episode_projection(&persisted)
+            .await?;
 
         self
             .append_generated_sovereign_audit(

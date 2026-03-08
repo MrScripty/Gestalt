@@ -97,5 +97,5 @@ let runtime = EmilyRuntime::new(Arc::new(SurrealEmilyStore::new()));
 - `episodes.rs` produces episode records, trace links, outcome records, and audit records through existing crate contracts.
 - `earl.rs` produces EARL evaluations, guarded episode states, and durable EARL audit records through existing crate contracts.
 - `ecgl.rs` produces explicit memory states on text objects and durable integrity snapshots through existing crate contracts.
-- `sovereign.rs` produces routing decisions, remote episodes, validation outcomes, and deterministic sovereign audit records through existing crate contracts. Automatic audit generation is intentionally limited to write-side lifecycle events for now.
+- `sovereign.rs` produces routing decisions, remote episodes, validation outcomes, deterministic sovereign audit records, and bounded sovereign lifecycle reconciliation through existing crate contracts. Automatic audit generation is intentionally limited to write-side lifecycle events for now.
 - Compatibility expectations for those records remain defined by `emily/src/model.rs` and store implementations.
