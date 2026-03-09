@@ -25,6 +25,7 @@ use std::fs;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 use tokio::sync::watch;
 use uuid::Uuid;
 
@@ -310,10 +311,17 @@ pub struct PantographEmbeddingValidationReport {
     pub saved_workflow_path: String,
     pub updated_puma_lib_node_id: String,
     pub resolved_model_path: Option<PathBuf>,
+    pub validate_session_id: Option<String>,
     pub session_id: Option<String>,
     pub session_state: Option<String>,
     pub workflow_probe_vector_length: usize,
     pub session_probe_vector_length: usize,
+    pub second_probe_vector_length: usize,
+    pub third_probe_vector_length: usize,
+    pub first_run_ms: u128,
+    pub second_run_ms: u128,
+    pub third_run_ms: u128,
+    pub session_reused_across_runs: bool,
     pub vector_preview: Vec<f32>,
 }
 
@@ -1262,15 +1270,57 @@ pub fn validate_embedding_roundtrip_from_env(
             .validate()
             .await
             .map_err(|error| format!("pantograph provider validation failed: {error}"))?;
+        let validate_status = provider.status().await;
+        let validate_session_id = validate_status
+            .as_ref()
+            .and_then(|status| status.session_id.clone());
+
+        let first_text = text.clone();
+        let second_text = format!("{text} Second warm embedding pass.");
+        let third_text = format!("{text} Third warm embedding pass.");
+
+        let first_started = Instant::now();
         let vector = provider
-            .embed_text(&text)
+            .embed_text(&first_text)
             .await
             .map_err(|error| format!("pantograph embedding probe failed: {error}"))?;
+        let first_run_ms = first_started.elapsed().as_millis();
+
+        let first_status = provider.status().await;
+        let first_session_id = first_status
+            .as_ref()
+            .and_then(|status| status.session_id.clone());
+
+        let second_started = Instant::now();
+        let second_vector = provider
+            .embed_text(&second_text)
+            .await
+            .map_err(|error| format!("pantograph warm embedding probe failed: {error}"))?;
+        let second_run_ms = second_started.elapsed().as_millis();
+
+        let second_status = provider.status().await;
+        let second_session_id = second_status
+            .as_ref()
+            .and_then(|status| status.session_id.clone());
+
+        let third_started = Instant::now();
+        let third_vector = provider
+            .embed_text(&third_text)
+            .await
+            .map_err(|error| format!("pantograph third embedding probe failed: {error}"))?;
+        let third_run_ms = third_started.elapsed().as_millis();
+
         let status = provider.status().await;
+        let third_session_id = status.as_ref().and_then(|status| status.session_id.clone());
         provider
             .shutdown()
             .await
             .map_err(|error| format!("pantograph provider shutdown failed: {error}"))?;
+
+        let session_reused_across_runs = validate_session_id.is_some()
+            && validate_session_id == first_session_id
+            && first_session_id == second_session_id
+            && second_session_id == third_session_id;
 
         Ok(PantographEmbeddingValidationReport {
             workflow_id: config.workflow_id.clone(),
@@ -1282,10 +1332,17 @@ pub fn validate_embedding_roundtrip_from_env(
             saved_workflow_path,
             updated_puma_lib_node_id,
             resolved_model_path,
-            session_id: status.as_ref().and_then(|status| status.session_id.clone()),
+            validate_session_id,
+            session_id: third_session_id,
             session_state: status.as_ref().map(|status| status.state.clone()),
             workflow_probe_vector_length: workflow_probe_vector.len(),
             session_probe_vector_length: vector.len(),
+            second_probe_vector_length: second_vector.len(),
+            third_probe_vector_length: third_vector.len(),
+            first_run_ms,
+            second_run_ms,
+            third_run_ms,
+            session_reused_across_runs,
             vector_preview: vector.into_iter().take(8).collect(),
         })
     })
