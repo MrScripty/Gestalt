@@ -7,7 +7,8 @@ use emily::inference::EmbeddingProvider;
 use emily::model::{
     AuditRecord, ContextPacket, ContextQuery, CreateEpisodeRequest, DatabaseLocator,
     EarlEvaluationRecord, EmbeddingProviderStatus, EpisodeRecord, EpisodeTraceLink,
-    HistoryPageRequest, IngestTextRequest, RoutingDecision, TextObjectKind, TraceLinkRequest,
+    HistoryPageRequest, IngestTextRequest, RemoteEpisodeRecord, RemoteEpisodeRequest,
+    RoutingDecision, TextObjectKind, TraceLinkRequest, UpdateRemoteEpisodeStateRequest,
     ValidationOutcome, VectorizationConfig, VectorizationConfigPatch, VectorizationJobSnapshot,
     VectorizationRunRequest, VectorizationStatus,
 };
@@ -67,6 +68,14 @@ enum BridgeCommand {
         episode_id: String,
         response_tx: oneshot::Sender<Result<Option<EarlEvaluationRecord>, String>>,
     },
+    CreateRemoteEpisode {
+        request: RemoteEpisodeRequest,
+        response_tx: oneshot::Sender<Result<RemoteEpisodeRecord, String>>,
+    },
+    UpdateRemoteEpisodeState {
+        request: UpdateRemoteEpisodeStateRequest,
+        response_tx: oneshot::Sender<Result<RemoteEpisodeRecord, String>>,
+    },
     RecordRoutingDecision {
         decision: RoutingDecision,
         response_tx: oneshot::Sender<Result<RoutingDecision, String>>,
@@ -78,6 +87,14 @@ enum BridgeCommand {
     RoutingDecisionsForEpisode {
         episode_id: String,
         response_tx: oneshot::Sender<Result<Vec<RoutingDecision>, String>>,
+    },
+    RemoteEpisode {
+        remote_episode_id: String,
+        response_tx: oneshot::Sender<Result<Option<RemoteEpisodeRecord>, String>>,
+    },
+    RemoteEpisodesForEpisode {
+        episode_id: String,
+        response_tx: oneshot::Sender<Result<Vec<RemoteEpisodeRecord>, String>>,
     },
     RecordValidationOutcome {
         outcome: ValidationOutcome,
@@ -452,6 +469,42 @@ impl EmilyBridge {
         })?
     }
 
+    pub async fn create_remote_episode_async(
+        &self,
+        request: RemoteEpisodeRequest,
+    ) -> Result<RemoteEpisodeRecord, String> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.command_tx
+            .send(BridgeCommand::CreateRemoteEpisode {
+                request,
+                response_tx,
+            })
+            .map_err(|error| format!("failed sending remote episode create request: {error}"))?;
+        response_rx.await.map_err(|error| {
+            format!("failed receiving remote episode create response from Emily worker: {error}")
+        })?
+    }
+
+    pub async fn update_remote_episode_state_async(
+        &self,
+        request: UpdateRemoteEpisodeStateRequest,
+    ) -> Result<RemoteEpisodeRecord, String> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.command_tx
+            .send(BridgeCommand::UpdateRemoteEpisodeState {
+                request,
+                response_tx,
+            })
+            .map_err(|error| {
+                format!("failed sending remote episode state update request: {error}")
+            })?;
+        response_rx.await.map_err(|error| {
+            format!(
+                "failed receiving remote episode state update response from Emily worker: {error}"
+            )
+        })?
+    }
+
     pub async fn record_routing_decision_async(
         &self,
         decision: RoutingDecision,
@@ -500,6 +553,42 @@ impl EmilyBridge {
         response_rx.await.map_err(|error| {
             format!(
                 "failed receiving routing decisions-for-episode response from Emily worker: {error}"
+            )
+        })?
+    }
+
+    pub async fn remote_episode_async(
+        &self,
+        remote_episode_id: String,
+    ) -> Result<Option<RemoteEpisodeRecord>, String> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.command_tx
+            .send(BridgeCommand::RemoteEpisode {
+                remote_episode_id,
+                response_tx,
+            })
+            .map_err(|error| format!("failed sending remote episode read request: {error}"))?;
+        response_rx.await.map_err(|error| {
+            format!("failed receiving remote episode read response from Emily worker: {error}")
+        })?
+    }
+
+    pub async fn remote_episodes_for_episode_async(
+        &self,
+        episode_id: String,
+    ) -> Result<Vec<RemoteEpisodeRecord>, String> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.command_tx
+            .send(BridgeCommand::RemoteEpisodesForEpisode {
+                episode_id,
+                response_tx,
+            })
+            .map_err(|error| {
+                format!("failed sending remote episodes-for-episode request: {error}")
+            })?;
+        response_rx.await.map_err(|error| {
+            format!(
+                "failed receiving remote episodes-for-episode response from Emily worker: {error}"
             )
         })?
     }
@@ -815,16 +904,20 @@ impl EmilyApi for EmilyBridge {
 
     async fn create_remote_episode(
         &self,
-        _request: emily::model::RemoteEpisodeRequest,
+        request: emily::model::RemoteEpisodeRequest,
     ) -> Result<emily::model::RemoteEpisodeRecord, EmilyError> {
-        Err(unsupported_bridge_api("create_remote_episode"))
+        self.create_remote_episode_async(request)
+            .await
+            .map_err(EmilyError::Runtime)
     }
 
     async fn update_remote_episode_state(
         &self,
-        _request: emily::model::UpdateRemoteEpisodeStateRequest,
+        request: emily::model::UpdateRemoteEpisodeStateRequest,
     ) -> Result<emily::model::RemoteEpisodeRecord, EmilyError> {
-        Err(unsupported_bridge_api("update_remote_episode_state"))
+        self.update_remote_episode_state_async(request)
+            .await
+            .map_err(EmilyError::Runtime)
     }
 
     async fn record_validation_outcome(
@@ -863,16 +956,20 @@ impl EmilyApi for EmilyBridge {
 
     async fn remote_episode(
         &self,
-        _remote_episode_id: &str,
+        remote_episode_id: &str,
     ) -> Result<Option<emily::model::RemoteEpisodeRecord>, EmilyError> {
-        Err(unsupported_bridge_api("remote_episode"))
+        self.remote_episode_async(remote_episode_id.to_string())
+            .await
+            .map_err(EmilyError::Runtime)
     }
 
     async fn remote_episodes_for_episode(
         &self,
-        _episode_id: &str,
+        episode_id: &str,
     ) -> Result<Vec<emily::model::RemoteEpisodeRecord>, EmilyError> {
-        Err(unsupported_bridge_api("remote_episodes_for_episode"))
+        self.remote_episodes_for_episode_async(episode_id.to_string())
+            .await
+            .map_err(EmilyError::Runtime)
     }
 
     async fn validation_outcome(
@@ -1207,6 +1304,28 @@ fn run_worker(
                         .map_err(|error| format!("Emily latest EARL read failed: {error}"));
                     let _ = response_tx.send(result);
                 }
+                BridgeCommand::CreateRemoteEpisode {
+                    request,
+                    response_tx,
+                } => {
+                    let result = emily_runtime
+                        .create_remote_episode(request)
+                        .await
+                        .map_err(|error| format!("Emily create remote episode failed: {error}"));
+                    let _ = response_tx.send(result);
+                }
+                BridgeCommand::UpdateRemoteEpisodeState {
+                    request,
+                    response_tx,
+                } => {
+                    let result = emily_runtime
+                        .update_remote_episode_state(request)
+                        .await
+                        .map_err(|error| {
+                            format!("Emily update remote episode state failed: {error}")
+                        });
+                    let _ = response_tx.send(result);
+                }
                 BridgeCommand::RecordRoutingDecision {
                     decision,
                     response_tx,
@@ -1236,6 +1355,28 @@ fn run_worker(
                         .await
                         .map_err(|error| {
                             format!("Emily routing decisions-for-episode read failed: {error}")
+                        });
+                    let _ = response_tx.send(result);
+                }
+                BridgeCommand::RemoteEpisode {
+                    remote_episode_id,
+                    response_tx,
+                } => {
+                    let result = emily_runtime
+                        .remote_episode(&remote_episode_id)
+                        .await
+                        .map_err(|error| format!("Emily remote episode read failed: {error}"));
+                    let _ = response_tx.send(result);
+                }
+                BridgeCommand::RemoteEpisodesForEpisode {
+                    episode_id,
+                    response_tx,
+                } => {
+                    let result = emily_runtime
+                        .remote_episodes_for_episode(&episode_id)
+                        .await
+                        .map_err(|error| {
+                            format!("Emily remote episodes-for-episode read failed: {error}")
                         });
                     let _ = response_tx.send(result);
                 }
