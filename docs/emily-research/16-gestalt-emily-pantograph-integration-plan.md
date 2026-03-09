@@ -365,21 +365,40 @@ behind an explicit development gate.
 boundaries.
 
 **Tasks:**
-- [ ] Audit that:
+- [x] Audit that:
   - `emily` contains no Gestalt-specific or Pantograph-host-specific logic
   - `emily-membrane` contains no Gestalt UI/app logic
   - Gestalt owns provider/workflow composition only
-- [ ] Review whether any new host helpers should live in a small Gestalt
+- [x] Review whether any new host helpers should live in a small Gestalt
   adapter module
-- [ ] Update affected `README.md` files for changed `src/` directories
-- [ ] Record any follow-up boundary corrections before widening adoption
+- [x] Update affected `README.md` files for changed `src/` directories
+- [x] Record any follow-up boundary corrections before widening adoption
 
 **Verification:**
 - code review against package boundaries
 - documentation review for every touched `src/` directory
 - dependency review confirming no unjustified additions entered reusable crates
 
-**Status:** Not started
+**Execution Notes:**
+- Audited the post-Milestone-4 seams and confirmed the dependency direction is
+  still correct:
+  - Gestalt composes `emily` and `emily-membrane`
+  - `emily-membrane` depends on `emily`
+  - neither reusable crate depends on Gestalt
+- Confirmed Pantograph-specific workflow ids, env vars, provider-registry
+  assembly, and remote gating remain in Gestalt host modules such as
+  `pantograph_host` and `local_agent_membrane`, not in Emily core APIs.
+- Confirmed `emily-membrane` still contains no Gestalt UI/app types; its
+  Pantograph integration remains a feature-gated provider adapter owned by the
+  membrane crate itself.
+- Reviewed the new host helpers and kept them in Gestalt rather than creating a
+  new adapter submodule because they remain narrow, host-specific orchestration
+  helpers and do not yet justify another package boundary.
+- No corrective code changes were required from this audit. The only follow-up
+  is to keep future remote UX and rollout logic in Gestalt while leaving
+  reusable contracts in `emily` and `emily-membrane`.
+
+**Status:** Complete
 
 ## Execution Notes
 
@@ -404,6 +423,10 @@ Update during implementation:
   `GESTALT_ENABLE_LOCAL_AGENT_REMOTE_MEMBRANE=1`, records remote episode
   artifacts through the existing Emily bridge, and falls back explicitly to a
   separate local-only membrane pass when remote bootstrap or execution fails.
+- 2026-03-08: Milestone 5 completed. A package-boundary and dependency audit
+  confirmed no Gestalt UI/app leakage into reusable crates, no Pantograph-host
+  composition leakage into Emily core contracts, and no additional code
+  corrections were needed before widening adoption.
 
 ## Commit Cadence Notes
 
@@ -437,6 +460,7 @@ Update during implementation:
 - Milestone 2: Retrieval hardening for real Emily use
 - Milestone 3: Real Gestalt local-only membrane adoption
 - Milestone 4: Gated single-remote membrane adoption
+- Milestone 5: Integration hygiene and boundary audit
 
 ### Deviations
 
@@ -447,7 +471,8 @@ Update during implementation:
 
 ### Follow-Ups
 
-- Start Milestone 5: integration hygiene and boundary audit.
+- Start the next research-aligned membrane phase or widen Gestalt adoption
+  deliberately from the audited local-agent slice.
 
 ### Verification Summary
 
@@ -456,6 +481,8 @@ Update during implementation:
 - `cargo test -q --test pantograph_host_reasoning --test emily_seed_corpus --test emily_semantic_retrieval`
 - `cargo test -q --test emily_local_agent_context --test emily_local_agent_episode --test emily_local_agent_membrane`
 - `cargo check -q`
+- `cargo tree -q -p emily`
+- `cargo tree -q -p emily-membrane`
 - `cargo clippy --test pantograph_host_reasoning -- -D warnings`
   - blocked by pre-existing unrelated warnings/errors outside this slice
 - `cargo clippy --test emily_semantic_retrieval --test emily_seed_corpus --test pantograph_host_reasoning -- -D warnings`
