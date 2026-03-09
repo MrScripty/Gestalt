@@ -244,6 +244,36 @@ dependence.
 
 **Status:** Complete
 
+### Pre-Milestone 3 Validation Gate: Real Pantograph Embedding Roundtrip
+
+**Goal:** Prove the actual Pantograph embedding path before moving any real
+Gestalt workflow onto broader Emily dependence.
+
+**Tasks:**
+- [x] Update the saved `Embedding` workflow graph so the `puma-lib` node uses
+  `Qwen3-Embedding-4B-GGUF`
+- [x] Open a real session-backed Emily embedding provider through Gestalt host
+  composition
+- [x] Pass real text through the embedding workflow and receive vectors back
+- [x] Record the measured embedding dimensionality for the selected model
+- [x] Keep Pantograph-specific graph maintenance in Gestalt host code rather
+  than leaking it into `emily`
+
+**Verification:**
+- `cargo fmt`
+- `cargo test -q --test pantograph_host_reasoning`
+- `cargo check -q --bin emily_pantograph_embedding_probe`
+- `cargo run --quiet --bin emily_pantograph_embedding_probe`
+
+**Measured Result:**
+- `Qwen3-Embedding-4B-GGUF` returned `2560` dimensions
+- Gestalt updated the saved workflow at
+  `/media/jeremy/OrangeCream/Linux Software/Pantograph/.pantograph/workflows/Embedding.json`
+- Session-based validation returned a live Pantograph session id and embedding
+  vector preview
+
+**Status:** Complete
+
 ### Milestone 3: Real Gestalt Local-Only Membrane Adoption
 
 **Goal:** Move one real Gestalt workflow onto the membrane path without remote

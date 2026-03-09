@@ -39,6 +39,7 @@ Application source modules for Gestalt's state model, command library, terminal 
 - `local_agent_context` keeps Emily-backed local-agent prompt assembly out of the Dioxus component layer and preserves the human-entered command separately from the dispatched prompt payload.
 - `local_agent_episode` records real local-agent actions as Emily episodes and interprets episode plus EARL state into a narrow host-facing gate.
 - `pantograph_host` keeps workflow ids, node bindings, provider-registry composition, and embedding vectorization defaults inside Gestalt so reusable Emily crates stay host-agnostic.
+- `pantograph_host` also owns Pantograph-specific embedding workflow maintenance and validation helpers, including graph-edit updates for the `puma-lib` node and the measured `Qwen3-Embedding-4B-GGUF` default of `2560` dimensions.
 - `emily_bridge` surfaces bridge worker failures as request errors and keeps recent-history reads failure-tolerant by degrading to an empty chunk instead of panicking.
 - `orchestration_log` persists exact command lifecycles using timeline sequence plus timestamps.
 - `run_checkpoints` persists coarse repo baselines so run review can compare current Git state against the moment a run started.
