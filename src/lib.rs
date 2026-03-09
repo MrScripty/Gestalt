@@ -14,6 +14,8 @@ pub mod git;
 pub mod local_agent_context;
 /// Host-side Emily episode recording and gate interpretation for local-agent runs.
 pub mod local_agent_episode;
+/// Host-side local-only membrane execution for the local-agent flow.
+pub mod local_agent_membrane;
 /// SQLite-backed local terminal restore projection.
 pub mod local_restore;
 /// SQLite-backed durable command/event/receipt timelines for orchestrated actions.

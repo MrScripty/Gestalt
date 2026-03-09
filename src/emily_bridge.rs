@@ -1,13 +1,15 @@
 use crate::state::{SessionId, SnippetId};
 use crate::terminal::TerminalMemorySink;
+use async_trait::async_trait;
 use emily::api::EmilyApi;
+use emily::error::EmilyError;
 use emily::inference::EmbeddingProvider;
 use emily::model::{
-    ContextPacket, ContextQuery, CreateEpisodeRequest, DatabaseLocator, EarlEvaluationRecord,
-    EmbeddingProviderStatus, EpisodeRecord, EpisodeTraceLink, HistoryPageRequest,
-    IngestTextRequest, TextObjectKind, TraceLinkRequest, VectorizationConfig,
-    VectorizationConfigPatch, VectorizationJobSnapshot, VectorizationRunRequest,
-    VectorizationStatus,
+    AuditRecord, ContextPacket, ContextQuery, CreateEpisodeRequest, DatabaseLocator,
+    EarlEvaluationRecord, EmbeddingProviderStatus, EpisodeRecord, EpisodeTraceLink,
+    HistoryPageRequest, IngestTextRequest, RoutingDecision, TextObjectKind, TraceLinkRequest,
+    ValidationOutcome, VectorizationConfig, VectorizationConfigPatch, VectorizationJobSnapshot,
+    VectorizationRunRequest, VectorizationStatus,
 };
 use emily::runtime::EmilyRuntime;
 use emily::store::surreal::SurrealEmilyStore;
@@ -64,6 +66,34 @@ enum BridgeCommand {
     LatestEarlEvaluation {
         episode_id: String,
         response_tx: oneshot::Sender<Result<Option<EarlEvaluationRecord>, String>>,
+    },
+    RecordRoutingDecision {
+        decision: RoutingDecision,
+        response_tx: oneshot::Sender<Result<RoutingDecision, String>>,
+    },
+    RoutingDecision {
+        decision_id: String,
+        response_tx: oneshot::Sender<Result<Option<RoutingDecision>, String>>,
+    },
+    RoutingDecisionsForEpisode {
+        episode_id: String,
+        response_tx: oneshot::Sender<Result<Vec<RoutingDecision>, String>>,
+    },
+    RecordValidationOutcome {
+        outcome: ValidationOutcome,
+        response_tx: oneshot::Sender<Result<ValidationOutcome, String>>,
+    },
+    ValidationOutcome {
+        validation_id: String,
+        response_tx: oneshot::Sender<Result<Option<ValidationOutcome>, String>>,
+    },
+    ValidationOutcomesForEpisode {
+        episode_id: String,
+        response_tx: oneshot::Sender<Result<Vec<ValidationOutcome>, String>>,
+    },
+    SovereignAuditRecordsForEpisode {
+        episode_id: String,
+        response_tx: oneshot::Sender<Result<Vec<AuditRecord>, String>>,
     },
     UpdateVectorizationConfig {
         patch: VectorizationConfigPatch,
@@ -422,6 +452,130 @@ impl EmilyBridge {
         })?
     }
 
+    pub async fn record_routing_decision_async(
+        &self,
+        decision: RoutingDecision,
+    ) -> Result<RoutingDecision, String> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.command_tx
+            .send(BridgeCommand::RecordRoutingDecision {
+                decision,
+                response_tx,
+            })
+            .map_err(|error| format!("failed sending routing decision request: {error}"))?;
+        response_rx.await.map_err(|error| {
+            format!("failed receiving routing decision response from Emily worker: {error}")
+        })?
+    }
+
+    pub async fn routing_decision_async(
+        &self,
+        decision_id: String,
+    ) -> Result<Option<RoutingDecision>, String> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.command_tx
+            .send(BridgeCommand::RoutingDecision {
+                decision_id,
+                response_tx,
+            })
+            .map_err(|error| format!("failed sending routing decision read request: {error}"))?;
+        response_rx.await.map_err(|error| {
+            format!("failed receiving routing decision read response from Emily worker: {error}")
+        })?
+    }
+
+    pub async fn routing_decisions_for_episode_async(
+        &self,
+        episode_id: String,
+    ) -> Result<Vec<RoutingDecision>, String> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.command_tx
+            .send(BridgeCommand::RoutingDecisionsForEpisode {
+                episode_id,
+                response_tx,
+            })
+            .map_err(|error| {
+                format!("failed sending routing decisions-for-episode request: {error}")
+            })?;
+        response_rx.await.map_err(|error| {
+            format!(
+                "failed receiving routing decisions-for-episode response from Emily worker: {error}"
+            )
+        })?
+    }
+
+    pub async fn record_validation_outcome_async(
+        &self,
+        outcome: ValidationOutcome,
+    ) -> Result<ValidationOutcome, String> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.command_tx
+            .send(BridgeCommand::RecordValidationOutcome {
+                outcome,
+                response_tx,
+            })
+            .map_err(|error| format!("failed sending validation outcome request: {error}"))?;
+        response_rx.await.map_err(|error| {
+            format!("failed receiving validation outcome response from Emily worker: {error}")
+        })?
+    }
+
+    pub async fn validation_outcome_async(
+        &self,
+        validation_id: String,
+    ) -> Result<Option<ValidationOutcome>, String> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.command_tx
+            .send(BridgeCommand::ValidationOutcome {
+                validation_id,
+                response_tx,
+            })
+            .map_err(|error| format!("failed sending validation outcome read request: {error}"))?;
+        response_rx.await.map_err(|error| {
+            format!("failed receiving validation outcome read response from Emily worker: {error}")
+        })?
+    }
+
+    pub async fn validation_outcomes_for_episode_async(
+        &self,
+        episode_id: String,
+    ) -> Result<Vec<ValidationOutcome>, String> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.command_tx
+            .send(BridgeCommand::ValidationOutcomesForEpisode {
+                episode_id,
+                response_tx,
+            })
+            .map_err(|error| {
+                format!("failed sending validation outcomes-for-episode request: {error}")
+            })?;
+        response_rx.await.map_err(|error| {
+            format!(
+                "failed receiving validation outcomes-for-episode response from Emily worker: {error}"
+            )
+        })?
+    }
+
+    pub async fn sovereign_audit_records_for_episode_async(
+        &self,
+        episode_id: String,
+    ) -> Result<Vec<AuditRecord>, String> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.command_tx
+            .send(BridgeCommand::SovereignAuditRecordsForEpisode {
+                episode_id,
+                response_tx,
+            })
+            .map_err(|error| {
+                format!("failed sending sovereign audit records-for-episode request: {error}")
+            })?;
+        response_rx.await.map_err(|error| {
+            format!(
+                "failed receiving sovereign audit records-for-episode response from Emily worker: {error}"
+            )
+        })?
+    }
+
     pub fn vectorization_status(&self) -> VectorizationStatus {
         self.vectorization_status_rx.borrow().clone()
     }
@@ -582,6 +736,255 @@ impl TerminalMemorySink for EmilyBridge {
             line,
             ts_unix_ms,
         });
+    }
+}
+
+fn unsupported_bridge_api(operation: &str) -> EmilyError {
+    EmilyError::Runtime(format!(
+        "{operation} is not supported through EmilyBridge yet"
+    ))
+}
+
+#[async_trait]
+impl EmilyApi for EmilyBridge {
+    async fn open_db(&self, _locator: DatabaseLocator) -> Result<(), EmilyError> {
+        Err(unsupported_bridge_api("open_db"))
+    }
+
+    async fn switch_db(&self, _locator: DatabaseLocator) -> Result<(), EmilyError> {
+        Err(unsupported_bridge_api("switch_db"))
+    }
+
+    async fn close_db(&self) -> Result<(), EmilyError> {
+        Err(unsupported_bridge_api("close_db"))
+    }
+
+    async fn ingest_text(
+        &self,
+        _request: IngestTextRequest,
+    ) -> Result<emily::model::TextObject, EmilyError> {
+        Err(unsupported_bridge_api("ingest_text"))
+    }
+
+    async fn create_episode(
+        &self,
+        request: CreateEpisodeRequest,
+    ) -> Result<EpisodeRecord, EmilyError> {
+        self.create_episode_async(request)
+            .await
+            .map_err(EmilyError::Runtime)
+    }
+
+    async fn episode(&self, episode_id: &str) -> Result<Option<EpisodeRecord>, EmilyError> {
+        self.episode_async(episode_id.to_string())
+            .await
+            .map_err(EmilyError::Runtime)
+    }
+
+    async fn link_text_to_episode(
+        &self,
+        request: TraceLinkRequest,
+    ) -> Result<EpisodeTraceLink, EmilyError> {
+        self.link_text_to_episode_async(request)
+            .await
+            .map_err(EmilyError::Runtime)
+    }
+
+    async fn record_outcome(
+        &self,
+        _request: emily::model::RecordOutcomeRequest,
+    ) -> Result<emily::model::OutcomeRecord, EmilyError> {
+        Err(unsupported_bridge_api("record_outcome"))
+    }
+
+    async fn append_audit_record(
+        &self,
+        _request: emily::model::AppendAuditRecordRequest,
+    ) -> Result<AuditRecord, EmilyError> {
+        Err(unsupported_bridge_api("append_audit_record"))
+    }
+
+    async fn record_routing_decision(
+        &self,
+        decision: RoutingDecision,
+    ) -> Result<RoutingDecision, EmilyError> {
+        self.record_routing_decision_async(decision)
+            .await
+            .map_err(EmilyError::Runtime)
+    }
+
+    async fn create_remote_episode(
+        &self,
+        _request: emily::model::RemoteEpisodeRequest,
+    ) -> Result<emily::model::RemoteEpisodeRecord, EmilyError> {
+        Err(unsupported_bridge_api("create_remote_episode"))
+    }
+
+    async fn update_remote_episode_state(
+        &self,
+        _request: emily::model::UpdateRemoteEpisodeStateRequest,
+    ) -> Result<emily::model::RemoteEpisodeRecord, EmilyError> {
+        Err(unsupported_bridge_api("update_remote_episode_state"))
+    }
+
+    async fn record_validation_outcome(
+        &self,
+        outcome: ValidationOutcome,
+    ) -> Result<ValidationOutcome, EmilyError> {
+        self.record_validation_outcome_async(outcome)
+            .await
+            .map_err(EmilyError::Runtime)
+    }
+
+    async fn append_sovereign_audit_record(
+        &self,
+        _request: emily::model::AppendSovereignAuditRecordRequest,
+    ) -> Result<AuditRecord, EmilyError> {
+        Err(unsupported_bridge_api("append_sovereign_audit_record"))
+    }
+
+    async fn routing_decision(
+        &self,
+        decision_id: &str,
+    ) -> Result<Option<RoutingDecision>, EmilyError> {
+        self.routing_decision_async(decision_id.to_string())
+            .await
+            .map_err(EmilyError::Runtime)
+    }
+
+    async fn routing_decisions_for_episode(
+        &self,
+        episode_id: &str,
+    ) -> Result<Vec<RoutingDecision>, EmilyError> {
+        self.routing_decisions_for_episode_async(episode_id.to_string())
+            .await
+            .map_err(EmilyError::Runtime)
+    }
+
+    async fn remote_episode(
+        &self,
+        _remote_episode_id: &str,
+    ) -> Result<Option<emily::model::RemoteEpisodeRecord>, EmilyError> {
+        Err(unsupported_bridge_api("remote_episode"))
+    }
+
+    async fn remote_episodes_for_episode(
+        &self,
+        _episode_id: &str,
+    ) -> Result<Vec<emily::model::RemoteEpisodeRecord>, EmilyError> {
+        Err(unsupported_bridge_api("remote_episodes_for_episode"))
+    }
+
+    async fn validation_outcome(
+        &self,
+        validation_id: &str,
+    ) -> Result<Option<ValidationOutcome>, EmilyError> {
+        self.validation_outcome_async(validation_id.to_string())
+            .await
+            .map_err(EmilyError::Runtime)
+    }
+
+    async fn validation_outcomes_for_episode(
+        &self,
+        episode_id: &str,
+    ) -> Result<Vec<ValidationOutcome>, EmilyError> {
+        self.validation_outcomes_for_episode_async(episode_id.to_string())
+            .await
+            .map_err(EmilyError::Runtime)
+    }
+
+    async fn sovereign_audit_records_for_episode(
+        &self,
+        episode_id: &str,
+    ) -> Result<Vec<AuditRecord>, EmilyError> {
+        self.sovereign_audit_records_for_episode_async(episode_id.to_string())
+            .await
+            .map_err(EmilyError::Runtime)
+    }
+
+    async fn evaluate_episode_risk(
+        &self,
+        _request: emily::model::EarlEvaluationRequest,
+    ) -> Result<EarlEvaluationRecord, EmilyError> {
+        Err(unsupported_bridge_api("evaluate_episode_risk"))
+    }
+
+    async fn latest_earl_evaluation_for_episode(
+        &self,
+        episode_id: &str,
+    ) -> Result<Option<EarlEvaluationRecord>, EmilyError> {
+        self.latest_earl_evaluation_for_episode_async(episode_id.to_string())
+            .await
+            .map_err(EmilyError::Runtime)
+    }
+
+    async fn latest_integrity_snapshot(
+        &self,
+    ) -> Result<Option<emily::model::IntegritySnapshot>, EmilyError> {
+        Err(unsupported_bridge_api("latest_integrity_snapshot"))
+    }
+
+    async fn query_context(&self, _query: ContextQuery) -> Result<ContextPacket, EmilyError> {
+        Err(unsupported_bridge_api("query_context"))
+    }
+
+    async fn page_history_before(
+        &self,
+        _request: HistoryPageRequest,
+    ) -> Result<emily::model::HistoryPage, EmilyError> {
+        Err(unsupported_bridge_api("page_history_before"))
+    }
+
+    async fn memory_policy(&self) -> Result<emily::model::MemoryPolicy, EmilyError> {
+        Err(unsupported_bridge_api("memory_policy"))
+    }
+
+    async fn set_memory_policy(
+        &self,
+        _policy: emily::model::MemoryPolicy,
+    ) -> Result<(), EmilyError> {
+        Err(unsupported_bridge_api("set_memory_policy"))
+    }
+
+    async fn health(&self) -> Result<emily::model::HealthSnapshot, EmilyError> {
+        Err(unsupported_bridge_api("health"))
+    }
+
+    async fn vectorization_status(&self) -> Result<VectorizationStatus, EmilyError> {
+        Ok(self.vectorization_status())
+    }
+
+    async fn update_vectorization_config(
+        &self,
+        patch: VectorizationConfigPatch,
+    ) -> Result<VectorizationConfig, EmilyError> {
+        self.update_vectorization_config_async(patch)
+            .await
+            .map_err(EmilyError::Runtime)
+    }
+
+    async fn start_backfill(
+        &self,
+        request: VectorizationRunRequest,
+    ) -> Result<VectorizationJobSnapshot, EmilyError> {
+        self.start_backfill_async(request)
+            .await
+            .map_err(EmilyError::Runtime)
+    }
+
+    async fn start_revectorize(
+        &self,
+        request: VectorizationRunRequest,
+    ) -> Result<VectorizationJobSnapshot, EmilyError> {
+        self.start_revectorize_async(request)
+            .await
+            .map_err(EmilyError::Runtime)
+    }
+
+    async fn cancel_vectorization_job(&self, job_id: &str) -> Result<(), EmilyError> {
+        self.cancel_vectorization_job_async(job_id.to_string())
+            .await
+            .map_err(EmilyError::Runtime)
     }
 }
 
@@ -802,6 +1205,86 @@ fn run_worker(
                         .latest_earl_evaluation_for_episode(&episode_id)
                         .await
                         .map_err(|error| format!("Emily latest EARL read failed: {error}"));
+                    let _ = response_tx.send(result);
+                }
+                BridgeCommand::RecordRoutingDecision {
+                    decision,
+                    response_tx,
+                } => {
+                    let result = emily_runtime
+                        .record_routing_decision(decision)
+                        .await
+                        .map_err(|error| format!("Emily record routing decision failed: {error}"));
+                    let _ = response_tx.send(result);
+                }
+                BridgeCommand::RoutingDecision {
+                    decision_id,
+                    response_tx,
+                } => {
+                    let result = emily_runtime
+                        .routing_decision(&decision_id)
+                        .await
+                        .map_err(|error| format!("Emily routing decision read failed: {error}"));
+                    let _ = response_tx.send(result);
+                }
+                BridgeCommand::RoutingDecisionsForEpisode {
+                    episode_id,
+                    response_tx,
+                } => {
+                    let result = emily_runtime
+                        .routing_decisions_for_episode(&episode_id)
+                        .await
+                        .map_err(|error| {
+                            format!("Emily routing decisions-for-episode read failed: {error}")
+                        });
+                    let _ = response_tx.send(result);
+                }
+                BridgeCommand::RecordValidationOutcome {
+                    outcome,
+                    response_tx,
+                } => {
+                    let result = emily_runtime
+                        .record_validation_outcome(outcome)
+                        .await
+                        .map_err(|error| {
+                            format!("Emily record validation outcome failed: {error}")
+                        });
+                    let _ = response_tx.send(result);
+                }
+                BridgeCommand::ValidationOutcome {
+                    validation_id,
+                    response_tx,
+                } => {
+                    let result = emily_runtime
+                        .validation_outcome(&validation_id)
+                        .await
+                        .map_err(|error| format!("Emily validation outcome read failed: {error}"));
+                    let _ = response_tx.send(result);
+                }
+                BridgeCommand::ValidationOutcomesForEpisode {
+                    episode_id,
+                    response_tx,
+                } => {
+                    let result = emily_runtime
+                        .validation_outcomes_for_episode(&episode_id)
+                        .await
+                        .map_err(|error| {
+                            format!("Emily validation outcomes-for-episode read failed: {error}")
+                        });
+                    let _ = response_tx.send(result);
+                }
+                BridgeCommand::SovereignAuditRecordsForEpisode {
+                    episode_id,
+                    response_tx,
+                } => {
+                    let result = emily_runtime
+                        .sovereign_audit_records_for_episode(&episode_id)
+                        .await
+                        .map_err(|error| {
+                            format!(
+                                "Emily sovereign audit records-for-episode read failed: {error}"
+                            )
+                        });
                     let _ = response_tx.send(result);
                 }
                 BridgeCommand::UpdateVectorizationConfig { patch, response_tx } => {

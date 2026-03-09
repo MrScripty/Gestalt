@@ -3,6 +3,7 @@ use crate::local_agent_context::prepare_local_agent_command;
 use crate::local_agent_episode::{
     episode_request_from_prepared_command, record_local_agent_episode,
 };
+use crate::local_agent_membrane::{local_agent_membrane_enabled, run_local_agent_membrane_pass};
 use crate::orchestration_log::{
     CommandKind, CommandPayload, OrchestrationLogStore, ReceiptStatus, RecentActivityRecord,
 };
@@ -88,6 +89,7 @@ pub(crate) fn LocalAgentPanel(
 
                             let emily_bridge = emily_bridge_for_send.clone();
                             let emily_bridge_for_episode = emily_bridge_for_send.clone();
+                            let emily_bridge_for_membrane = emily_bridge_for_send.clone();
                             let group_orchestrator = group_orchestrator_for_send.clone();
                             let terminal_manager = terminal_manager_for_send.clone();
                             let workspace_snapshot = app_state.read().workspace_state().clone();
@@ -138,7 +140,7 @@ pub(crate) fn LocalAgentPanel(
                                 let ok_count =
                                     results.iter().filter(|result| result.error.is_none()).count();
                                 let fail_count = results.len().saturating_sub(ok_count);
-                                let episode_feedback = match record_local_agent_episode(
+                                let episode_result = record_local_agent_episode(
                                     emily_bridge_for_episode,
                                     episode_request_from_prepared_command(
                                         group_id,
@@ -149,13 +151,30 @@ pub(crate) fn LocalAgentPanel(
                                         fail_count,
                                     ),
                                 )
-                                .await
-                                {
+                                .await;
+                                let mut episode_feedback = match &episode_result {
                                     Ok(status) => status.feedback_suffix(),
                                     Err(error) => {
                                         format!(" Emily episode recording failed: {error}.")
                                     }
                                 };
+                                if local_agent_membrane_enabled()
+                                    && let Ok(status) = episode_result.as_ref()
+                                {
+                                    let membrane_feedback = match run_local_agent_membrane_pass(
+                                        emily_bridge_for_membrane.clone(),
+                                        &status.episode_id,
+                                        &prepared,
+                                    )
+                                    .await
+                                    {
+                                        Ok(membrane_status) => membrane_status.feedback_suffix(),
+                                        Err(error) => {
+                                            format!(" Emily membrane fallback: {error}.")
+                                        }
+                                    };
+                                    episode_feedback.push_str(&membrane_feedback);
+                                }
                                 if ok_count > 0 {
                                     ui_state.write().local_agent_command.clear();
                                     bump_refresh_nonce(git_refresh_nonce);

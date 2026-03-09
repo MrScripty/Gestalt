@@ -9,12 +9,19 @@ const LOCAL_AGENT_CONTEXT_ITEM_LIMIT: usize = 3;
 const LOCAL_AGENT_CONTEXT_TEXT_LIMIT: usize = 220;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedContextFragment {
+    pub object_id: String,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreparedLocalAgentCommand {
     pub display_command: String,
     pub dispatched_command: String,
     pub context_status: LocalAgentContextStatus,
     pub source_session_id: Option<SessionId>,
     pub context_object_ids: Vec<String>,
+    pub context_fragments: Vec<PreparedContextFragment>,
     pub context_item_count: usize,
 }
 
@@ -69,6 +76,7 @@ pub async fn prepare_local_agent_command(
             context_status: LocalAgentContextStatus::NoCandidateSession,
             source_session_id: None,
             context_object_ids: Vec::new(),
+            context_fragments: Vec::new(),
             context_item_count: 0,
         };
     };
@@ -91,6 +99,14 @@ pub async fn prepare_local_agent_command(
                 .iter()
                 .map(|item| item.object.id.clone())
                 .collect(),
+            context_fragments: packet
+                .items
+                .iter()
+                .map(|item| PreparedContextFragment {
+                    object_id: item.object.id.clone(),
+                    text: item.object.text.clone(),
+                })
+                .collect(),
             context_item_count: packet.items.len(),
         },
         Ok(_) => PreparedLocalAgentCommand {
@@ -99,6 +115,7 @@ pub async fn prepare_local_agent_command(
             context_status: LocalAgentContextStatus::NoContext { session_id },
             source_session_id: Some(session_id),
             context_object_ids: Vec::new(),
+            context_fragments: Vec::new(),
             context_item_count: 0,
         },
         Err(error) => PreparedLocalAgentCommand {
@@ -107,6 +124,7 @@ pub async fn prepare_local_agent_command(
             context_status: LocalAgentContextStatus::Unavailable { session_id, error },
             source_session_id: Some(session_id),
             context_object_ids: Vec::new(),
+            context_fragments: Vec::new(),
             context_item_count: 0,
         },
     }
@@ -188,8 +206,8 @@ fn truncate_context_text(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        LocalAgentContextStatus, PreparedLocalAgentCommand, object_kind_label,
-        truncate_context_text,
+        LocalAgentContextStatus, PreparedContextFragment, PreparedLocalAgentCommand,
+        object_kind_label, truncate_context_text,
     };
     use emily::model::TextObjectKind;
 
@@ -230,6 +248,10 @@ mod tests {
             context_status: LocalAgentContextStatus::NoCandidateSession,
             source_session_id: None,
             context_object_ids: Vec::new(),
+            context_fragments: vec![PreparedContextFragment {
+                object_id: "ctx-1".to_string(),
+                text: "repository clean".to_string(),
+            }],
             context_item_count: 0,
         };
         assert_eq!(prepared.display_command, "cargo test");
