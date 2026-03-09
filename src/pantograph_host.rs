@@ -43,6 +43,8 @@ const DEFAULT_REASONING_PROVIDER_ID: &str = "pantograph-qwen-reasoning";
 const DEFAULT_REASONING_MODEL_ID: &str = "Qwen3.5-35B-A3B-GGUF";
 const DEFAULT_REASONING_PROFILE_ID: &str = "reasoning";
 const DEFAULT_REASONING_CAPABILITY_TAGS: [&str; 2] = ["analysis", "reasoning"];
+const DEFAULT_REASONING_MODEL_RELATIVE_PATH: &str =
+    "shared-resources/models/llm/qwen35moe/qwen3_5-35b-a3b-gguf";
 const LLAMA_WRAPPER_CANONICAL_NAME: &str = "llama-server-wrapper";
 const LLAMA_WRAPPER_PLATFORM_NAME: &str = "llama-server-wrapper-x86_64-unknown-linux-gnu";
 const EMBEDDING_MODEL_INPUT_ALIASES: [&str; 6] = [
@@ -486,6 +488,14 @@ fn default_embedding_model_path_for_root(pantograph_root: &Path) -> Option<PathB
     candidate.is_file().then_some(candidate)
 }
 
+pub fn default_reasoning_model_path_for_root(pantograph_root: &Path) -> Option<PathBuf> {
+    let candidate = pantograph_root
+        .parent()
+        .map(|root| root.join("Pumas-Library"))
+        .map(|root| root.join(DEFAULT_REASONING_MODEL_RELATIVE_PATH))?;
+    candidate.exists().then_some(candidate)
+}
+
 fn shell_single_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\"'\"'"))
 }
@@ -839,6 +849,16 @@ impl GestaltPantographHost {
 
         outputs
     }
+
+    async fn ensure_spawner_configured(&self) -> Result<(), WorkflowServiceError> {
+        let binaries_dir = self
+            .config
+            .binaries_dir()
+            .map_err(WorkflowServiceError::RuntimeNotReady)?;
+        let spawner = Arc::new(StdProcessSpawner::new(binaries_dir, self.config.data_dir()));
+        self.gateway.set_spawner(spawner).await;
+        Ok(())
+    }
 }
 
 #[async_trait::async_trait]
@@ -868,6 +888,7 @@ impl WorkflowHost for GestaltPantographHost {
                 "workflow run cancelled before execution started".to_string(),
             ));
         }
+        self.ensure_spawner_configured().await?;
 
         let stored = capabilities::load_and_validate_workflow(workflow_id, &self.workflow_roots())?;
         let mut graph = stored.to_workflow_graph(workflow_id);
@@ -1019,6 +1040,55 @@ fn reasoning_bindings_from_io(
         MembraneWorkflowBinding::new(node.node_id.clone(), port.port_id.clone())
             .map_err(|error| error.to_string())?
     };
+
+    Ok((input_binding, vec![output_binding]))
+}
+
+fn reasoning_bindings_from_graph(
+    config: &PantographReasoningRuntimeConfig,
+) -> Result<(MembraneWorkflowBinding, Vec<MembraneWorkflowBinding>), String> {
+    let stored = capabilities::load_and_validate_workflow(
+        &config.workflow_id,
+        &[config.pantograph_root.join(".pantograph").join("workflows")],
+    )
+    .map_err(|error| error.to_string())?;
+    let graph = stored.to_workflow_graph(&config.workflow_id);
+
+    let llm_node_ids = graph
+        .nodes
+        .iter()
+        .filter(|node| {
+            matches!(
+                node.node_type.as_str(),
+                "llm-inference" | "llamacpp-inference"
+            )
+        })
+        .map(|node| node.id.as_str())
+        .collect::<HashSet<_>>();
+
+    let input_edge = graph
+        .edges
+        .iter()
+        .find(|edge| llm_node_ids.contains(edge.target.as_str()) && edge.target_handle == "prompt")
+        .ok_or_else(|| {
+            "reasoning workflow graph is missing an edge into a supported prompt input".to_string()
+        })?;
+    let input_binding =
+        MembraneWorkflowBinding::new(input_edge.source.clone(), input_edge.source_handle.clone())
+            .map_err(|error| error.to_string())?;
+
+    let output_edge = graph
+        .edges
+        .iter()
+        .find(|edge| edge.target == "text-output" && edge.target_handle == "text")
+        .ok_or_else(|| {
+            "reasoning workflow graph is missing an edge into text-output.text".to_string()
+        })?;
+    let output_binding = MembraneWorkflowBinding::new(
+        output_edge.target.clone(),
+        output_edge.target_handle.clone(),
+    )
+    .map_err(|error| error.to_string())?;
 
     Ok((input_binding, vec![output_binding]))
 }
@@ -1379,7 +1449,7 @@ fn build_membrane_provider_registry(
                     ],
                 )
             } else {
-                let io = service
+                match service
                     .workflow_get_io(
                         host.as_ref(),
                         WorkflowIoRequest {
@@ -1387,8 +1457,14 @@ fn build_membrane_provider_registry(
                         },
                     )
                     .await
-                    .map_err(|error| format!("workflow_get_io bootstrap failed: {error}"))?;
-                reasoning_bindings_from_io(&io, &config)?
+                {
+                    Ok(io) => reasoning_bindings_from_io(&io, &config)?,
+                    Err(error) => reasoning_bindings_from_graph(&config).map_err(|graph_error| {
+                        format!(
+                            "workflow_get_io bootstrap failed: {error}; graph fallback failed: {graph_error}"
+                        )
+                    })?,
+                }
             };
 
             let provider_config = PantographProviderConfig::new(

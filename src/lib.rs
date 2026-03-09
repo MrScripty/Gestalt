@@ -26,6 +26,8 @@ pub mod orchestration_log;
 pub mod orchestrator;
 /// Pantograph workflow host bootstrap for Emily embedding and membrane provider wiring.
 pub mod pantograph_host;
+/// Live Pantograph reasoning diagnostic over the real membrane remote path.
+pub mod pantograph_reasoning_probe;
 /// Input validation helpers for filesystem path boundaries.
 pub(crate) mod path_validation;
 /// Workspace load/save schema and storage routines.
