@@ -221,6 +221,42 @@ without leaking model/workflow knowledge into Emily core crates.
 
 **Status:** Complete
 
+### Live Reasoning Diagnostic Gate
+
+**Goal:** Prove or falsify real Pantograph remote reasoning against the
+membrane contract before broader remote rollout.
+
+**Tasks:**
+- [x] Add a live Gestalt-owned Pantograph reasoning probe that:
+  - opens isolated Emily storage
+  - seeds deterministic context
+  - repairs the selected workflow into a puma-backed llama.cpp graph when
+    needed
+  - executes the real membrane remote path and inspects resulting Emily
+    records
+- [x] Validate that the probe reaches live provider dispatch against the
+  requested `Qwen3.5-35B-A3B-GGUF` workflow target
+- [x] Identify the current blocker precisely enough to guide the next step
+
+**Verification:**
+- `cargo check -q --bin emily_pantograph_reasoning_probe`
+- `GESTALT_PANTOGRAPH_REASONING_WORKFLOW_ID='Coding Agent' ./target/debug/emily_pantograph_reasoning_probe`
+- direct wrapper reproduction using the resolved Qwen GGUF model path
+
+**Current Result:**
+- The reasoning probe, workflow repair, provider registry, membrane dispatch,
+  and Emily write path all work end-to-end far enough to launch the real
+  llama.cpp sidecar.
+- The current blocker is model/runtime compatibility, not Gestalt/Emily wiring:
+  the local llama.cpp sidecar exits with
+  `unknown model architecture: 'qwen35moe'` when asked to load
+  `Qwen3.5-35B-A3B-GGUF`.
+- Broader remote rollout should wait for one of:
+  - a supported reasoning model
+  - upgraded llama.cpp/Pantograph support for `qwen35moe`
+
+**Status:** Implemented, blocked by current local llama.cpp model support
+
 ### Milestone 2: Retrieval Hardening For Real Emily Use
 
 **Goal:** Make Emily retrieval good enough to justify broader Gestalt

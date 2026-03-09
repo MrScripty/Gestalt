@@ -18,6 +18,7 @@ Application source modules for Gestalt's state model, command library, terminal 
 | `local_agent_membrane.rs` | Host-side membrane execution helper for the local-agent flow, with gated remote support |
 | `orchestration_activity.rs` | Host-side orchestration activity views enriched with Emily episode, routing, validation, and remote-state summaries |
 | `pantograph_host.rs` | Gestalt-owned Pantograph composition for Emily embedding and membrane reasoning providers |
+| `pantograph_reasoning_probe.rs` | Live Pantograph reasoning diagnostic that repairs a selected workflow into a puma-backed membrane path and records the resulting Emily artifacts or runtime blocker |
 | `local_restore.rs` | SQLite-backed restore projection for terminal UI/runtime metadata |
 | `orchestration_log/` | Durable SQLite command/event/receipt timelines for orchestrated actions |
 | `run_checkpoints/` | Durable Git-backed run baselines and derived review diffs |
@@ -44,6 +45,7 @@ Application source modules for Gestalt's state model, command library, terminal 
 - `orchestration_activity` keeps Emily-backed activity enrichment out of the Dioxus component layer and lets real orchestration history consume Emily episode, routing, validation, and remote-state reads through the public bridge.
 - `pantograph_host` keeps workflow ids, node bindings, provider-registry composition, and embedding vectorization defaults inside Gestalt so reusable Emily crates stay host-agnostic.
 - `pantograph_host` also owns Pantograph-specific embedding workflow maintenance and validation helpers, including graph-edit updates for the `puma-lib` node, the measured `Qwen3-Embedding-4B-GGUF` default of `2560` dimensions, and warm-session reuse diagnostics for the session-backed embedding provider.
+- `pantograph_reasoning_probe` is a host-only live diagnostic: it rewrites the selected reasoning workflow into a supported puma-backed llama.cpp graph, runs the real membrane remote path, and keeps any Pantograph/Pumas workflow repair logic out of reusable Emily crates.
 - `emily_bridge` surfaces bridge worker failures as request errors and keeps recent-history reads failure-tolerant by degrading to an empty chunk instead of panicking.
 - `orchestration_log` persists exact command lifecycles using timeline sequence plus timestamps.
 - `run_checkpoints` persists coarse repo baselines so run review can compare current Git state against the moment a run started.
