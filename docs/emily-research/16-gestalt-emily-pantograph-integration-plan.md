@@ -322,14 +322,14 @@ dispatch yet.
 behind an explicit development gate.
 
 **Tasks:**
-- [ ] Compose a Gestalt-owned membrane provider registry with the
+- [x] Compose a Gestalt-owned membrane provider registry with the
   `Qwen3.5-35B-A3B-GGUF` workflow
-- [ ] Use existing membrane routing and EARL-aware policy selection
-- [ ] Restrict first remote adoption to one narrow host flow
-- [ ] Record route, remote episode, validation, and audit artifacts through
+- [x] Use existing membrane routing and EARL-aware policy selection
+- [x] Restrict first remote adoption to one narrow host flow
+- [x] Record route, remote episode, validation, and audit artifacts through
   Emily only
-- [ ] Keep local-only fallback explicit
-- [ ] Define timeout, failure, and review-required UX/diagnostic handling
+- [x] Keep local-only fallback explicit
+- [x] Define timeout, failure, and review-required UX/diagnostic handling
   without changing reusable crate boundaries
 
 **Verification:**
@@ -342,7 +342,22 @@ behind an explicit development gate.
 - duplicate-request/idempotency check for repeated host-triggered dispatch
   attempts
 
-**Status:** Not started
+**Execution Notes:**
+- Extended the real local-agent membrane helper so Gestalt can build a
+  Pantograph-backed provider registry from host env/config, route through the
+  existing membrane policy surface, and keep the remote path behind
+  `GESTALT_ENABLE_LOCAL_AGENT_REMOTE_MEMBRANE=1`.
+- Reused the same `EmilyBridge` worker for remote sovereign writes by adding
+  remote episode lifecycle reads/writes instead of opening a second Emily
+  runtime against the active database.
+- Kept the first remote adoption narrow and diagnostic: the local-agent flow now
+  records route, remote episode, validation, and audit artifacts while leaving
+  the original terminal dispatch behavior unchanged.
+- Added explicit local-only fallback for missing provider registry bootstrap and
+  remote provider execution failures such as timeouts, with acceptance coverage
+  for both successful remote execution and timeout-style fallback.
+
+**Status:** Complete
 
 ### Milestone 5: Integration Hygiene And Boundary Audit
 
@@ -384,6 +399,11 @@ Update during implementation:
   optional local-only membrane pass behind `GESTALT_ENABLE_LOCAL_AGENT_MEMBRANE=1`,
   records routing/validation/audit artifacts through the existing Emily bridge,
   and verifies the path with bridge-backed acceptance coverage.
+- 2026-03-08: Milestone 4 completed. The same local-agent host helper can now
+  use a Pantograph-backed provider registry behind
+  `GESTALT_ENABLE_LOCAL_AGENT_REMOTE_MEMBRANE=1`, records remote episode
+  artifacts through the existing Emily bridge, and falls back explicitly to a
+  separate local-only membrane pass when remote bootstrap or execution fails.
 
 ## Commit Cadence Notes
 
@@ -416,6 +436,7 @@ Update during implementation:
 - Milestone 1: Host configuration and provider mapping
 - Milestone 2: Retrieval hardening for real Emily use
 - Milestone 3: Real Gestalt local-only membrane adoption
+- Milestone 4: Gated single-remote membrane adoption
 
 ### Deviations
 
@@ -426,7 +447,7 @@ Update during implementation:
 
 ### Follow-Ups
 
-- Start Milestone 4: gated single-remote membrane adoption.
+- Start Milestone 5: integration hygiene and boundary audit.
 
 ### Verification Summary
 
