@@ -13,10 +13,15 @@ use emily_membrane::providers::{
 };
 use inference::{BackendConfig, InferenceGateway, StdProcessSpawner};
 use pantograph_workflow_service::{
-    WorkflowHost, WorkflowIoRequest, WorkflowOutputTarget, WorkflowPortBinding, WorkflowRunOptions,
-    WorkflowRunRequest, WorkflowRunResponse, WorkflowService, WorkflowServiceError, capabilities,
+    FileSystemWorkflowGraphStore, WorkflowGraphEditSessionCloseRequest,
+    WorkflowGraphEditSessionCreateRequest, WorkflowGraphLoadRequest, WorkflowGraphSaveRequest,
+    WorkflowGraphUpdateNodeDataRequest, WorkflowHost, WorkflowIoRequest, WorkflowOutputTarget,
+    WorkflowPortBinding, WorkflowRunOptions, WorkflowRunRequest, WorkflowRunResponse,
+    WorkflowService, WorkflowServiceError, capabilities,
 };
+use serde::Serialize;
 use std::collections::{HashMap, HashSet};
+use std::fs;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -27,12 +32,18 @@ use uuid::Uuid;
 use workflow_nodes as _;
 
 const DEFAULT_TIMEOUT_MS: u64 = 120_000;
-const DEFAULT_EMBED_DIMENSIONS: usize = 1024;
+const DEFAULT_EMBED_DIMENSIONS: usize = 2560;
 const DEFAULT_EMBEDDING_PROFILE_ID: &str = "Qwen3-Embedding-4B-GGUF";
+const DEFAULT_EMBEDDING_MODEL_ID: &str = "embedding/qwen3/qwen3-embedding-4b-gguf";
+const DEFAULT_EMBEDDING_MODEL_NAME: &str = "Qwen3-Embedding-4B-GGUF";
+const DEFAULT_EMBEDDING_MODEL_RELATIVE_PATH: &str = "shared-resources/models/embedding/qwen3/qwen3-embedding-4b-gguf/Qwen3-Embedding-4B-Q4_K_M.gguf";
+const DEFAULT_MAX_VALUE_BYTES: usize = 256 * 1024;
 const DEFAULT_REASONING_PROVIDER_ID: &str = "pantograph-qwen-reasoning";
 const DEFAULT_REASONING_MODEL_ID: &str = "Qwen3.5-35B-A3B-GGUF";
 const DEFAULT_REASONING_PROFILE_ID: &str = "reasoning";
 const DEFAULT_REASONING_CAPABILITY_TAGS: [&str; 2] = ["analysis", "reasoning"];
+const LLAMA_WRAPPER_CANONICAL_NAME: &str = "llama-server-wrapper";
+const LLAMA_WRAPPER_PLATFORM_NAME: &str = "llama-server-wrapper-x86_64-unknown-linux-gnu";
 const EMBEDDING_MODEL_INPUT_ALIASES: [&str; 6] = [
     "model",
     "model_path",
@@ -256,8 +267,23 @@ impl PantographRuntimeConfig {
         self.pantograph_root.clone()
     }
 
-    fn binaries_dir(&self) -> PathBuf {
+    fn raw_binaries_dir(&self) -> PathBuf {
         self.pantograph_root.join("src-tauri/binaries")
+    }
+
+    fn binaries_dir(&self) -> Result<PathBuf, String> {
+        let binaries_dir = self.raw_binaries_dir();
+        let canonical = binaries_dir.join(LLAMA_WRAPPER_CANONICAL_NAME);
+        if canonical.exists() {
+            return Ok(binaries_dir);
+        }
+
+        let platform_wrapper = binaries_dir.join(LLAMA_WRAPPER_PLATFORM_NAME);
+        if !platform_wrapper.is_file() {
+            return Ok(binaries_dir);
+        }
+
+        prepare_llama_wrapper_shim(&platform_wrapper)
     }
 
     fn data_dir(&self) -> PathBuf {
@@ -271,6 +297,24 @@ impl PantographRuntimeConfig {
             profile_id: Some(self.profile_id.clone()),
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct PantographEmbeddingValidationReport {
+    pub workflow_id: String,
+    pub profile_id: String,
+    pub configured_expected_dimensions: usize,
+    pub validated_dimensions: usize,
+    pub configured_model_path_override: Option<PathBuf>,
+    pub effective_model_path_override: PathBuf,
+    pub saved_workflow_path: String,
+    pub updated_puma_lib_node_id: String,
+    pub resolved_model_path: Option<PathBuf>,
+    pub session_id: Option<String>,
+    pub session_state: Option<String>,
+    pub workflow_probe_vector_length: usize,
+    pub session_probe_vector_length: usize,
+    pub vector_preview: Vec<f32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -426,6 +470,61 @@ fn optional_env_from(value: Option<String>) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+fn default_embedding_model_path_for_root(pantograph_root: &Path) -> Option<PathBuf> {
+    let candidate = pantograph_root
+        .parent()
+        .map(|root| root.join("Pumas-Library"))
+        .map(|root| root.join(DEFAULT_EMBEDDING_MODEL_RELATIVE_PATH))?;
+    candidate.is_file().then_some(candidate)
+}
+
+fn shell_single_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
+}
+
+fn prepare_llama_wrapper_shim(platform_wrapper: &Path) -> Result<PathBuf, String> {
+    let shim_dir = std::env::temp_dir().join("gestalt-pantograph-llama-wrapper");
+    fs::create_dir_all(&shim_dir).map_err(|error| {
+        format!(
+            "failed creating Pantograph wrapper shim directory {}: {error}",
+            shim_dir.display()
+        )
+    })?;
+
+    let shim_path = shim_dir.join(LLAMA_WRAPPER_CANONICAL_NAME);
+    let wrapper_target = shell_single_quote(&platform_wrapper.display().to_string());
+    let shim_content = format!("#!/bin/bash\nexec {wrapper_target} \"$@\"\n");
+    fs::write(&shim_path, shim_content).map_err(|error| {
+        format!(
+            "failed writing Pantograph wrapper shim {}: {error}",
+            shim_path.display()
+        )
+    })?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        let mut permissions = fs::metadata(&shim_path)
+            .map_err(|error| {
+                format!(
+                    "failed reading Pantograph wrapper shim metadata {}: {error}",
+                    shim_path.display()
+                )
+            })?
+            .permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&shim_path, permissions).map_err(|error| {
+            format!(
+                "failed setting Pantograph wrapper shim permissions {}: {error}",
+                shim_path.display()
+            )
+        })?;
+    }
+
+    Ok(shim_dir)
+}
+
 #[derive(Debug, Default)]
 struct HostRuntimeState {
     active_model_path: Option<PathBuf>,
@@ -517,10 +616,11 @@ impl EmbeddingWorkflowTaskExecutor {
         }
 
         self.gateway.stop().await;
-        let spawner = Arc::new(StdProcessSpawner::new(
-            self.config.binaries_dir(),
-            self.config.data_dir(),
-        ));
+        let binaries_dir = self
+            .config
+            .binaries_dir()
+            .map_err(node_engine::NodeEngineError::ExecutionFailed)?;
+        let spawner = Arc::new(StdProcessSpawner::new(binaries_dir, self.config.data_dir()));
         self.gateway.set_spawner(spawner).await;
 
         let backend_config = BackendConfig {
@@ -585,10 +685,10 @@ pub struct GestaltPantographHost {
 impl GestaltPantographHost {
     pub fn new(config: PantographRuntimeConfig) -> Result<Self, String> {
         let binaries_dir = config.binaries_dir();
-        if !binaries_dir.exists() {
+        if !binaries_dir?.exists() {
             return Err(format!(
                 "pantograph binaries directory does not exist: {}",
-                binaries_dir.display()
+                config.raw_binaries_dir().display()
             ));
         }
         Ok(Self {
@@ -596,6 +696,13 @@ impl GestaltPantographHost {
             gateway: Arc::new(InferenceGateway::new()),
             runtime_state: Arc::new(Mutex::new(HostRuntimeState::default())),
         })
+    }
+
+    fn active_model_path(&self) -> Result<Option<PathBuf>, String> {
+        self.runtime_state
+            .lock()
+            .map(|state| state.active_model_path.clone())
+            .map_err(|_| "host runtime state lock poisoned".to_string())
     }
 
     fn apply_input_bindings(
@@ -730,6 +837,10 @@ impl GestaltPantographHost {
 impl WorkflowHost for GestaltPantographHost {
     fn workflow_roots(&self) -> Vec<PathBuf> {
         self.config.workflow_roots()
+    }
+
+    fn max_value_bytes(&self) -> usize {
+        DEFAULT_MAX_VALUE_BYTES
     }
 
     async fn default_backend_name(&self) -> Result<String, WorkflowServiceError> {
@@ -904,38 +1015,188 @@ fn reasoning_bindings_from_io(
     Ok((input_binding, vec![output_binding]))
 }
 
+async fn discover_embedding_bindings(
+    host: &GestaltPantographHost,
+    config: &PantographRuntimeConfig,
+) -> Result<(EmilyWorkflowBinding, EmilyWorkflowBinding), String> {
+    let workflow_service = WorkflowService::new();
+    let io = workflow_service
+        .workflow_get_io(
+            host,
+            WorkflowIoRequest {
+                workflow_id: config.workflow_id.clone(),
+            },
+        )
+        .await
+        .map_err(|error| format!("workflow_get_io bootstrap failed: {error}"))?;
+    binding_from_io(&io, config)
+}
+
+fn parse_embedding_vector_value(value: &serde_json::Value) -> Result<Vec<f32>, String> {
+    let Some(values) = value.as_array() else {
+        return Err("workflow output binding was not an embedding array".to_string());
+    };
+
+    values
+        .iter()
+        .enumerate()
+        .map(|(index, value)| {
+            value
+                .as_f64()
+                .map(|entry| entry as f32)
+                .ok_or_else(|| format!("embedding value at index {index} was not numeric"))
+        })
+        .collect()
+}
+
+async fn build_embedding_provider_components(
+    config: PantographRuntimeConfig,
+) -> Result<(Arc<GestaltPantographHost>, Arc<PantographEmbeddingProvider>), String> {
+    let host = Arc::new(GestaltPantographHost::new(config.clone())?);
+    let (text_input, vector_output) = discover_embedding_bindings(host.as_ref(), &config).await?;
+    let embedding_config = PantographWorkflowEmbeddingConfig::new(
+        config.workflow_id,
+        text_input,
+        vector_output,
+        config.timeout_ms,
+        config.expected_dimensions,
+    )
+    .map_err(|error| error.to_string())?;
+
+    let client = Arc::new(PantographWorkflowServiceClient::new(host.clone()));
+    let provider = Arc::new(
+        PantographEmbeddingProvider::new(client, embedding_config)
+            .map_err(|error| error.to_string())?,
+    );
+    Ok((host, provider))
+}
+
+async fn update_embedding_workflow_graph(
+    config: &PantographRuntimeConfig,
+    model_path: &Path,
+) -> Result<(String, String), String> {
+    let workflow_service = WorkflowService::new();
+    let store = FileSystemWorkflowGraphStore::new(config.project_root());
+    let workflow_path = format!(".pantograph/workflows/{}.json", config.workflow_id);
+    let workflow_file = workflow_service
+        .workflow_graph_load(
+            &store,
+            WorkflowGraphLoadRequest {
+                path: workflow_path,
+            },
+        )
+        .map_err(|error| format!("workflow graph load failed: {error}"))?;
+
+    let edit_session = workflow_service
+        .workflow_graph_create_edit_session(WorkflowGraphEditSessionCreateRequest {
+            graph: workflow_file.graph,
+        })
+        .await
+        .map_err(|error| format!("workflow edit-session create failed: {error}"))?;
+
+    let session_graph = workflow_service
+        .workflow_graph_get_edit_session_graph(
+            pantograph_workflow_service::WorkflowGraphEditSessionGraphRequest {
+                session_id: edit_session.session_id.clone(),
+            },
+        )
+        .await
+        .map_err(|error| format!("workflow edit-session graph load failed: {error}"))?;
+
+    let puma_lib_node = session_graph
+        .graph
+        .nodes
+        .iter()
+        .find(|node| node.node_type == "puma-lib")
+        .ok_or_else(|| "embedding workflow is missing a puma-lib node".to_string())?;
+    let mut updated_data = puma_lib_node.data.clone();
+    updated_data["modelPath"] = serde_json::json!(model_path);
+    updated_data["modelName"] = serde_json::json!(DEFAULT_EMBEDDING_MODEL_NAME);
+    updated_data["model_id"] = serde_json::json!(DEFAULT_EMBEDDING_MODEL_ID);
+    updated_data["dependency_requirements_id"] = serde_json::json!(DEFAULT_EMBEDDING_MODEL_ID);
+    updated_data["selectionMode"] = serde_json::json!("library");
+    updated_data["task_type_primary"] = serde_json::json!("feature-extraction");
+    updated_data["dependency_requirements"]["model_id"] =
+        serde_json::json!(DEFAULT_EMBEDDING_MODEL_ID);
+
+    let updated_graph = workflow_service
+        .workflow_graph_update_node_data(WorkflowGraphUpdateNodeDataRequest {
+            session_id: edit_session.session_id.clone(),
+            node_id: puma_lib_node.id.clone(),
+            data: updated_data,
+        })
+        .await
+        .map_err(|error| format!("workflow puma-lib update failed: {error}"))?;
+
+    let save = workflow_service
+        .workflow_graph_save(
+            &store,
+            WorkflowGraphSaveRequest {
+                name: config.workflow_id.clone(),
+                graph: updated_graph.graph,
+            },
+        )
+        .map_err(|error| format!("workflow graph save failed: {error}"))?;
+
+    workflow_service
+        .workflow_graph_close_edit_session(WorkflowGraphEditSessionCloseRequest {
+            session_id: edit_session.session_id,
+        })
+        .await
+        .map_err(|error| format!("workflow edit-session close failed: {error}"))?;
+
+    Ok((save.path, puma_lib_node.id.clone()))
+}
+
+async fn run_embedding_workflow_probe(
+    host: &GestaltPantographHost,
+    config: &PantographRuntimeConfig,
+    text_input: &EmilyWorkflowBinding,
+    vector_output: &EmilyWorkflowBinding,
+    text: &str,
+) -> Result<Vec<f32>, String> {
+    let workflow_service = WorkflowService::new();
+    let response = workflow_service
+        .workflow_run(
+            host,
+            WorkflowRunRequest {
+                workflow_id: config.workflow_id.clone(),
+                inputs: vec![WorkflowPortBinding {
+                    node_id: text_input.node_id.clone(),
+                    port_id: text_input.port_id.clone(),
+                    value: serde_json::json!(text),
+                }],
+                output_targets: Some(vec![WorkflowOutputTarget {
+                    node_id: vector_output.node_id.clone(),
+                    port_id: vector_output.port_id.clone(),
+                }]),
+                timeout_ms: config.timeout_ms,
+                run_id: None,
+            },
+        )
+        .await
+        .map_err(|error| format!("workflow_run embedding probe failed: {error}"))?;
+
+    let binding = response
+        .outputs
+        .iter()
+        .find(|binding| {
+            binding.node_id == vector_output.node_id && binding.port_id == vector_output.port_id
+        })
+        .ok_or_else(|| {
+            format!(
+                "workflow output '{}.{}' missing from probe response",
+                vector_output.node_id, vector_output.port_id
+            )
+        })?;
+    parse_embedding_vector_value(&binding.value)
+}
+
 fn bootstrap_embedding_provider(
     config: PantographRuntimeConfig,
 ) -> Result<Arc<dyn EmbeddingProvider>, String> {
-    let host = Arc::new(GestaltPantographHost::new(config.clone())?);
     run_bootstrap_blocking(async move {
-        let workflow_service = WorkflowService::new();
-        let io = workflow_service
-            .workflow_get_io(
-                host.as_ref(),
-                WorkflowIoRequest {
-                    workflow_id: config.workflow_id.clone(),
-                },
-            )
-            .await
-            .map_err(|error| format!("workflow_get_io bootstrap failed: {error}"))?;
-
-        let (text_input, vector_output) = binding_from_io(&io, &config)?;
-
-        let embedding_config = PantographWorkflowEmbeddingConfig::new(
-            config.workflow_id,
-            text_input,
-            vector_output,
-            config.timeout_ms,
-            config.expected_dimensions,
-        )
-        .map_err(|error| error.to_string())?;
-
-        let client = Arc::new(PantographWorkflowServiceClient::new(host));
-        let provider = Arc::new(
-            PantographEmbeddingProvider::new(client, embedding_config)
-                .map_err(|error| error.to_string())?,
-        );
+        let (_, provider) = build_embedding_provider_components(config).await?;
         provider
             .validate()
             .await
@@ -955,6 +1216,79 @@ pub fn build_deferred_embedding_provider_from_env() -> Result<Arc<dyn EmbeddingP
 
 pub fn build_embedding_vectorization_patch_from_env() -> Result<VectorizationConfigPatch, String> {
     Ok(PantographRuntimeConfig::from_env()?.vectorization_patch())
+}
+
+pub fn validate_embedding_roundtrip_from_env(
+    text: &str,
+) -> Result<PantographEmbeddingValidationReport, String> {
+    let mut config = PantographRuntimeConfig::from_env()?;
+    let configured_expected_dimensions = config.expected_dimensions;
+    let configured_model_path_override = config.model_path_override.clone();
+    let effective_model_path_override = config
+        .model_path_override
+        .clone()
+        .or_else(|| default_embedding_model_path_for_root(&config.pantograph_root))
+        .ok_or_else(|| {
+            format!(
+                "no embedding model path override configured and default Qwen3-Embedding-4B model was not found under {}",
+                config.pantograph_root.display()
+            )
+        })?;
+    config.model_path_override = Some(effective_model_path_override.clone());
+    let text = text.to_string();
+
+    run_bootstrap_blocking(async move {
+        let (saved_workflow_path, updated_puma_lib_node_id) =
+            update_embedding_workflow_graph(&config, &effective_model_path_override).await?;
+        let host = Arc::new(GestaltPantographHost::new(config.clone())?);
+        let (text_input, vector_output) =
+            discover_embedding_bindings(host.as_ref(), &config).await?;
+        let workflow_probe_vector = run_embedding_workflow_probe(
+            host.as_ref(),
+            &config,
+            &text_input,
+            &vector_output,
+            &text,
+        )
+        .await?;
+        let resolved_model_path = host.active_model_path()?;
+
+        let provider_config = PantographRuntimeConfig {
+            expected_dimensions: workflow_probe_vector.len(),
+            ..config.clone()
+        };
+        let (_, provider) = build_embedding_provider_components(provider_config).await?;
+        provider
+            .validate()
+            .await
+            .map_err(|error| format!("pantograph provider validation failed: {error}"))?;
+        let vector = provider
+            .embed_text(&text)
+            .await
+            .map_err(|error| format!("pantograph embedding probe failed: {error}"))?;
+        let status = provider.status().await;
+        provider
+            .shutdown()
+            .await
+            .map_err(|error| format!("pantograph provider shutdown failed: {error}"))?;
+
+        Ok(PantographEmbeddingValidationReport {
+            workflow_id: config.workflow_id.clone(),
+            profile_id: config.profile_id.clone(),
+            configured_expected_dimensions,
+            validated_dimensions: workflow_probe_vector.len(),
+            configured_model_path_override,
+            effective_model_path_override,
+            saved_workflow_path,
+            updated_puma_lib_node_id,
+            resolved_model_path,
+            session_id: status.as_ref().and_then(|status| status.session_id.clone()),
+            session_state: status.as_ref().map(|status| status.state.clone()),
+            workflow_probe_vector_length: workflow_probe_vector.len(),
+            session_probe_vector_length: vector.len(),
+            vector_preview: vector.into_iter().take(8).collect(),
+        })
+    })
 }
 
 fn build_membrane_provider_registry(
@@ -1091,17 +1425,19 @@ pub async fn run_workflow_once_from_env(text: &str) -> Result<WorkflowRunRespons
 mod tests {
     use super::{
         DeferredEmbeddingProvider, PantographReasoningRuntimeConfig, PantographRuntimeConfig,
-        binding_from_io, build_membrane_provider_registry,
-        resolve_embedding_model_path_from_inputs,
+        binding_from_io, build_membrane_provider_registry, default_embedding_model_path_for_root,
+        prepare_llama_wrapper_shim, resolve_embedding_model_path_from_inputs,
     };
     use emily::inference::EmbeddingProvider;
     use emily::model::EmbeddingProviderStatus;
     use emily_membrane::providers::MembraneProviderRegistry;
     use pantograph_workflow_service::{WorkflowHost, WorkflowIoRequest, WorkflowService};
     use std::collections::HashMap;
+    use std::fs;
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
+    use uuid::Uuid;
 
     struct RecordingEmbeddingExecutor {
         recorded_models: Arc<Mutex<Vec<PathBuf>>>,
@@ -1165,7 +1501,7 @@ mod tests {
             pantograph_root: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../Pantograph"),
             workflow_id: "Embedding".to_string(),
             timeout_ms: Some(1_000),
-            expected_dimensions: 1024,
+            expected_dimensions: DEFAULT_EMBED_DIMENSIONS,
             profile_id: DEFAULT_EMBEDDING_PROFILE_ID.to_string(),
             text_input_node_id: None,
             text_input_port_id: None,
@@ -1183,6 +1519,36 @@ mod tests {
     }
 
     #[test]
+    fn default_embedding_model_path_finds_qwen_4b_model() {
+        let pantograph_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../Pantograph");
+        let model_path =
+            default_embedding_model_path_for_root(&pantograph_root).expect("default model path");
+        assert_eq!(
+            model_path,
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../Pumas-Library")
+                .join(super::DEFAULT_EMBEDDING_MODEL_RELATIVE_PATH)
+        );
+        assert!(model_path.is_file());
+    }
+
+    #[test]
+    fn prepare_llama_wrapper_shim_creates_runtime_wrapper() {
+        let root = std::env::temp_dir().join(format!("gestalt-pantograph-host-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).expect("create temp binaries dir");
+        let platform_wrapper = root.join(super::LLAMA_WRAPPER_PLATFORM_NAME);
+        fs::write(&platform_wrapper, "#!/bin/sh\n").expect("write platform wrapper");
+
+        let shim_dir = prepare_llama_wrapper_shim(&platform_wrapper).expect("create shim");
+
+        let canonical = shim_dir.join(super::LLAMA_WRAPPER_CANONICAL_NAME);
+        assert!(canonical.exists());
+
+        fs::remove_dir_all(&root).expect("remove temp binaries dir");
+        let _ = fs::remove_dir_all(&shim_dir);
+    }
+
+    #[test]
     fn reasoning_runtime_config_returns_none_without_workflow_id() {
         let config = PantographReasoningRuntimeConfig::from_env_with(|_| None)
             .expect("config parse should succeed");
@@ -1193,7 +1559,7 @@ mod tests {
     fn embedding_runtime_config_emits_vectorization_patch_defaults() {
         let patch = test_config().vectorization_patch();
         assert_eq!(patch.enabled, Some(true));
-        assert_eq!(patch.expected_dimensions, Some(1024));
+        assert_eq!(patch.expected_dimensions, Some(DEFAULT_EMBED_DIMENSIONS));
         assert_eq!(
             patch.profile_id.as_deref(),
             Some(DEFAULT_EMBEDDING_PROFILE_ID)
