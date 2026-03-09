@@ -4,9 +4,8 @@ use crate::local_agent_episode::{
     episode_request_from_prepared_command, record_local_agent_episode,
 };
 use crate::local_agent_membrane::{local_agent_membrane_enabled, run_local_agent_membrane_pass};
-use crate::orchestration_log::{
-    CommandKind, CommandPayload, OrchestrationLogStore, ReceiptStatus, RecentActivityRecord,
-};
+use crate::orchestration_activity::{RecentActivitySnapshot, load_recent_activity_snapshot};
+use crate::orchestration_log::{CommandKind, CommandPayload, ReceiptStatus};
 use crate::orchestrator::{self, GroupOrchestratorSnapshot, SessionWriteResult};
 use crate::state::{AppState, GroupId, SessionStatus};
 use crate::terminal::TerminalManager;
@@ -33,7 +32,7 @@ pub(crate) fn LocalAgentPanel(
     let group_path = group_orchestrator.group_path.clone();
     let local_agent_command_value = ui_state.read().local_agent_command.clone();
     let local_agent_feedback_value = ui_state.read().local_agent_feedback.clone();
-    let recent_activity = use_signal(Vec::<RecentActivityRecord>::new);
+    let recent_activity = use_signal(Vec::<RecentActivitySnapshot>::new);
     let activity_feedback = use_signal(String::new);
     let activity_loading = use_signal(|| true);
     let mut activity_loaded_key = use_signal(String::new);
@@ -42,6 +41,7 @@ pub(crate) fn LocalAgentPanel(
     if activity_loaded_key.read().as_str() != group_path.as_str() {
         activity_loaded_key.set(group_path.clone());
         refresh_recent_activity(
+            emily_bridge.read().clone(),
             recent_activity,
             activity_loading,
             activity_feedback,
@@ -56,6 +56,7 @@ pub(crate) fn LocalAgentPanel(
     let group_path_for_interrupt = group_path.clone();
     let group_orchestrator_for_send = group_orchestrator.clone();
     let emily_bridge_for_send = emily_bridge.read().clone();
+    let emily_bridge_for_interrupt = emily_bridge_for_send.clone();
 
     rsx! {
         article { class: "orchestrator-card",
@@ -78,6 +79,7 @@ pub(crate) fn LocalAgentPanel(
                     button {
                         class: "orchestrator-btn send",
                         onclick: move |_| {
+                            let emily_bridge_for_refresh = emily_bridge_for_send.clone();
                             let command = ui_state.read().local_agent_command.trim().to_string();
                             if command.is_empty() {
                                 ui_state.write().local_agent_feedback =
@@ -183,6 +185,7 @@ pub(crate) fn LocalAgentPanel(
                                     "Broadcast complete: {ok_count} success, {fail_count} failed.{context_feedback}{episode_feedback}"
                                 );
                                 refresh_recent_activity(
+                                    emily_bridge_for_refresh.clone(),
                                     recent_activity,
                                     activity_loading,
                                     activity_feedback,
@@ -196,6 +199,7 @@ pub(crate) fn LocalAgentPanel(
                     button {
                         class: "orchestrator-btn interrupt",
                         onclick: move |_| {
+                            let emily_bridge_for_refresh = emily_bridge_for_interrupt.clone();
                             let workspace_snapshot = app_state.read().workspace_state().clone();
                             let results = orchestrator::interrupt_local_agent_group(
                                 &workspace_snapshot,
@@ -213,6 +217,7 @@ pub(crate) fn LocalAgentPanel(
                                 "Interrupt complete: {ok_count} success, {fail_count} failed."
                             );
                             refresh_recent_activity(
+                                emily_bridge_for_refresh,
                                 recent_activity,
                                 activity_loading,
                                 activity_feedback,
@@ -244,12 +249,18 @@ pub(crate) fn LocalAgentPanel(
                         for item in recent_activity_value {
                             div {
                                 class: "orchestrator-item terminal-inactive",
-                                key: "orchestrator-activity-{item.command.command_id}",
+                                key: "orchestrator-activity-{item.activity.command.command_id}",
                                 div { class: "orchestrator-item-head",
                                     span { class: "name", "{activity_title(&item)}" }
                                     span { class: "badge state", "{activity_status(&item)}" }
+                                    if let Some(summary) = item.emily.as_ref() {
+                                        span { class: "badge role", "{summary.gate_label()}" }
+                                    }
                                 }
                                 p { class: "meta", "{activity_detail(&item)}" }
+                                if let Some(summary) = item.emily.as_ref() {
+                                    p { class: "meta", "{summary.detail_line()}" }
+                                }
                                 p { class: "preview", "{activity_timestamp(&item)}" }
                             }
                         }
@@ -338,7 +349,8 @@ fn summarize_round_preview(text: &str) -> String {
 }
 
 fn refresh_recent_activity(
-    mut recent_activity: Signal<Vec<RecentActivityRecord>>,
+    emily_bridge: Arc<EmilyBridge>,
+    mut recent_activity: Signal<Vec<RecentActivitySnapshot>>,
     mut activity_loading: Signal<bool>,
     mut activity_feedback: Signal<String>,
     group_path: String,
@@ -346,23 +358,14 @@ fn refresh_recent_activity(
     activity_loading.set(true);
     activity_feedback.set(String::new());
     spawn(async move {
-        let load_result = tokio::task::spawn_blocking(move || {
-            OrchestrationLogStore::default().load_recent_activity_for_group_path(&group_path, 6)
-        })
-        .await;
-
-        match load_result {
-            Ok(Ok(records)) => {
+        match load_recent_activity_snapshot(emily_bridge, group_path, 6).await {
+            Ok(records) => {
                 recent_activity.set(records);
                 activity_feedback.set(String::new());
             }
-            Ok(Err(error)) => {
-                recent_activity.set(Vec::new());
-                activity_feedback.set(error.to_string());
-            }
             Err(error) => {
                 recent_activity.set(Vec::new());
-                activity_feedback.set(format!("Failed loading recent activity: {error}"));
+                activity_feedback.set(error);
             }
         }
 
@@ -370,8 +373,8 @@ fn refresh_recent_activity(
     });
 }
 
-fn activity_title(item: &RecentActivityRecord) -> String {
-    match &item.command.payload {
+fn activity_title(item: &RecentActivitySnapshot) -> String {
+    match &item.activity.command.payload {
         CommandPayload::LocalAgentSendLine {
             line, display_line, ..
         } => format!(
@@ -407,8 +410,8 @@ fn activity_title(item: &RecentActivityRecord) -> String {
     }
 }
 
-fn activity_status(item: &RecentActivityRecord) -> &'static str {
-    match item.receipt.as_ref().map(|receipt| receipt.status) {
+fn activity_status(item: &RecentActivitySnapshot) -> &'static str {
+    match item.activity.receipt.as_ref().map(|receipt| receipt.status) {
         Some(ReceiptStatus::Succeeded) => "SUCCEEDED",
         Some(ReceiptStatus::PartiallySucceeded) => "PARTIAL",
         Some(ReceiptStatus::Failed) => "FAILED",
@@ -416,18 +419,18 @@ fn activity_status(item: &RecentActivityRecord) -> &'static str {
     }
 }
 
-fn activity_detail(item: &RecentActivityRecord) -> String {
-    match &item.command.kind {
+fn activity_detail(item: &RecentActivitySnapshot) -> String {
+    match &item.activity.command.kind {
         CommandKind::LocalAgentSendLine | CommandKind::LocalAgentInterrupt => {
-            format!("Timeline {}", item.command.timeline_id)
+            format!("Timeline {}", item.activity.command.timeline_id)
         }
-        _ => format!("Kind {:?}", item.command.kind),
+        _ => format!("Kind {:?}", item.activity.command.kind),
     }
 }
 
-fn activity_timestamp(item: &RecentActivityRecord) -> String {
-    let requested = format_unix_ms(item.command.requested_at_unix_ms);
-    match item.receipt.as_ref() {
+fn activity_timestamp(item: &RecentActivitySnapshot) -> String {
+    let requested = format_unix_ms(item.activity.command.requested_at_unix_ms);
+    match item.activity.receipt.as_ref() {
         Some(receipt) => format!(
             "Requested {requested} | completed {}",
             format_unix_ms(receipt.completed_at_unix_ms)

@@ -18,6 +18,8 @@ pub mod local_agent_episode;
 pub mod local_agent_membrane;
 /// SQLite-backed local terminal restore projection.
 pub mod local_restore;
+/// Host-side orchestration activity views enriched with Emily episode state.
+pub mod orchestration_activity;
 /// SQLite-backed durable command/event/receipt timelines for orchestrated actions.
 pub mod orchestration_log;
 /// Group orchestration snapshot and broadcast helpers.

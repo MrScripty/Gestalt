@@ -116,7 +116,10 @@ pub async fn inspect_local_agent_episode(
     let latest_earl = emily_bridge
         .latest_earl_evaluation_for_episode_async(episode_id.to_string())
         .await?;
-    Ok(status_from_episode(&episode, latest_earl.as_ref()))
+    Ok(local_agent_episode_status_from_parts(
+        &episode,
+        latest_earl.as_ref(),
+    ))
 }
 
 pub fn episode_request_from_prepared_command(
@@ -140,7 +143,7 @@ pub fn episode_request_from_prepared_command(
     }
 }
 
-fn status_from_episode(
+pub fn local_agent_episode_status_from_parts(
     episode: &EpisodeRecord,
     latest_earl: Option<&EarlEvaluationRecord>,
 ) -> LocalAgentEpisodeStatus {
@@ -174,7 +177,7 @@ fn stream_id(session_id: SessionId) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{LocalAgentEpisodeGate, current_unix_ms, status_from_episode};
+    use super::{LocalAgentEpisodeGate, current_unix_ms, local_agent_episode_status_from_parts};
     use emily::model::{
         EarlDecision, EarlEvaluationRecord, EarlHostAction, EarlSignalVector, EpisodeRecord,
         EpisodeState,
@@ -203,14 +206,14 @@ mod tests {
             rationale: "seed reflex".to_string(),
             metadata: json!({}),
         };
-        let status = status_from_episode(&episode, Some(&latest_earl));
+        let status = local_agent_episode_status_from_parts(&episode, Some(&latest_earl));
         assert_eq!(status.gate, LocalAgentEpisodeGate::Blocked);
     }
 
     #[test]
     fn host_gate_cautions_cautioned_episode_without_earl() {
         let episode = episode_with_state(EpisodeState::Cautioned);
-        let status = status_from_episode(&episode, None);
+        let status = local_agent_episode_status_from_parts(&episode, None);
         assert_eq!(status.gate, LocalAgentEpisodeGate::Caution);
     }
 
