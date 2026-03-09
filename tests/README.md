@@ -13,6 +13,7 @@ Integration tests for persistence and resume behavior.
 | `emily_local_agent_episode.rs` | Emily local-agent episode recording and seeded EARL gate coverage |
 | `emily_local_agent_membrane.rs` | Local-agent membrane adoption coverage through the Emily bridge, including remote and fallback cases |
 | `emily_membrane_dev.rs` | Dev-only membrane execution flow coverage through the Gestalt host helper |
+| `emily_orchestration_activity.rs` | Real orchestration activity enrichment coverage through Emily episode, routing, validation, and remote-state reads |
 | `emily_semantic_retrieval.rs` | Bridge-level semantic retrieval and lexical fallback coverage against seeded Emily corpora |
 | `pantograph_host_reasoning.rs` | Pantograph reasoning config and provider-registry mapping coverage through Gestalt's host adapter |
 | `resume_startup.rs` | Startup resume flow with workspace state restored but terminal history omitted |
@@ -25,4 +26,5 @@ Integration tests for persistence and resume behavior.
 - Environment variable mutation is guarded by a process-wide mutex to avoid test races.
 - Emily retrieval tests seed deterministic corpora first, then verify host-side queries only through public Emily runtime or bridge APIs.
 - Local-agent membrane tests verify local-only adoption, remote route/remote episode/validation persistence, and timeout-style local fallback through the bridge-backed membrane path instead of opening a second Emily runtime in the host flow.
+- Orchestration activity tests isolate the SQLite activity log with `GESTALT_ORCHESTRATION_DB_PATH` and verify Emily enrichment only through the public bridge surface.
 - Pantograph host tests set workflow env vars explicitly so reasoning workflow ids and node bindings remain host-owned configuration, not reusable Emily crate contracts.

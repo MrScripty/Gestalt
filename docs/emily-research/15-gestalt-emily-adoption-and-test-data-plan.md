@@ -370,3 +370,11 @@ Use this only after:
 - There is a clear plan for putting deterministic test data into Emily.
 - There is a clear plan for inspecting and validating Emily-backed host flows.
 - Gestalt adoption is sequenced from low-risk testing into controlled real use.
+
+## Post-Plan Continuations
+
+- 2026-03-08: Real-behavior Emily widening continued by enriching recent
+  orchestration activity with Emily episode, EARL, routing, validation, and
+  remote-state summaries through the public bridge. This keeps the placeholder
+  local-agent panel as a host harness while moving Emily reads into a real
+  orchestration-history surface.

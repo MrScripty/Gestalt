@@ -16,6 +16,7 @@ Application source modules for Gestalt's state model, command library, terminal 
 | `local_agent_context.rs` | Host-side Emily-backed prompt assembly for the local-agent flow |
 | `local_agent_episode.rs` | Host-side Emily episode recording and gate interpretation for local-agent runs |
 | `local_agent_membrane.rs` | Host-side membrane execution helper for the local-agent flow, with gated remote support |
+| `orchestration_activity.rs` | Host-side orchestration activity views enriched with Emily episode, routing, validation, and remote-state summaries |
 | `pantograph_host.rs` | Gestalt-owned Pantograph composition for Emily embedding and membrane reasoning providers |
 | `local_restore.rs` | SQLite-backed restore projection for terminal UI/runtime metadata |
 | `orchestration_log/` | Durable SQLite command/event/receipt timelines for orchestrated actions |
@@ -40,6 +41,7 @@ Application source modules for Gestalt's state model, command library, terminal 
 - `local_agent_context` keeps Emily-backed local-agent prompt assembly out of the Dioxus component layer and preserves the human-entered command separately from the dispatched prompt payload.
 - `local_agent_episode` records real local-agent actions as Emily episodes and interprets episode plus EARL state into a narrow host-facing gate.
 - `local_agent_membrane` keeps membrane execution out of the Dioxus component layer, reuses the existing Emily bridge instead of opening a second runtime, keeps local-only adoption behind `GESTALT_ENABLE_LOCAL_AGENT_MEMBRANE=1`, and gates the first Pantograph-backed remote path behind `GESTALT_ENABLE_LOCAL_AGENT_REMOTE_MEMBRANE=1` with explicit local-only fallback.
+- `orchestration_activity` keeps Emily-backed activity enrichment out of the Dioxus component layer and lets real orchestration history consume Emily episode, routing, validation, and remote-state reads through the public bridge.
 - `pantograph_host` keeps workflow ids, node bindings, provider-registry composition, and embedding vectorization defaults inside Gestalt so reusable Emily crates stay host-agnostic.
 - `pantograph_host` also owns Pantograph-specific embedding workflow maintenance and validation helpers, including graph-edit updates for the `puma-lib` node, the measured `Qwen3-Embedding-4B-GGUF` default of `2560` dimensions, and warm-session reuse diagnostics for the session-backed embedding provider.
 - `emily_bridge` surfaces bridge worker failures as request errors and keeps recent-history reads failure-tolerant by degrading to an empty chunk instead of panicking.
@@ -52,5 +54,5 @@ Application source modules for Gestalt's state model, command library, terminal 
 - `persistence` is isolated infrastructure with a versioned schema.
 
 ## Dependencies
-**Internal:** `commands`, `state`, `terminal`, `emily_bridge`, `emily_inspect`, `emily_membrane_dev`, `emily_seed`, `local_agent_context`, `local_agent_episode`, `local_agent_membrane`, `pantograph_host`, `orchestrator`, `orchestration_log`, `run_checkpoints`, `git`, `persistence`  
+**Internal:** `commands`, `state`, `terminal`, `emily_bridge`, `emily_inspect`, `emily_membrane_dev`, `emily_seed`, `local_agent_context`, `local_agent_episode`, `local_agent_membrane`, `orchestration_activity`, `pantograph_host`, `orchestrator`, `orchestration_log`, `run_checkpoints`, `git`, `persistence`  
 **External:** `dioxus`, `portable-pty`, `vt100`, `serde`, `emily`, `emily-membrane`, `rusqlite`
