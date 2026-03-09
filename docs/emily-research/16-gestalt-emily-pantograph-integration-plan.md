@@ -285,16 +285,16 @@ Gestalt workflow onto broader Emily dependence.
 dispatch yet.
 
 **Tasks:**
-- [ ] Pick one production-adjacent host flow
+- [x] Pick one production-adjacent host flow
   - recommended: local-agent execution path
-- [ ] Route it through:
+- [x] Route it through:
   - Emily context retrieval
   - episode creation/linking
   - membrane compile/validate/reconstruct
-- [ ] Surface reconstruction provenance and review status in host-visible
+- [x] Surface reconstruction provenance and review status in host-visible
   diagnostics
-- [ ] Keep a feature flag and explicit fallback path
-- [ ] Keep all Pantograph model/workflow composition outside reusable crates
+- [x] Keep a feature flag and explicit fallback path
+- [x] Keep all Pantograph model/workflow composition outside reusable crates
 
 **Verification:**
 - `cargo fmt`
@@ -302,7 +302,19 @@ dispatch yet.
 - manual dev loop proving provenance-aware reconstruction is visible
 - recovery check proving fallback path remains intact when membrane is disabled
 
-**Status:** Not started
+**Execution Notes:**
+- Adopted the real local-agent send flow first, but kept the membrane slice
+  local-only and post-dispatch so it records bounded compile/validate/
+  reconstruct artifacts without changing the terminal command payload.
+- Added a host-only `local_agent_membrane` helper so Dioxus components do not
+  own membrane runtime construction or persistence identifiers.
+- Reused the existing `EmilyBridge` worker by extending it with the membrane's
+  local-only sovereign record reads/writes instead of opening a second Emily
+  runtime against the same database.
+- Gated the path behind `GESTALT_ENABLE_LOCAL_AGENT_MEMBRANE=1` so the existing
+  fallback remains the default host behavior.
+
+**Status:** Complete
 
 ### Milestone 4: Gated Single-Remote Membrane Adoption
 
@@ -368,6 +380,10 @@ Update during implementation:
   embedding vectorization defaults at Emily startup, seeds a semantic-context
   corpus for retrieval checks, and verifies both semantic retrieval and lexical
   fallback through bridge-level public APIs.
+- 2026-03-08: Milestone 3 completed. The real local-agent host flow now has an
+  optional local-only membrane pass behind `GESTALT_ENABLE_LOCAL_AGENT_MEMBRANE=1`,
+  records routing/validation/audit artifacts through the existing Emily bridge,
+  and verifies the path with bridge-backed acceptance coverage.
 
 ## Commit Cadence Notes
 
@@ -399,6 +415,7 @@ Update during implementation:
 
 - Milestone 1: Host configuration and provider mapping
 - Milestone 2: Retrieval hardening for real Emily use
+- Milestone 3: Real Gestalt local-only membrane adoption
 
 ### Deviations
 
@@ -409,13 +426,14 @@ Update during implementation:
 
 ### Follow-Ups
 
-- Start Milestone 3: real Gestalt local-only membrane adoption.
+- Start Milestone 4: gated single-remote membrane adoption.
 
 ### Verification Summary
 
 - `cargo fmt`
 - `cargo test -q --test pantograph_host_reasoning`
 - `cargo test -q --test pantograph_host_reasoning --test emily_seed_corpus --test emily_semantic_retrieval`
+- `cargo test -q --test emily_local_agent_context --test emily_local_agent_episode --test emily_local_agent_membrane`
 - `cargo check -q`
 - `cargo clippy --test pantograph_host_reasoning -- -D warnings`
   - blocked by pre-existing unrelated warnings/errors outside this slice
