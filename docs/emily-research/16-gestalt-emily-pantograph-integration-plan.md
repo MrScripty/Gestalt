@@ -271,6 +271,11 @@ Gestalt workflow onto broader Emily dependence.
   `/media/jeremy/OrangeCream/Linux Software/Pantograph/.pantograph/workflows/Embedding.json`
 - Session-based validation returned a live Pantograph session id and embedding
   vector preview
+- Warm-session reuse was validated on one provider instance:
+  - validate session id matched all subsequent embedding calls
+  - first run: `2525 ms`
+  - second run: `1649 ms`
+  - third run: `26 ms`
 
 **Status:** Complete
 

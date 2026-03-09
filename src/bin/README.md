@@ -8,7 +8,7 @@
 | ----------- | ----------- |
 | `emily_inspect.rs` | Deterministic Emily inspection runner for seeded or live local DBs |
 | `emily_membrane_dev.rs` | Dev-only membrane execution runner for controlled local Gestalt flows |
-| `emily_pantograph_embedding_probe.rs` | Real Pantograph embedding validator that updates the `Embedding` workflow model binding and proves session-based vector return |
+| `emily_pantograph_embedding_probe.rs` | Real Pantograph embedding validator that updates the `Embedding` workflow model binding, proves session-based vector return, and measures warm-session reuse |
 | `emily_seed.rs` | Deterministic Emily seed corpus runner for local diagnostics and host acceptance prep |
 | `profile_terminal.rs` | PTY input latency profiling utility |
 
