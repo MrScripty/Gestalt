@@ -262,6 +262,9 @@ pub struct RemoteExecutionRecord {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PolicySelectedRemoteExecution {
     pub policy: RoutingPolicyResult,
+    /// Defaults to `None` when omitted by older payloads.
+    #[serde(default)]
+    pub reflex_audit_id: Option<String>,
     pub remote_execution: Option<RemoteExecutionRecord>,
 }
 
@@ -269,9 +272,18 @@ pub struct PolicySelectedRemoteExecution {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct PolicyExecutionPersistence {
     #[serde(default)]
+    pub reflex: Option<PolicyReflexPersistence>,
+    #[serde(default)]
     pub local: Option<LocalExecutionPersistence>,
     #[serde(default)]
     pub remote: Option<RemoteExecutionPersistence>,
+}
+
+/// Deterministic identifiers used to persist one reflex boundary audit.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PolicyReflexPersistence {
+    pub audit_id: String,
+    pub audited_at_unix_ms: i64,
 }
 
 /// Result of evaluating routing policy and executing the selected local or
@@ -279,6 +291,9 @@ pub struct PolicyExecutionPersistence {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PolicySelectedExecution {
     pub policy: RoutingPolicyResult,
+    /// Defaults to `None` when omitted by older payloads.
+    #[serde(default)]
+    pub reflex_audit_id: Option<String>,
     pub local_execution: Option<LocalExecutionRecord>,
     pub remote_execution: Option<RemoteExecutionRecord>,
 }
@@ -724,6 +739,10 @@ mod tests {
     #[test]
     fn policy_selected_execution_contracts_roundtrip() {
         let persistence = PolicyExecutionPersistence {
+            reflex: Some(PolicyReflexPersistence {
+                audit_id: "audit-reflex-1".into(),
+                audited_at_unix_ms: 9,
+            }),
             local: Some(LocalExecutionPersistence {
                 route_decision_id: "route-local-1".into(),
                 route_decided_at_unix_ms: 10,
@@ -756,6 +775,7 @@ mod tests {
                 findings: Vec::new(),
                 rationale: Some("local path selected".into()),
             },
+            reflex_audit_id: None,
             local_execution: Some(LocalExecutionRecord {
                 compile: CompileResult {
                     compiled_task: CompiledMembraneTask {

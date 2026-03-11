@@ -4,8 +4,9 @@ use crate::contracts::{
     CompileResult, CompiledMembraneTask, DispatchResult, DispatchStatus, LocalExecutionPersistence,
     LocalExecutionRecord, MembraneBoundaryMetadata, MembraneContextHandle, MembraneIr,
     MembraneIrRenderMode, MembraneRouteKind, MembraneTaskPayload, MembraneTaskRequest,
-    MembraneValidationDisposition, PolicyExecutionPersistence, PolicySelectedExecution,
-    RoutingPlan, RoutingPolicyOutcome, RoutingPolicyRequest, ValidationEnvelope,
+    MembraneValidationDisposition, PolicyExecutionPersistence, PolicyReflexPersistence,
+    PolicySelectedExecution, RoutingPlan, RoutingPolicyOutcome, RoutingPolicyReflexReason,
+    RoutingPolicyRequest, RoutingPolicyResult, ValidationEnvelope,
 };
 use crate::providers::{
     InMemoryProviderRegistry, MembraneProvider, MembraneProviderError, MembraneProviderRegistry,
@@ -13,7 +14,8 @@ use crate::providers::{
 use emily::EmilyApi;
 use emily::error::EmilyError;
 use emily::{
-    RoutingDecision, RoutingDecisionKind, ValidationDecision, ValidationFinding as EmilyFinding,
+    AppendSovereignAuditRecordRequest, AuditRecordKind, RoutingDecision, RoutingDecisionKind,
+    SovereignAuditMetadata, ValidationDecision, ValidationFinding as EmilyFinding,
     ValidationFindingSeverity as EmilyValidationFindingSeverity, ValidationOutcome,
 };
 use serde_json::json;
@@ -317,6 +319,7 @@ where
                     .await?;
                 Ok(PolicySelectedExecution {
                     policy,
+                    reflex_audit_id: None,
                     local_execution: Some(local_execution),
                     remote_execution: None,
                 })
@@ -337,17 +340,38 @@ where
                     .await?;
                 Ok(PolicySelectedExecution {
                     policy,
+                    reflex_audit_id: None,
                     local_execution: None,
                     remote_execution: Some(remote_execution),
                 })
             }
-            RoutingPolicyOutcome::Reflex | RoutingPolicyOutcome::Rejected => {
+            RoutingPolicyOutcome::Reflex => {
+                let reflex_persistence = persistence.reflex.ok_or_else(|| {
+                    MembraneRuntimeError::InvalidRequest(
+                        "policy-selected reflex handling requires reflex persistence".to_string(),
+                    )
+                })?;
+                let reflex_audit_id = self
+                    .append_reflex_audit(
+                        &request.episode_id,
+                        &policy,
+                        reflex_persistence,
+                        "policy-selected",
+                    )
+                    .await?;
                 Ok(PolicySelectedExecution {
                     policy,
+                    reflex_audit_id: Some(reflex_audit_id),
                     local_execution: None,
                     remote_execution: None,
                 })
             }
+            RoutingPolicyOutcome::Rejected => Ok(PolicySelectedExecution {
+                policy,
+                reflex_audit_id: None,
+                local_execution: None,
+                remote_execution: None,
+            }),
         }
     }
 }
@@ -434,6 +458,82 @@ fn validate_policy_task_alignment(
         ));
     }
     Ok(())
+}
+
+impl<A> MembraneRuntime<A>
+where
+    A: EmilyApi + ?Sized,
+{
+    pub(super) async fn append_reflex_audit(
+        &self,
+        episode_id: &str,
+        policy: &RoutingPolicyResult,
+        persistence: PolicyReflexPersistence,
+        source: &str,
+    ) -> Result<String, MembraneRuntimeError> {
+        if policy.outcome != RoutingPolicyOutcome::Reflex {
+            return Err(MembraneRuntimeError::InvalidState(
+                "reflex audit append requires a reflex policy outcome".to_string(),
+            ));
+        }
+        if persistence.audit_id.trim().is_empty() {
+            return Err(MembraneRuntimeError::InvalidRequest(
+                "reflex audit_id must not be empty".to_string(),
+            ));
+        }
+        let reflex_reason = policy.reflex_reason.ok_or_else(|| {
+            MembraneRuntimeError::InvalidState(
+                "reflex policy outcomes must include a typed reflex reason".to_string(),
+            )
+        })?;
+
+        let audit = self
+            .emily
+            .append_sovereign_audit_record(AppendSovereignAuditRecordRequest {
+                audit_id: persistence.audit_id.clone(),
+                episode_id: episode_id.to_string(),
+                kind: AuditRecordKind::BoundaryEvent,
+                ts_unix_ms: persistence.audited_at_unix_ms,
+                summary: format!(
+                    "reflex blocked remote dispatch for task '{}': {}",
+                    policy.task_id,
+                    reflex_reason_label(reflex_reason)
+                ),
+                metadata: SovereignAuditMetadata {
+                    remote_episode_id: None,
+                    route_decision_id: None,
+                    validation_id: None,
+                    boundary_profile: Some("reflex".to_string()),
+                    metadata: json!({
+                        "source": source,
+                        "task_id": policy.task_id,
+                        "reflex_reason": reflex_reason_label(reflex_reason),
+                        "finding_codes": policy
+                            .findings
+                            .iter()
+                            .map(|finding| finding.code.clone())
+                            .collect::<Vec<_>>(),
+                        "rationale": policy.rationale,
+                    }),
+                },
+            })
+            .await?;
+
+        Ok(audit.id)
+    }
+}
+
+fn reflex_reason_label(reason: RoutingPolicyReflexReason) -> &'static str {
+    match reason {
+        RoutingPolicyReflexReason::SensitivityBlock => "sensitivity-block",
+        RoutingPolicyReflexReason::MissingEpisodeAnchor => "missing-episode-anchor",
+        RoutingPolicyReflexReason::EpisodeClosed => "episode-closed",
+        RoutingPolicyReflexReason::EarlReflex => "earl-reflex",
+        RoutingPolicyReflexReason::EpisodeBlocked => "episode-blocked",
+        RoutingPolicyReflexReason::LeakageRisk => "leakage-risk",
+        RoutingPolicyReflexReason::ProtectedContent => "protected-content",
+        RoutingPolicyReflexReason::BoundaryFailure => "boundary-failure",
+    }
 }
 
 fn build_local_routing_decision(

@@ -158,6 +158,7 @@ async fn broader_policy_execution_runs_local_path_and_records_sovereign_state() 
                 },
             },
             PolicyExecutionPersistence {
+                reflex: None,
                 local: Some(persistence()),
                 remote: None,
             },

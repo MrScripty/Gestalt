@@ -240,6 +240,10 @@ pub async fn run_reasoning_probe(
                     },
                 },
                 PolicyExecutionPersistence {
+                    reflex: Some(emily_membrane::contracts::PolicyReflexPersistence {
+                        audit_id: format!("{task_id}:reflex:audit"),
+                        audited_at_unix_ms: now + 1,
+                    }),
                     local: None,
                     remote: Some(emily_membrane::contracts::RemoteExecutionPersistence {
                         route_decision_id: route_decision_id.clone(),

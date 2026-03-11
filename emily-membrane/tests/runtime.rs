@@ -24,12 +24,13 @@ use emily_membrane::providers::{
     ProviderValidationCompatibility, RegisteredProviderTarget,
 };
 use emily_membrane::runtime::{MembraneRuntime, MembraneRuntimeError};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
 struct StubEmilyApi {
     episode: Option<EpisodeRecord>,
     latest_earl: Option<EarlEvaluationRecord>,
+    sovereign_audits: Arc<Mutex<Vec<AuditRecord>>>,
 }
 
 struct StubProvider {
@@ -41,6 +42,7 @@ impl Default for StubEmilyApi {
         Self {
             episode: Some(open_episode("episode-1")),
             latest_earl: None,
+            sovereign_audits: Arc::new(Mutex::new(Vec::new())),
         }
     }
 }
@@ -50,6 +52,7 @@ impl StubEmilyApi {
         Self {
             episode: Some(open_episode("episode-1").with_state(state)),
             latest_earl: None,
+            sovereign_audits: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -79,6 +82,7 @@ impl StubEmilyApi {
                 rationale: "test earl state".to_string(),
                 metadata: serde_json::json!({}),
             }),
+            sovereign_audits: Arc::new(Mutex::new(Vec::new())),
         }
     }
 }
@@ -228,9 +232,21 @@ impl EmilyApi for StubEmilyApi {
 
     async fn append_sovereign_audit_record(
         &self,
-        _request: AppendSovereignAuditRecordRequest,
+        request: AppendSovereignAuditRecordRequest,
     ) -> Result<AuditRecord, EmilyError> {
-        unused()
+        let record = AuditRecord {
+            id: request.audit_id,
+            episode_id: request.episode_id,
+            kind: request.kind,
+            ts_unix_ms: request.ts_unix_ms,
+            summary: request.summary,
+            metadata: serde_json::json!({"sovereign": request.metadata}),
+        };
+        self.sovereign_audits
+            .lock()
+            .expect("lock sovereign audits")
+            .push(record.clone());
+        Ok(record)
     }
 
     async fn routing_decision(
@@ -277,9 +293,16 @@ impl EmilyApi for StubEmilyApi {
 
     async fn sovereign_audit_records_for_episode(
         &self,
-        _episode_id: &str,
+        episode_id: &str,
     ) -> Result<Vec<AuditRecord>, EmilyError> {
-        unused()
+        Ok(self
+            .sovereign_audits
+            .lock()
+            .expect("lock sovereign audits")
+            .iter()
+            .filter(|audit| audit.episode_id == episode_id)
+            .cloned()
+            .collect())
     }
 
     async fn evaluate_episode_risk(
@@ -1218,6 +1241,7 @@ async fn evaluate_routing_policy_rejects_missing_episode_anchor() {
         Arc::new(StubEmilyApi {
             episode: None,
             latest_earl: None,
+            sovereign_audits: Arc::new(Mutex::new(Vec::new())),
         }),
         registry,
     );
@@ -1449,6 +1473,10 @@ async fn execute_remote_with_policy_and_record_returns_policy_only_for_rejected_
         result.policy.reflex_reason,
         Some(emily_membrane::contracts::RoutingPolicyReflexReason::EarlReflex)
     );
+    assert_eq!(
+        result.reflex_audit_id.as_deref(),
+        Some("task-1:reflex:audit")
+    );
     assert!(result.remote_execution.is_none());
 }
 
@@ -1495,7 +1523,13 @@ async fn execute_with_policy_and_record_returns_policy_only_for_rejected_route()
                     ..default_routing_preference()
                 },
             },
-            PolicyExecutionPersistence::default(),
+            PolicyExecutionPersistence {
+                reflex: Some(emily_membrane::contracts::PolicyReflexPersistence {
+                    audit_id: "audit-reflex-1".into(),
+                    audited_at_unix_ms: 9,
+                }),
+                ..PolicyExecutionPersistence::default()
+            },
         )
         .await
         .expect("execute broader policy path");
@@ -1505,6 +1539,7 @@ async fn execute_with_policy_and_record_returns_policy_only_for_rejected_route()
         result.policy.reflex_reason,
         Some(emily_membrane::contracts::RoutingPolicyReflexReason::EarlReflex)
     );
+    assert_eq!(result.reflex_audit_id.as_deref(), Some("audit-reflex-1"));
     assert!(result.local_execution.is_none());
     assert!(result.remote_execution.is_none());
 }

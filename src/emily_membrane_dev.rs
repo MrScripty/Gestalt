@@ -180,6 +180,7 @@ pub async fn run_membrane_dev_scenario<A: EmilyApi + ?Sized>(
                 },
             },
             PolicyExecutionPersistence {
+                reflex: None,
                 local: Some(LocalExecutionPersistence {
                     route_decision_id: format!("{episode_id}:route"),
                     route_decided_at_unix_ms: now + 1,

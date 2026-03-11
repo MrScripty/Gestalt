@@ -596,6 +596,7 @@ async fn broader_policy_execution_runs_remote_path_and_persists_sovereign_record
                 preference: routing_preference(),
             },
             PolicyExecutionPersistence {
+                reflex: None,
                 local: None,
                 remote: Some(persistence()),
             },
@@ -677,6 +678,10 @@ async fn policy_selected_remote_execution_returns_policy_only_when_earl_reflex_b
         result.policy.reflex_reason,
         Some(emily_membrane::contracts::RoutingPolicyReflexReason::EarlReflex)
     );
+    assert_eq!(
+        result.reflex_audit_id.as_deref(),
+        Some("task-remote-1:reflex:audit")
+    );
     assert!(result.policy.selected_target.is_none());
     assert_eq!(result.policy.findings[0].code, "earl-reflex-gate");
     assert!(result.remote_execution.is_none());
@@ -685,7 +690,17 @@ async fn policy_selected_remote_execution_returns_policy_only_when_earl_reflex_b
         .routing_decisions_for_episode("ep-membrane-remote")
         .await
         .expect("list routes");
+    let audits = emily
+        .sovereign_audit_records_for_episode("ep-membrane-remote")
+        .await
+        .expect("list audits");
     assert!(routes.is_empty());
+    assert_eq!(audits.len(), 1);
+    assert_eq!(audits[0].id, "task-remote-1:reflex:audit");
+    assert_eq!(
+        audits[0].metadata["sovereign"]["boundary_profile"],
+        "reflex"
+    );
 
     emily.close_db().await.expect("close db");
     let _ = std::fs::remove_dir_all(locator.storage_path);
@@ -728,7 +743,13 @@ async fn broader_policy_execution_returns_policy_only_for_rejected_route() {
                 sensitivity: RoutingSensitivity::Normal,
                 preference: routing_preference(),
             },
-            PolicyExecutionPersistence::default(),
+            PolicyExecutionPersistence {
+                reflex: Some(emily_membrane::contracts::PolicyReflexPersistence {
+                    audit_id: "audit-reflex-1".to_string(),
+                    audited_at_unix_ms: 9,
+                }),
+                ..PolicyExecutionPersistence::default()
+            },
         )
         .await
         .expect("execute broader policy path");
@@ -738,6 +759,7 @@ async fn broader_policy_execution_returns_policy_only_for_rejected_route() {
         result.policy.reflex_reason,
         Some(emily_membrane::contracts::RoutingPolicyReflexReason::EarlReflex)
     );
+    assert_eq!(result.reflex_audit_id.as_deref(), Some("audit-reflex-1"));
     assert!(result.local_execution.is_none());
     assert!(result.remote_execution.is_none());
 
@@ -753,10 +775,20 @@ async fn broader_policy_execution_returns_policy_only_for_rejected_route() {
         .validation_outcomes_for_episode("ep-membrane-remote")
         .await
         .expect("list validations");
+    let audits = emily
+        .sovereign_audit_records_for_episode("ep-membrane-remote")
+        .await
+        .expect("list audits");
 
     assert!(routes.is_empty());
     assert!(remote_episodes.is_empty());
     assert!(validations.is_empty());
+    assert_eq!(audits.len(), 1);
+    assert_eq!(audits[0].id, "audit-reflex-1");
+    assert_eq!(
+        audits[0].metadata["sovereign"]["boundary_profile"],
+        "reflex"
+    );
 
     emily.close_db().await.expect("close db");
     let _ = std::fs::remove_dir_all(locator.storage_path);

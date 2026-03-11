@@ -3,7 +3,8 @@ use crate::local_agent_context::PreparedLocalAgentCommand;
 use crate::pantograph_host::build_membrane_provider_registry_from_env;
 use emily_membrane::contracts::{
     ContextFragment, LocalExecutionPersistence, MembraneValidationDisposition,
-    PolicyExecutionPersistence, RemoteExecutionPersistence, RoutingPolicyOutcome,
+    PolicyExecutionPersistence, PolicyReflexPersistence, RemoteExecutionPersistence,
+    RoutingPolicyOutcome,
     RoutingPolicyRequest, RoutingSensitivity,
 };
 use emily_membrane::providers::MembraneProviderRegistry;
@@ -311,6 +312,10 @@ fn policy_persistence(
     };
 
     PolicyExecutionPersistence {
+        reflex: Some(PolicyReflexPersistence {
+            audit_id: format!("{episode_id}:local-agent-membrane:{mode_prefix}:reflex"),
+            audited_at_unix_ms: now,
+        }),
         local: Some(LocalExecutionPersistence {
             route_decision_id: format!("{episode_id}:local-agent-membrane:{mode_prefix}:route"),
             route_decided_at_unix_ms: now,

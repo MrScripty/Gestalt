@@ -3,10 +3,11 @@ use super::{
 };
 use crate::contracts::{
     CompileResult, DispatchResult, DispatchStatus, MembraneRouteKind, MembraneTaskRequest,
-    MembraneValidationDisposition, PolicySelectedRemoteExecution, RemoteExecutionPersistence,
-    RemoteExecutionRecord, RemoteRoutingPreference, RoutingPlan, RoutingPolicyOutcome,
-    RoutingPolicyRequest, RoutingTarget, ValidationAssessment, ValidationAssessmentStatus,
-    ValidationCategory, ValidationEnvelope, ValidationFinding, ValidationFindingSeverity,
+    MembraneValidationDisposition, PolicyReflexPersistence, PolicySelectedRemoteExecution,
+    RemoteExecutionPersistence, RemoteExecutionRecord, RemoteRoutingPreference, RoutingPlan,
+    RoutingPolicyOutcome, RoutingPolicyRequest, RoutingTarget, ValidationAssessment,
+    ValidationAssessmentStatus, ValidationCategory, ValidationEnvelope, ValidationFinding,
+    ValidationFindingSeverity,
 };
 use crate::providers::{
     ProviderDispatchKind, ProviderDispatchRequest, ProviderDispatchResult, ProviderDispatchStatus,
@@ -121,13 +122,30 @@ where
                         .await?,
                 )
             }
-            RoutingPolicyOutcome::LocalOnly
-            | RoutingPolicyOutcome::Reflex
-            | RoutingPolicyOutcome::Rejected => None,
+            RoutingPolicyOutcome::Reflex => {
+                let reflex_audit_id = self
+                    .append_reflex_audit(
+                        &request.episode_id,
+                        &policy,
+                        PolicyReflexPersistence {
+                            audit_id: format!("{}:reflex:audit", request.task_id),
+                            audited_at_unix_ms: persistence.route_decided_at_unix_ms,
+                        },
+                        "policy-selected-remote",
+                    )
+                    .await?;
+                return Ok(PolicySelectedRemoteExecution {
+                    policy,
+                    reflex_audit_id: Some(reflex_audit_id),
+                    remote_execution: None,
+                });
+            }
+            RoutingPolicyOutcome::LocalOnly | RoutingPolicyOutcome::Rejected => None,
         };
 
         Ok(PolicySelectedRemoteExecution {
             policy,
+            reflex_audit_id: None,
             remote_execution,
         })
     }
