@@ -1,7 +1,7 @@
 use crate::emily_bridge::EmilyBridge;
 use crate::orchestrator::{self, GroupOrchestratorSnapshot};
 use crate::resource_monitor::ResourceSnapshot;
-use crate::state::{AppState, AuxiliaryPanelKind, SessionId};
+use crate::state::{AppState, AuxiliaryPanelKind, SessionId, WorkspaceState};
 use crate::terminal::TerminalManager;
 use crate::ui::UiState;
 use crate::ui::run_sidebar_panel_host::RunSidebarPanelHost;
@@ -26,6 +26,11 @@ fn run_sidebar_style(ratio: f64) -> String {
     format!("--runner-top-ratio: {:.2}%;", ratio * 100.0)
 }
 
+fn workspace_state_snapshot(app_state: Signal<AppState>) -> WorkspaceState {
+    let state = app_state.read();
+    state.workspace_state().clone()
+}
+
 #[component]
 pub(crate) fn WorkspaceMain(
     app_state: Signal<AppState>,
@@ -48,7 +53,7 @@ pub(crate) fn WorkspaceMain(
             async move {
                 let mut events = terminal_manager.subscribe_events();
                 let mut idle_deadlines = HashMap::<SessionId, tokio::time::Instant>::new();
-                let workspace_snapshot = app_state.read().workspace_state().clone();
+                let workspace_snapshot = workspace_state_snapshot(app_state);
                 let updates = orchestrator::reconcile_session_statuses(
                     &workspace_snapshot,
                     &terminal_manager,
@@ -63,7 +68,7 @@ pub(crate) fn WorkspaceMain(
                                 match event {
                                     Ok(event) => {
                                         if event.kind == crate::terminal::TerminalEventKind::Activity {
-                                            let workspace_snapshot = app_state.read().workspace_state().clone();
+                                            let workspace_snapshot = workspace_state_snapshot(app_state);
                                             let updates = orchestrator::apply_session_activity(
                                                 &workspace_snapshot,
                                                 &terminal_manager,
@@ -76,7 +81,7 @@ pub(crate) fn WorkspaceMain(
                                         }
                                     }
                                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                                        let workspace_snapshot = app_state.read().workspace_state().clone();
+                                        let workspace_snapshot = workspace_state_snapshot(app_state);
                                         let updates = orchestrator::reconcile_session_statuses(
                                             &workspace_snapshot,
                                             &terminal_manager,
@@ -88,7 +93,7 @@ pub(crate) fn WorkspaceMain(
                                 }
                             }
                             _ = tokio::time::sleep_until(next_deadline) => {
-                                let workspace_snapshot = app_state.read().workspace_state().clone();
+                                let workspace_snapshot = workspace_state_snapshot(app_state);
                                 let updates = orchestrator::reconcile_session_statuses(
                                     &workspace_snapshot,
                                     &terminal_manager,
@@ -102,7 +107,7 @@ pub(crate) fn WorkspaceMain(
                             Ok(event)
                                 if event.kind == crate::terminal::TerminalEventKind::Activity =>
                             {
-                                let workspace_snapshot = app_state.read().workspace_state().clone();
+                                let workspace_snapshot = workspace_state_snapshot(app_state);
                                 let updates = orchestrator::apply_session_activity(
                                     &workspace_snapshot,
                                     &terminal_manager,
@@ -115,7 +120,7 @@ pub(crate) fn WorkspaceMain(
                             }
                             Ok(_) => {}
                             Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                                let workspace_snapshot = app_state.read().workspace_state().clone();
+                                let workspace_snapshot = workspace_state_snapshot(app_state);
                                 let updates = orchestrator::reconcile_session_statuses(
                                     &workspace_snapshot,
                                     &terminal_manager,
