@@ -3,10 +3,10 @@
 use crate::contracts::{
     CompileResult, CompiledMembraneTask, DispatchResult, DispatchStatus, LocalExecutionPersistence,
     LocalExecutionRecord, MembraneBoundaryMetadata, MembraneContextHandle, MembraneIr,
-    MembraneIrRenderMode, MembraneRouteKind, MembraneTaskPayload, MembraneTaskRequest,
-    MembraneValidationDisposition, PolicyExecutionPersistence, PolicyReflexPersistence,
-    PolicySelectedExecution, RoutingPlan, RoutingPolicyOutcome, RoutingPolicyReflexReason,
-    RoutingPolicyRequest, RoutingPolicyResult, ValidationEnvelope,
+    MembraneIrRenderMode, MembraneProtectionDisposition, MembraneRouteKind, MembraneTaskPayload,
+    MembraneTaskRequest, MembraneValidationDisposition, PolicyExecutionPersistence,
+    PolicyReflexPersistence, PolicySelectedExecution, RoutingPlan, RoutingPolicyOutcome,
+    RoutingPolicyReflexReason, RoutingPolicyRequest, RoutingPolicyResult, ValidationEnvelope,
 };
 use crate::providers::{
     InMemoryProviderRegistry, MembraneProvider, MembraneProviderError, MembraneProviderRegistry,
@@ -326,6 +326,40 @@ where
                 })
             }
             RoutingPolicyOutcome::SingleRemote => {
+                let compiled = self.compile(request.clone()).await?;
+                if compile_has_blocked_protected_content(&compiled) {
+                    let policy = elevate_policy_to_protected_content_reflex(policy, &compiled);
+                    let reflex_persistence = persistence.reflex.ok_or_else(|| {
+                        MembraneRuntimeError::InvalidRequest(
+                            "protected-content reflex fallback requires reflex persistence"
+                                .to_string(),
+                        )
+                    })?;
+                    let local_persistence = persistence.local.ok_or_else(|| {
+                        MembraneRuntimeError::InvalidRequest(
+                            "protected-content reflex fallback requires local persistence"
+                                .to_string(),
+                        )
+                    })?;
+                    let reflex_audit_id = self
+                        .append_reflex_audit(
+                            &request.episode_id,
+                            &policy,
+                            reflex_persistence,
+                            "protected-content-fallback",
+                        )
+                        .await?;
+                    let local_execution = self
+                        .execute_local_only_and_record(request, local_persistence)
+                        .await?;
+                    return Ok(PolicySelectedExecution {
+                        policy,
+                        reflex_audit_id: Some(reflex_audit_id),
+                        local_execution: Some(local_execution),
+                        remote_execution: None,
+                    });
+                }
+
                 let remote_persistence = persistence.remote.ok_or_else(|| {
                     MembraneRuntimeError::InvalidRequest(
                         "policy-selected remote execution requires remote persistence".to_string(),
@@ -506,6 +540,55 @@ fn validate_policy_task_alignment(
         ));
     }
     Ok(())
+}
+
+pub(super) fn compile_has_blocked_protected_content(compile: &CompileResult) -> bool {
+    compile
+        .compiled_task
+        .membrane_ir
+        .as_ref()
+        .is_some_and(|ir| {
+            ir.protected_references
+                .iter()
+                .any(|reference| reference.disposition == MembraneProtectionDisposition::Blocked)
+        })
+}
+
+pub(super) fn elevate_policy_to_protected_content_reflex(
+    mut policy: RoutingPolicyResult,
+    compile: &CompileResult,
+) -> RoutingPolicyResult {
+    let blocked_count = compile
+        .compiled_task
+        .membrane_ir
+        .as_ref()
+        .map(|ir| {
+            ir.protected_references
+                .iter()
+                .filter(|reference| reference.disposition == MembraneProtectionDisposition::Blocked)
+                .count()
+        })
+        .unwrap_or(0);
+    policy.outcome = RoutingPolicyOutcome::Reflex;
+    policy.reflex_reason = Some(RoutingPolicyReflexReason::ProtectedContent);
+    policy.caution = false;
+    policy.selected_target = None;
+    policy
+        .findings
+        .push(crate::contracts::RoutingPolicyFinding {
+            code: "protected-content-blocked".to_string(),
+            severity: crate::contracts::RoutingPolicyFindingSeverity::Block,
+            detail: format!(
+                "blocked protected content remained local for task '{}' ({} blocked reference{})",
+                compile.compiled_task.task_id,
+                blocked_count,
+                if blocked_count == 1 { "" } else { "s" }
+            ),
+        });
+    policy.rationale = Some(
+        "blocked protected content requires local-only fallback before remote dispatch".to_string(),
+    );
+    policy
 }
 
 impl<A> MembraneRuntime<A>

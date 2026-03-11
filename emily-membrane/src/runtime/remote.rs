@@ -1,6 +1,7 @@
 use super::{
-    MembraneRuntime, MembraneRuntimeError, render_remote_prompt_from_ir, to_emily_finding_severity,
-    to_emily_validation_decision,
+    MembraneRuntime, MembraneRuntimeError, compile_has_blocked_protected_content,
+    elevate_policy_to_protected_content_reflex, render_remote_prompt_from_ir,
+    to_emily_finding_severity, to_emily_validation_decision,
 };
 use crate::contracts::{
     CompileResult, DispatchResult, DispatchStatus, MembraneRouteKind, MembraneTaskRequest,
@@ -113,6 +114,27 @@ where
         let policy = self.evaluate_routing_policy(policy_request).await?;
         let remote_execution = match policy.outcome {
             RoutingPolicyOutcome::SingleRemote => {
+                let compiled = self.compile(request.clone()).await?;
+                if compile_has_blocked_protected_content(&compiled) {
+                    let policy = elevate_policy_to_protected_content_reflex(policy, &compiled);
+                    let reflex_audit_id = self
+                        .append_reflex_audit(
+                            &request.episode_id,
+                            &policy,
+                            PolicyReflexPersistence {
+                                audit_id: format!("{}:reflex:audit", request.task_id),
+                                audited_at_unix_ms: persistence.route_decided_at_unix_ms,
+                            },
+                            "protected-content-remote-stop",
+                        )
+                        .await?;
+                    return Ok(PolicySelectedRemoteExecution {
+                        policy,
+                        reflex_audit_id: Some(reflex_audit_id),
+                        remote_execution: None,
+                    });
+                }
+
                 let target = policy.selected_target.clone().ok_or_else(|| {
                     MembraneRuntimeError::InvalidState(
                         "policy-selected remote execution requires a selected target".to_string(),

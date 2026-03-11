@@ -7,11 +7,11 @@ use emily::{
     EarlSignalVector, EpisodeState, RemoteEpisodeState, ValidationDecision,
 };
 use emily_membrane::contracts::{
-    MembraneTaskRequest, MultiRemoteExecutionPersistence, MultiRemoteExecutionPolicy,
-    MultiRemoteReconciliationDecision, MultiRemoteStopCondition, PolicyExecutionPersistence,
-    RemoteExecutionPersistence, RemoteRetryAttemptPersistence, RemoteRetryExecutionPersistence,
-    RemoteRetryPolicy, RemoteRoutingPreference, RetryMutationStrategy, RoutingPolicyOutcome,
-    RoutingPolicyRequest, RoutingSensitivity,
+    LocalExecutionPersistence, MembraneTaskRequest, MultiRemoteExecutionPersistence,
+    MultiRemoteExecutionPolicy, MultiRemoteReconciliationDecision, MultiRemoteStopCondition,
+    PolicyExecutionPersistence, RemoteExecutionPersistence, RemoteRetryAttemptPersistence,
+    RemoteRetryExecutionPersistence, RemoteRetryPolicy, RemoteRoutingPreference,
+    RetryMutationStrategy, RoutingPolicyOutcome, RoutingPolicyRequest, RoutingSensitivity,
 };
 use emily_membrane::providers::{
     InMemoryProviderRegistry, MembraneProvider, MembraneProviderError, ProviderCostClass,
@@ -63,6 +63,20 @@ fn task_request() -> MembraneTaskRequest {
     }
 }
 
+fn protected_task_request() -> MembraneTaskRequest {
+    MembraneTaskRequest {
+        task_id: "task-remote-protected".to_string(),
+        episode_id: "ep-membrane-remote".to_string(),
+        task_text: "Summarize the remote membrane path with jeremy@example.com.".to_string(),
+        context_fragments: vec![emily_membrane::contracts::ContextFragment {
+            fragment_id: "ctx-secret".to_string(),
+            text: "Use API_KEY=abcd1234 for /media/jeremy/OrangeCream/Linux Software/Gestalt."
+                .to_string(),
+        }],
+        allow_remote: true,
+    }
+}
+
 fn persistence() -> RemoteExecutionPersistence {
     RemoteExecutionPersistence {
         route_decision_id: "route-remote-1".to_string(),
@@ -78,6 +92,18 @@ fn persistence() -> RemoteExecutionPersistence {
 fn routing_preference() -> RemoteRoutingPreference {
     RemoteRoutingPreference {
         provider_id: Some("test-provider".to_string()),
+        profile_id: Some("reasoning".to_string()),
+        required_capability_tags: vec!["analysis".to_string()],
+        preferred_provider_classes: Vec::new(),
+        max_latency_class: None,
+        max_cost_class: None,
+        minimum_validation_compatibility: None,
+    }
+}
+
+fn panic_routing_preference() -> RemoteRoutingPreference {
+    RemoteRoutingPreference {
+        provider_id: Some("panic-provider".to_string()),
         profile_id: Some("reasoning".to_string()),
         required_capability_tags: vec!["analysis".to_string()],
         preferred_provider_classes: Vec::new(),
@@ -788,6 +814,206 @@ async fn broader_policy_execution_returns_policy_only_for_rejected_route() {
     assert_eq!(
         audits[0].metadata["sovereign"]["boundary_profile"],
         "reflex"
+    );
+
+    emily.close_db().await.expect("close db");
+    let _ = std::fs::remove_dir_all(locator.storage_path);
+}
+
+#[tokio::test]
+async fn protected_content_reflex_blocks_remote_dispatch_before_provider_call() {
+    let store = Arc::new(SurrealEmilyStore::new());
+    let emily = Arc::new(EmilyRuntime::new(store.clone()));
+    let registry = Arc::new(InMemoryProviderRegistry::single_target(
+        default_registered_provider_target(ProviderTarget {
+            provider_id: "panic-provider".to_string(),
+            model_id: Some("deterministic-v1".to_string()),
+            profile_id: Some("reasoning".to_string()),
+            capability_tags: vec!["analysis".to_string()],
+            metadata: json!({"origin": "test"}),
+        }),
+        Arc::new(PanicIfCalledProvider) as Arc<dyn MembraneProvider>,
+    ));
+    let runtime = MembraneRuntime::with_provider_registry(emily.clone(), registry);
+    let locator = locator();
+
+    emily.open_db(locator.clone()).await.expect("open db");
+    emily
+        .create_episode(episode_request())
+        .await
+        .expect("create episode");
+
+    let result = runtime
+        .execute_remote_with_policy_and_record(
+            protected_task_request(),
+            RoutingPolicyRequest {
+                task_id: "task-remote-protected".to_string(),
+                episode_id: "ep-membrane-remote".to_string(),
+                allow_remote: true,
+                sensitivity: RoutingSensitivity::Normal,
+                preference: panic_routing_preference(),
+            },
+            RemoteExecutionPersistence {
+                route_decision_id: "route-protected-remote".to_string(),
+                route_decided_at_unix_ms: 20,
+                provider_request_id: "provider-request-protected".to_string(),
+                remote_episode_id: "remote-protected".to_string(),
+                remote_dispatched_at_unix_ms: 21,
+                validation_id: "validation-protected".to_string(),
+                validated_at_unix_ms: 22,
+            },
+        )
+        .await
+        .expect("execute protected-content policy path");
+
+    assert_eq!(result.policy.outcome, RoutingPolicyOutcome::Reflex);
+    assert_eq!(
+        result.policy.reflex_reason,
+        Some(emily_membrane::contracts::RoutingPolicyReflexReason::ProtectedContent)
+    );
+    assert_eq!(
+        result.reflex_audit_id.as_deref(),
+        Some("task-remote-protected:reflex:audit")
+    );
+    assert!(result.remote_execution.is_none());
+    assert!(
+        result
+            .policy
+            .findings
+            .iter()
+            .any(|finding| finding.code == "protected-content-blocked")
+    );
+
+    let routes = emily
+        .routing_decisions_for_episode("ep-membrane-remote")
+        .await
+        .expect("list routes");
+    let remote_episodes = emily
+        .remote_episodes_for_episode("ep-membrane-remote")
+        .await
+        .expect("list remote episodes");
+    let audits = emily
+        .sovereign_audit_records_for_episode("ep-membrane-remote")
+        .await
+        .expect("list audits");
+
+    assert!(routes.is_empty());
+    assert!(remote_episodes.is_empty());
+    assert_eq!(audits.len(), 1);
+    assert_eq!(audits[0].id, "task-remote-protected:reflex:audit");
+    assert_eq!(
+        audits[0].metadata["sovereign"]["metadata"]["reflex_reason"],
+        "protected-content"
+    );
+
+    emily.close_db().await.expect("close db");
+    let _ = std::fs::remove_dir_all(locator.storage_path);
+}
+
+#[tokio::test]
+async fn protected_content_reflex_falls_back_to_local_execution() {
+    let store = Arc::new(SurrealEmilyStore::new());
+    let emily = Arc::new(EmilyRuntime::new(store.clone()));
+    let registry = Arc::new(InMemoryProviderRegistry::single_target(
+        default_registered_provider_target(ProviderTarget {
+            provider_id: "panic-provider".to_string(),
+            model_id: Some("deterministic-v1".to_string()),
+            profile_id: Some("reasoning".to_string()),
+            capability_tags: vec!["analysis".to_string()],
+            metadata: json!({"origin": "test"}),
+        }),
+        Arc::new(PanicIfCalledProvider) as Arc<dyn MembraneProvider>,
+    ));
+    let runtime = MembraneRuntime::with_provider_registry(emily.clone(), registry);
+    let locator = locator();
+
+    emily.open_db(locator.clone()).await.expect("open db");
+    emily
+        .create_episode(episode_request())
+        .await
+        .expect("create episode");
+
+    let result = runtime
+        .execute_with_policy_and_record(
+            protected_task_request(),
+            RoutingPolicyRequest {
+                task_id: "task-remote-protected".to_string(),
+                episode_id: "ep-membrane-remote".to_string(),
+                allow_remote: true,
+                sensitivity: RoutingSensitivity::Normal,
+                preference: panic_routing_preference(),
+            },
+            PolicyExecutionPersistence {
+                reflex: Some(emily_membrane::contracts::PolicyReflexPersistence {
+                    audit_id: "audit-reflex-protected".to_string(),
+                    audited_at_unix_ms: 20,
+                }),
+                local: Some(LocalExecutionPersistence {
+                    route_decision_id: "route-local-protected".to_string(),
+                    route_decided_at_unix_ms: 21,
+                    validation_id: "validation-local-protected".to_string(),
+                    validated_at_unix_ms: 22,
+                }),
+                remote: Some(RemoteExecutionPersistence {
+                    route_decision_id: "route-remote-protected".to_string(),
+                    route_decided_at_unix_ms: 20,
+                    provider_request_id: "provider-request-protected".to_string(),
+                    remote_episode_id: "remote-protected".to_string(),
+                    remote_dispatched_at_unix_ms: 21,
+                    validation_id: "validation-protected".to_string(),
+                    validated_at_unix_ms: 22,
+                }),
+            },
+        )
+        .await
+        .expect("execute protected-content fallback path");
+
+    assert_eq!(result.policy.outcome, RoutingPolicyOutcome::Reflex);
+    assert_eq!(
+        result.policy.reflex_reason,
+        Some(emily_membrane::contracts::RoutingPolicyReflexReason::ProtectedContent)
+    );
+    assert_eq!(
+        result.reflex_audit_id.as_deref(),
+        Some("audit-reflex-protected")
+    );
+    assert!(result.remote_execution.is_none());
+    assert!(result.local_execution.is_some());
+    assert!(
+        result
+            .local_execution
+            .as_ref()
+            .expect("local execution")
+            .dispatch
+            .response_text
+            .starts_with("LOCAL:")
+    );
+
+    let routes = emily
+        .routing_decisions_for_episode("ep-membrane-remote")
+        .await
+        .expect("list routes");
+    let remote_episodes = emily
+        .remote_episodes_for_episode("ep-membrane-remote")
+        .await
+        .expect("list remote episodes");
+    let validations = emily
+        .validation_outcomes_for_episode("ep-membrane-remote")
+        .await
+        .expect("list validations");
+    let audits = emily
+        .sovereign_audit_records_for_episode("ep-membrane-remote")
+        .await
+        .expect("list audits");
+
+    assert_eq!(routes.len(), 1);
+    assert_eq!(routes[0].kind, emily::RoutingDecisionKind::LocalOnly);
+    assert!(remote_episodes.is_empty());
+    assert_eq!(validations.len(), 1);
+    assert!(
+        audits
+            .iter()
+            .any(|audit| audit.id == "audit-reflex-protected")
     );
 
     emily.close_db().await.expect("close db");
