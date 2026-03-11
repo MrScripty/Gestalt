@@ -672,7 +672,11 @@ async fn policy_selected_remote_execution_returns_policy_only_when_earl_reflex_b
         .await
         .expect("execute policy-selected route");
 
-    assert_eq!(result.policy.outcome, RoutingPolicyOutcome::Rejected);
+    assert_eq!(result.policy.outcome, RoutingPolicyOutcome::Reflex);
+    assert_eq!(
+        result.policy.reflex_reason,
+        Some(emily_membrane::contracts::RoutingPolicyReflexReason::EarlReflex)
+    );
     assert!(result.policy.selected_target.is_none());
     assert_eq!(result.policy.findings[0].code, "earl-reflex-gate");
     assert!(result.remote_execution.is_none());
@@ -729,7 +733,11 @@ async fn broader_policy_execution_returns_policy_only_for_rejected_route() {
         .await
         .expect("execute broader policy path");
 
-    assert_eq!(result.policy.outcome, RoutingPolicyOutcome::Rejected);
+    assert_eq!(result.policy.outcome, RoutingPolicyOutcome::Reflex);
+    assert_eq!(
+        result.policy.reflex_reason,
+        Some(emily_membrane::contracts::RoutingPolicyReflexReason::EarlReflex)
+    );
     assert!(result.local_execution.is_none());
     assert!(result.remote_execution.is_none());
 

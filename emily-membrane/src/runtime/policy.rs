@@ -1,7 +1,7 @@
 use super::MembraneRuntimeError;
 use crate::contracts::{
-    RoutingPolicyFinding, RoutingPolicyFindingSeverity, RoutingPolicyOutcome, RoutingPolicyRequest,
-    RoutingPolicyResult, RoutingSensitivity,
+    RoutingPolicyFinding, RoutingPolicyFindingSeverity, RoutingPolicyOutcome,
+    RoutingPolicyReflexReason, RoutingPolicyRequest, RoutingPolicyResult, RoutingSensitivity,
 };
 use crate::providers::{
     ProviderMetadataClass, ProviderTarget, ProviderTelemetryHealth,
@@ -49,6 +49,7 @@ where
             return Ok(build_policy_result(
                 &request,
                 RoutingPolicyOutcome::LocalOnly,
+                None,
                 false,
                 None,
                 vec![RoutingPolicyFinding {
@@ -61,11 +62,9 @@ where
         }
 
         if request.sensitivity == RoutingSensitivity::Critical {
-            return Ok(build_policy_result(
+            return Ok(build_reflex_policy_result(
                 &request,
-                RoutingPolicyOutcome::Rejected,
-                false,
-                None,
+                RoutingPolicyReflexReason::SensitivityBlock,
                 vec![RoutingPolicyFinding {
                     code: "critical-sensitivity".to_string(),
                     severity: RoutingPolicyFindingSeverity::Block,
@@ -98,6 +97,7 @@ where
             return Ok(build_policy_result(
                 &request,
                 RoutingPolicyOutcome::LocalOnly,
+                None,
                 false,
                 None,
                 vec![RoutingPolicyFinding {
@@ -155,6 +155,7 @@ where
         Ok(build_policy_result(
             &request,
             RoutingPolicyOutcome::SingleRemote,
+            None,
             request.sensitivity == RoutingSensitivity::High
                 || snapshot.as_ref().is_some_and(snapshot_requires_caution),
             Some(selected_target.clone()),
@@ -195,11 +196,9 @@ fn apply_emily_policy_gates(
     let snapshot = match snapshot {
         Some(snapshot) => snapshot,
         None => {
-            return Some(build_policy_result(
+            return Some(build_reflex_policy_result(
                 request,
-                RoutingPolicyOutcome::Rejected,
-                false,
-                None,
+                RoutingPolicyReflexReason::MissingEpisodeAnchor,
                 vec![RoutingPolicyFinding {
                     code: "episode-missing".to_string(),
                     severity: RoutingPolicyFindingSeverity::Block,
@@ -214,11 +213,9 @@ fn apply_emily_policy_gates(
         snapshot.episode.state,
         EpisodeState::Completed | EpisodeState::Cancelled
     ) {
-        return Some(build_policy_result(
+        return Some(build_reflex_policy_result(
             request,
-            RoutingPolicyOutcome::Rejected,
-            false,
-            None,
+            RoutingPolicyReflexReason::EpisodeClosed,
             vec![RoutingPolicyFinding {
                 code: "episode-closed".to_string(),
                 severity: RoutingPolicyFindingSeverity::Block,
@@ -234,11 +231,9 @@ fn apply_emily_policy_gates(
     if let Some(latest_earl) = snapshot.latest_earl.as_ref()
         && latest_earl.decision == EarlDecision::Reflex
     {
-        return Some(build_policy_result(
+        return Some(build_reflex_policy_result(
             request,
-            RoutingPolicyOutcome::Rejected,
-            false,
-            None,
+            RoutingPolicyReflexReason::EarlReflex,
             vec![RoutingPolicyFinding {
                 code: "earl-reflex-gate".to_string(),
                 severity: RoutingPolicyFindingSeverity::Block,
@@ -252,11 +247,9 @@ fn apply_emily_policy_gates(
     }
 
     if snapshot.episode.state == EpisodeState::Blocked {
-        return Some(build_policy_result(
+        return Some(build_reflex_policy_result(
             request,
-            RoutingPolicyOutcome::Rejected,
-            false,
-            None,
+            RoutingPolicyReflexReason::EpisodeBlocked,
             vec![RoutingPolicyFinding {
                 code: "episode-blocked".to_string(),
                 severity: RoutingPolicyFindingSeverity::Block,
@@ -534,6 +527,7 @@ fn score_registered_target(
 fn build_policy_result(
     request: &RoutingPolicyRequest,
     outcome: RoutingPolicyOutcome,
+    reflex_reason: Option<RoutingPolicyReflexReason>,
     caution: bool,
     selected_target: Option<ProviderTarget>,
     findings: Vec<RoutingPolicyFinding>,
@@ -542,11 +536,29 @@ fn build_policy_result(
     RoutingPolicyResult {
         task_id: request.task_id.clone(),
         outcome,
+        reflex_reason,
         caution,
         selected_target,
         findings,
         rationale,
     }
+}
+
+fn build_reflex_policy_result(
+    request: &RoutingPolicyRequest,
+    reflex_reason: RoutingPolicyReflexReason,
+    findings: Vec<RoutingPolicyFinding>,
+    rationale: Option<String>,
+) -> RoutingPolicyResult {
+    build_policy_result(
+        request,
+        RoutingPolicyOutcome::Reflex,
+        Some(reflex_reason),
+        false,
+        None,
+        findings,
+        rationale,
+    )
 }
 
 fn factor_summary(request: &RoutingPolicyRequest) -> String {

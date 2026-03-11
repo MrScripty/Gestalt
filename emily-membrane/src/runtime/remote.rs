@@ -121,7 +121,9 @@ where
                         .await?,
                 )
             }
-            RoutingPolicyOutcome::LocalOnly | RoutingPolicyOutcome::Rejected => None,
+            RoutingPolicyOutcome::LocalOnly
+            | RoutingPolicyOutcome::Reflex
+            | RoutingPolicyOutcome::Rejected => None,
         };
 
         Ok(PolicySelectedRemoteExecution {

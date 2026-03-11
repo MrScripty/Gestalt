@@ -341,11 +341,13 @@ where
                     remote_execution: Some(remote_execution),
                 })
             }
-            RoutingPolicyOutcome::Rejected => Ok(PolicySelectedExecution {
-                policy,
-                local_execution: None,
-                remote_execution: None,
-            }),
+            RoutingPolicyOutcome::Reflex | RoutingPolicyOutcome::Rejected => {
+                Ok(PolicySelectedExecution {
+                    policy,
+                    local_execution: None,
+                    remote_execution: None,
+                })
+            }
         }
     }
 }

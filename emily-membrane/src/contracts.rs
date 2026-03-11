@@ -140,6 +140,9 @@ pub enum RoutingSensitivity {
 pub struct RoutingPolicyResult {
     pub task_id: String,
     pub outcome: RoutingPolicyOutcome,
+    /// Defaults to `None` when omitted by older payloads.
+    #[serde(default)]
+    pub reflex_reason: Option<RoutingPolicyReflexReason>,
     /// Defaults to `false` when omitted.
     #[serde(default)]
     pub caution: bool,
@@ -155,7 +158,21 @@ pub struct RoutingPolicyResult {
 pub enum RoutingPolicyOutcome {
     LocalOnly,
     SingleRemote,
+    Reflex,
     Rejected,
+}
+
+/// Typed boundary-trigger reason for a reflex outcome.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RoutingPolicyReflexReason {
+    SensitivityBlock,
+    MissingEpisodeAnchor,
+    EpisodeClosed,
+    EarlReflex,
+    EpisodeBlocked,
+    LeakageRisk,
+    ProtectedContent,
+    BoundaryFailure,
 }
 
 /// Structured finding emitted during routing-policy evaluation.
@@ -451,6 +468,7 @@ mod tests {
         let result = RoutingPolicyResult {
             task_id: "task-1".into(),
             outcome: RoutingPolicyOutcome::SingleRemote,
+            reflex_reason: None,
             caution: true,
             selected_target: Some(ProviderTarget {
                 provider_id: "provider-a".into(),
@@ -480,6 +498,7 @@ mod tests {
             }"#,
         )
         .expect("deserialize routing policy result defaults");
+        assert_eq!(restored_default.reflex_reason, None);
         assert!(!restored_default.caution);
         assert!(restored_default.findings.is_empty());
         assert_eq!(restored_default.rationale, None);
@@ -731,6 +750,7 @@ mod tests {
             policy: RoutingPolicyResult {
                 task_id: "task-1".into(),
                 outcome: RoutingPolicyOutcome::LocalOnly,
+                reflex_reason: None,
                 caution: false,
                 selected_target: None,
                 findings: Vec::new(),

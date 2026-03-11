@@ -89,6 +89,10 @@ impl LocalAgentMembraneStatus {
             (RoutingPolicyOutcome::LocalOnly, None) => {
                 " Local-only membrane executed without a validation result.".to_string()
             }
+            (RoutingPolicyOutcome::Reflex, _) => {
+                " Local-agent membrane reflex blocked remote handling and kept the task local."
+                    .to_string()
+            }
             (RoutingPolicyOutcome::Rejected, _) => {
                 " Local-agent membrane policy rejected the task.".to_string()
             }

@@ -823,7 +823,11 @@ async fn evaluate_routing_policy_rejects_critical_sensitivity() {
         .await
         .expect("evaluate policy");
 
-    assert_eq!(result.outcome, RoutingPolicyOutcome::Rejected);
+    assert_eq!(result.outcome, RoutingPolicyOutcome::Reflex);
+    assert_eq!(
+        result.reflex_reason,
+        Some(emily_membrane::contracts::RoutingPolicyReflexReason::SensitivityBlock)
+    );
     assert!(result.selected_target.is_none());
     assert_eq!(
         result.findings[0].severity,
@@ -1234,7 +1238,11 @@ async fn evaluate_routing_policy_rejects_missing_episode_anchor() {
         .await
         .expect("evaluate policy");
 
-    assert_eq!(result.outcome, RoutingPolicyOutcome::Rejected);
+    assert_eq!(result.outcome, RoutingPolicyOutcome::Reflex);
+    assert_eq!(
+        result.reflex_reason,
+        Some(emily_membrane::contracts::RoutingPolicyReflexReason::MissingEpisodeAnchor)
+    );
     assert_eq!(result.findings[0].code, "episode-missing");
 }
 
@@ -1324,7 +1332,11 @@ async fn evaluate_routing_policy_rejects_latest_earl_reflex_gate() {
         .await
         .expect("evaluate policy");
 
-    assert_eq!(result.outcome, RoutingPolicyOutcome::Rejected);
+    assert_eq!(result.outcome, RoutingPolicyOutcome::Reflex);
+    assert_eq!(
+        result.reflex_reason,
+        Some(emily_membrane::contracts::RoutingPolicyReflexReason::EarlReflex)
+    );
     assert_eq!(result.findings[0].code, "earl-reflex-gate");
 }
 
@@ -1432,7 +1444,11 @@ async fn execute_remote_with_policy_and_record_returns_policy_only_for_rejected_
         .await
         .expect("execute policy-selected route");
 
-    assert_eq!(result.policy.outcome, RoutingPolicyOutcome::Rejected);
+    assert_eq!(result.policy.outcome, RoutingPolicyOutcome::Reflex);
+    assert_eq!(
+        result.policy.reflex_reason,
+        Some(emily_membrane::contracts::RoutingPolicyReflexReason::EarlReflex)
+    );
     assert!(result.remote_execution.is_none());
 }
 
@@ -1484,7 +1500,11 @@ async fn execute_with_policy_and_record_returns_policy_only_for_rejected_route()
         .await
         .expect("execute broader policy path");
 
-    assert_eq!(result.policy.outcome, RoutingPolicyOutcome::Rejected);
+    assert_eq!(result.policy.outcome, RoutingPolicyOutcome::Reflex);
+    assert_eq!(
+        result.policy.reflex_reason,
+        Some(emily_membrane::contracts::RoutingPolicyReflexReason::EarlReflex)
+    );
     assert!(result.local_execution.is_none());
     assert!(result.remote_execution.is_none());
 }
