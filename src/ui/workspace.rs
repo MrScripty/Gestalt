@@ -199,6 +199,7 @@ pub(crate) fn WorkspaceMain(
     let workspace_layout_style =
         format!("--runner-width: {runner_width}px; --side-panel-width: {SIDE_PANEL_WIDTH_PX}px;");
     let sidebar_open_value = ui_state.read().sidebar_open;
+    let crt_enabled = snapshot.crt_enabled();
     let workspace_layout_class = if sidebar_open_value {
         "workspace-layout with-side-panel"
     } else {
@@ -314,6 +315,17 @@ pub(crate) fn WorkspaceMain(
                                 }
                             }
                         }
+                    }
+                    button {
+                        class: "side-panel-toggle",
+                        r#type: "button",
+                        aria_pressed: crt_enabled,
+                        title: "Toggle CRT mode (Ctrl+1)",
+                        onclick: move |_| {
+                            let next = !app_state.read().crt_enabled();
+                            app_state.write().set_crt_enabled(next);
+                        },
+                        if crt_enabled { "CRT On" } else { "CRT Off" }
                     }
                     button {
                         class: "icon-button",
