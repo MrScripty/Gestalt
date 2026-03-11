@@ -201,6 +201,27 @@ pub fn App() -> Element {
         });
     }
 
+    {
+        let emily_bridge = emily_bridge.read().clone();
+        use_future(move || {
+            let emily_bridge = emily_bridge.clone();
+            async move {
+                match build_embedding_vectorization_patch_from_env() {
+                    Ok(patch) => {
+                        if let Err(error) =
+                            emily_bridge.update_vectorization_config_async(patch).await
+                        {
+                            eprintln!("Pantograph embedding vectorization init failed: {error}");
+                        }
+                    }
+                    Err(error) => {
+                        eprintln!("Pantograph embedding vectorization config unavailable: {error}");
+                    }
+                }
+            }
+        });
+    }
+
     let mut resource_snapshot = use_signal(ResourceSnapshot::default);
     {
         let terminal_manager = terminal_manager.read().clone();
@@ -884,20 +905,7 @@ fn crt_toggle_requested(key: &Key, ctrl: bool, alt: bool, shift: bool, meta: boo
 
 fn initialize_emily_bridge() -> EmilyBridge {
     match build_deferred_embedding_provider_from_env() {
-        Ok(provider) => {
-            let bridge = EmilyBridge::new_default_with_embedding_provider(provider);
-            match build_embedding_vectorization_patch_from_env() {
-                Ok(patch) => {
-                    if let Err(error) = bridge.update_vectorization_config(patch) {
-                        eprintln!("Pantograph embedding vectorization init failed: {error}");
-                    }
-                }
-                Err(error) => {
-                    eprintln!("Pantograph embedding vectorization config unavailable: {error}");
-                }
-            }
-            bridge
-        }
+        Ok(provider) => EmilyBridge::new_default_with_embedding_provider(provider),
         Err(error) => {
             eprintln!("Pantograph embedding provider unavailable: {error}");
             EmilyBridge::new_default_with_provider_error(error)
