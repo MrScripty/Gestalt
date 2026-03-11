@@ -430,6 +430,7 @@ async fn runtime_executes_deterministic_local_flow() {
     assert_eq!(ir.task.episode_id, "episode-1");
     assert!(ir.boundary.remote_allowed);
     assert_eq!(ir.context_handles.len(), 2);
+    assert!(ir.protected_references.is_empty());
     assert!(ir.reconstruction.is_some());
     assert!(compiled.compiled_task.bounded_prompt.contains("Context:"));
     assert_eq!(compiled.compiled_task.context_fragment_ids.len(), 2);
@@ -477,6 +478,44 @@ async fn runtime_executes_deterministic_local_flow() {
             .count()
             == 2
     );
+}
+
+#[tokio::test]
+async fn compile_records_protected_references_for_remote_boundary() {
+    let runtime = MembraneRuntime::new(Arc::new(StubEmilyApi::default()));
+    let compiled = runtime
+        .compile(MembraneTaskRequest {
+            task_id: "task-sensitive".into(),
+            episode_id: "episode-1".into(),
+            task_text:
+                "Email jeremy@example.com about /media/jeremy/OrangeCream/Linux Software/Gestalt"
+                    .into(),
+            context_fragments: vec![ContextFragment {
+                fragment_id: "ctx-secret".into(),
+                text: "Use API_KEY=abcd1234 for this provider.".into(),
+            }],
+            allow_remote: true,
+        })
+        .await
+        .expect("compile");
+
+    let ir = compiled
+        .compiled_task
+        .membrane_ir
+        .as_ref()
+        .expect("compile should produce membrane ir");
+    assert_eq!(ir.protected_references.len(), 3);
+    assert!(ir.protected_references.iter().any(|reference| {
+        reference.kind == emily_membrane::contracts::MembraneProtectedKind::PersonalIdentifier
+    }));
+    assert!(ir.protected_references.iter().any(|reference| {
+        reference.kind == emily_membrane::contracts::MembraneProtectedKind::FilesystemPath
+    }));
+    assert!(ir.protected_references.iter().any(|reference| {
+        reference.kind == emily_membrane::contracts::MembraneProtectedKind::Secret
+            && reference.disposition
+                == emily_membrane::contracts::MembraneProtectionDisposition::Blocked
+    }));
 }
 
 #[tokio::test]

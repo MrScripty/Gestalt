@@ -28,6 +28,7 @@ mod policy;
 mod reconstruction;
 mod remote;
 mod retry;
+mod sensitivity;
 mod validation;
 
 /// Minimal membrane runtime error surface for Milestone 1.
@@ -377,6 +378,21 @@ where
 }
 
 fn build_membrane_ir(request: &MembraneTaskRequest) -> MembraneIr {
+    let task_report = sensitivity::protect_outbound_text(
+        &format!("task:{}", request.task_id),
+        &request.task_text,
+    );
+    let context_reports = request
+        .context_fragments
+        .iter()
+        .map(|fragment| {
+            (
+                fragment,
+                sensitivity::protect_outbound_text(&fragment.fragment_id, &fragment.text),
+            )
+        })
+        .collect::<Vec<_>>();
+
     MembraneIr {
         task: MembraneTaskPayload {
             task_id: request.task_id.clone(),
@@ -390,6 +406,15 @@ fn build_membrane_ir(request: &MembraneTaskRequest) -> MembraneIr {
                 fragment_id: fragment.fragment_id.clone(),
                 text: fragment.text.clone(),
             })
+            .collect(),
+        protected_references: task_report
+            .protected_references
+            .into_iter()
+            .chain(
+                context_reports
+                    .iter()
+                    .flat_map(|(_, report)| report.protected_references.clone()),
+            )
             .collect(),
         boundary: MembraneBoundaryMetadata {
             remote_allowed: request.allow_remote,
@@ -414,6 +439,29 @@ fn render_prompt_from_ir(ir: &MembraneIr) -> String {
         .collect::<Vec<_>>()
         .join("\n");
     format!("{}\n\nContext:\n{}", ir.task.text, context)
+}
+
+pub(super) fn render_remote_prompt_from_ir(ir: &MembraneIr) -> String {
+    let task_text =
+        sensitivity::protect_outbound_text(&format!("task:{}", ir.task.task_id), &ir.task.text)
+            .outbound_text;
+
+    if ir.context_handles.is_empty() {
+        return task_text;
+    }
+
+    let context = ir
+        .context_handles
+        .iter()
+        .map(|fragment| {
+            let outbound =
+                sensitivity::protect_outbound_text(&fragment.fragment_id, &fragment.text)
+                    .outbound_text;
+            format!("[{}] {}", fragment.fragment_id, outbound)
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!("{task_text}\n\nContext:\n{context}")
 }
 
 fn validate_local_persistence(

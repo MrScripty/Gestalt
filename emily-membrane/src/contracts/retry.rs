@@ -136,6 +136,7 @@ mod tests {
                                     text: "retry task".into(),
                                 },
                                 context_handles: Vec::new(),
+                                protected_references: Vec::new(),
                                 boundary: MembraneBoundaryMetadata {
                                     remote_allowed: true,
                                     render_mode: MembraneIrRenderMode::PromptV1,

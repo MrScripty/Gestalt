@@ -522,6 +522,7 @@ mod tests {
                     fragment_id: "ctx-1".to_string(),
                     text: "provider context".to_string(),
                 }],
+                protected_references: Vec::new(),
                 boundary: crate::contracts::MembraneBoundaryMetadata {
                     remote_allowed: true,
                     render_mode: crate::contracts::MembraneIrRenderMode::PromptV1,

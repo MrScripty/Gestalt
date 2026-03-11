@@ -7,6 +7,9 @@ pub struct MembraneIr {
     /// Defaults to an empty list when omitted.
     #[serde(default)]
     pub context_handles: Vec<MembraneContextHandle>,
+    /// Defaults to an empty list when omitted.
+    #[serde(default)]
+    pub protected_references: Vec<MembraneProtectedReference>,
     pub boundary: MembraneBoundaryMetadata,
     pub reconstruction: Option<MembraneReconstructionHandle>,
 }
@@ -24,6 +27,30 @@ pub struct MembraneTaskPayload {
 pub struct MembraneContextHandle {
     pub fragment_id: String,
     pub text: String,
+}
+
+/// Protected outbound content retained or transformed by the membrane.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MembraneProtectedReference {
+    pub reference_id: String,
+    pub kind: MembraneProtectedKind,
+    pub disposition: MembraneProtectionDisposition,
+    pub placeholder: String,
+}
+
+/// Deterministic first-pass protected content classes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MembraneProtectedKind {
+    Secret,
+    PersonalIdentifier,
+    FilesystemPath,
+}
+
+/// Boundary handling applied to one protected content class.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MembraneProtectionDisposition {
+    Transformed,
+    Blocked,
 }
 
 /// Boundary metadata that remains meaningful before transport rendering.
@@ -56,6 +83,7 @@ pub enum MembraneReconstructionStrategy {
 mod tests {
     use super::{
         MembraneBoundaryMetadata, MembraneContextHandle, MembraneIr, MembraneIrRenderMode,
+        MembraneProtectedKind, MembraneProtectedReference, MembraneProtectionDisposition,
         MembraneReconstructionHandle, MembraneReconstructionStrategy, MembraneTaskPayload,
     };
 
@@ -70,6 +98,12 @@ mod tests {
             context_handles: vec![MembraneContextHandle {
                 fragment_id: "ctx-1".into(),
                 text: "provider context".into(),
+            }],
+            protected_references: vec![MembraneProtectedReference {
+                reference_id: "ctx-1".into(),
+                kind: MembraneProtectedKind::FilesystemPath,
+                disposition: MembraneProtectionDisposition::Transformed,
+                placeholder: "PATH_HANDLE_1".into(),
             }],
             boundary: MembraneBoundaryMetadata {
                 remote_allowed: false,
@@ -94,5 +128,6 @@ mod tests {
         )
         .expect("deserialize membrane ir defaults");
         assert!(restored_default.context_handles.is_empty());
+        assert!(restored_default.protected_references.is_empty());
     }
 }

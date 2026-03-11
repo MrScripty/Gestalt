@@ -1,5 +1,6 @@
 use super::{
-    MembraneRuntime, MembraneRuntimeError, to_emily_finding_severity, to_emily_validation_decision,
+    MembraneRuntime, MembraneRuntimeError, render_remote_prompt_from_ir, to_emily_finding_severity,
+    to_emily_validation_decision,
 };
 use crate::contracts::{
     CompileResult, DispatchResult, DispatchStatus, MembraneRouteKind, MembraneTaskRequest,
@@ -536,7 +537,12 @@ pub(super) fn build_provider_dispatch_request(
         target: target.clone(),
         dispatch_kind: ProviderDispatchKind::Prompt,
         membrane_ir: compile.compiled_task.membrane_ir.clone(),
-        bounded_payload: compile.compiled_task.bounded_prompt.clone(),
+        bounded_payload: compile
+            .compiled_task
+            .membrane_ir
+            .as_ref()
+            .map(render_remote_prompt_from_ir)
+            .unwrap_or_else(|| compile.compiled_task.bounded_prompt.clone()),
         context_fragment_ids: compile.compiled_task.context_fragment_ids.clone(),
         metadata: json!({
             "source": "emily-membrane",
@@ -727,5 +733,75 @@ pub(super) fn build_remote_validation_outcome(
                 }))
                 .collect::<Vec<_>>(),
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_provider_dispatch_request;
+    use crate::contracts::{
+        CompileResult, CompiledMembraneTask, MembraneBoundaryMetadata, MembraneContextHandle,
+        MembraneIr, MembraneIrRenderMode, MembraneTaskPayload, RemoteExecutionPersistence,
+    };
+    use crate::providers::{ProviderTarget, ProviderValidationCompatibility};
+    use serde_json::json;
+
+    #[test]
+    fn build_provider_dispatch_request_uses_transformed_remote_payload() {
+        let request = build_provider_dispatch_request(
+            &CompileResult {
+                compiled_task: CompiledMembraneTask {
+                    task_id: "task-1".into(),
+                    episode_id: "episode-1".into(),
+                    membrane_ir: Some(MembraneIr {
+                        task: MembraneTaskPayload {
+                            task_id: "task-1".into(),
+                            episode_id: "episode-1".into(),
+                            text: "Email jeremy@example.com about /media/jeremy/OrangeCream/Linux Software/Gestalt".into(),
+                        },
+                        context_handles: vec![MembraneContextHandle {
+                            fragment_id: "ctx-secret".into(),
+                            text: "Use API_KEY=abcd1234 for this provider.".into(),
+                        }],
+                        protected_references: Vec::new(),
+                        boundary: MembraneBoundaryMetadata {
+                            remote_allowed: true,
+                            render_mode: MembraneIrRenderMode::PromptV1,
+                        },
+                        reconstruction: None,
+                    }),
+                    bounded_prompt: "local-only raw prompt".into(),
+                    context_fragment_ids: vec!["ctx-secret".into()],
+                },
+                truncated: false,
+            },
+            &ProviderTarget {
+                provider_id: "provider-a".into(),
+                model_id: Some("model-a".into()),
+                profile_id: Some("reasoning".into()),
+                capability_tags: vec!["analysis".into()],
+                metadata: json!({"validation": ProviderValidationCompatibility::Basic}),
+            },
+            &RemoteExecutionPersistence {
+                route_decision_id: "route-1".into(),
+                route_decided_at_unix_ms: 10,
+                provider_request_id: "provider-request-1".into(),
+                remote_episode_id: "remote-1".into(),
+                remote_dispatched_at_unix_ms: 11,
+                validation_id: "validation-1".into(),
+                validated_at_unix_ms: 12,
+            },
+            "single-remote",
+        );
+
+        assert!(request.bounded_payload.contains("EMAIL_HANDLE_1"));
+        assert!(request.bounded_payload.contains("PATH_HANDLE_1"));
+        assert!(
+            request
+                .bounded_payload
+                .contains("[BLOCKED_SECRET:ctx-secret]")
+        );
+        assert!(!request.bounded_payload.contains("jeremy@example.com"));
+        assert!(!request.bounded_payload.contains("API_KEY=abcd1234"));
     }
 }

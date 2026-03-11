@@ -345,6 +345,7 @@ mod tests {
                         fragment_id: "ctx-1".into(),
                         text: "recent context".into(),
                     }],
+                    protected_references: Vec::new(),
                     boundary: MembraneBoundaryMetadata {
                         remote_allowed: false,
                         render_mode: MembraneIrRenderMode::PromptV1,
@@ -584,6 +585,7 @@ mod tests {
                             fragment_id: "ctx-1".into(),
                             text: "recent context".into(),
                         }],
+                        protected_references: Vec::new(),
                         boundary: MembraneBoundaryMetadata {
                             remote_allowed: false,
                             render_mode: MembraneIrRenderMode::PromptV1,
@@ -664,6 +666,7 @@ mod tests {
                             fragment_id: "ctx-1".into(),
                             text: "recent context".into(),
                         }],
+                        protected_references: Vec::new(),
                         boundary: MembraneBoundaryMetadata {
                             remote_allowed: true,
                             render_mode: MembraneIrRenderMode::PromptV1,
@@ -788,6 +791,7 @@ mod tests {
                                 text: "Summarize the recent outcome.".into(),
                             },
                             context_handles: Vec::new(),
+                            protected_references: Vec::new(),
                             boundary: MembraneBoundaryMetadata {
                                 remote_allowed: false,
                                 render_mode: MembraneIrRenderMode::PromptV1,
