@@ -365,7 +365,6 @@
 }
 
 .terminal-body.crt-enabled {
-  --crt-edge-loss: 0.085;
   background:
     radial-gradient(circle at 50% 0%, #ffffff1c 0%, transparent 36%),
     repeating-linear-gradient(180deg, #ffffff0a 0 1px, transparent 1px 3px),
@@ -390,12 +389,6 @@
   line-height: var(--term-line-height);
 }
 
-.terminal-body.crt-enabled .terminal-line {
-  transform: scaleX(calc(1 - (var(--crt-edge-loss) * var(--crt-line-bend, 0))));
-  transform-origin: center center;
-  will-change: transform;
-}
-
 .terminal-line.snippet-annotated {
   background: linear-gradient(90deg, #e5f8d9 0%, #f4fde8 100%);
   box-shadow: inset 2px 0 0 #5ca43a;
@@ -410,10 +403,6 @@
   color: inherit;
 }
 
-.terminal-body.crt-enabled .terminal-text {
-  text-shadow: 0 0 6px #8cff8c26;
-}
-
 .terminal-prompt {
   color: #0f8a5f;
   font-weight: 500;
@@ -421,7 +410,6 @@
 
 .terminal-body.crt-enabled .terminal-prompt {
   color: #83ff85;
-  text-shadow: 0 0 8px #83ff8544;
 }
 
 .terminal-card.runner .terminal-prompt {
@@ -430,7 +418,6 @@
 
 .terminal-card.runner .terminal-body.crt-enabled .terminal-prompt {
   color: #8cd8ff;
-  text-shadow: 0 0 8px #8cd8ff44;
 }
 
 .terminal-caret-inline {
