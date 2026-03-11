@@ -139,6 +139,20 @@ async fn compile_locally(api: Arc<dyn EmilyApi>) {
   membrane IR, admitted context, remote result ids, and validation findings,
   and it locally renders review/remote output framing instead of passing raw
   validated text through unchanged.
+- Policy-selected execution now distinguishes first-class `REFLEX` outcomes
+  from ordinary rejection and can persist durable sovereign boundary audits for
+  those stops.
+- The membrane now applies deterministic protected-content handling before
+  provider dispatch:
+  - blocked secrets stop remote execution before any provider call
+  - transformable placeholders such as emails and filesystem paths can cross
+    the boundary only in placeholder form
+- The broader all-path facade can now degrade from an unsafe remote selection
+  into the existing local-only execution path when blocked content remains
+  local.
+- Reconstruction now restores transformable placeholders locally, keeps blocked
+  secret content withheld, and emits explicit protected-local provenance rather
+  than silently rewriting remote output.
 - The preferred host-facing remote path can now evaluate routing policy and,
   when a single remote target is selected, execute the existing sovereign write
   path through one helper call.

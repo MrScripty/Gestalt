@@ -436,6 +436,56 @@ boundaries.
 
 **Status:** Complete
 
+### Post-Milestone-5 Rollout Gate: REFLEX, Leakage, And Local Fallback
+
+**Goal:** Make broader remote rollout depend on proven boundary resilience, not
+only on route/dispatch plumbing.
+
+**Tasks:**
+- [x] Add first-class `REFLEX` outcomes with typed reasons instead of treating
+  all conservative stops as generic rejection
+- [x] Persist sovereign boundary audits for `REFLEX` outcomes
+- [x] Add deterministic protected-content classification for outbound membrane
+  payloads
+- [x] Stop remote provider dispatch when blocked protected content remains in
+  the membrane IR
+- [x] Degrade to local-only execution when policy-selected remote work cannot
+  cross the boundary safely
+- [x] Restore transformed placeholders locally during reconstruction while
+  keeping blocked secrets withheld
+- [x] Surface `REFLEX` reason and audit identity in host-visible status and
+  diagnostic output
+
+**Verification:**
+- `cargo test --manifest-path emily-membrane/Cargo.toml -q --offline`
+- `cargo clippy --manifest-path emily-membrane/Cargo.toml --all-targets --offline -- -D warnings`
+- `cargo test -q --test emily_local_agent_membrane`
+- `cargo check -q`
+
+**Execution Notes:**
+- The membrane now distinguishes `REFLEX` from ordinary `Rejected` policy
+  outcomes and records sovereign boundary audits with typed reasons.
+- Protected outbound content is classified deterministically:
+  - secrets become blocked placeholders and cannot cross the boundary
+  - emails and filesystem paths become transformable placeholders that can be
+    restored locally after remote return
+- Policy-selected remote execution now stops before any provider call when
+  blocked protected content remains in the membrane IR.
+- The broader all-path execution facade can degrade safely to the existing
+  local-only membrane path when blocked content prevents safe remote dispatch.
+- Remote reconstruction now restores transformable placeholders locally,
+  preserves blocked secrets as withheld content, and emits explicit
+  protected-local provenance.
+- Gestalt's host-facing membrane status now preserves `REFLEX` reason and
+  reflex audit identity instead of collapsing every policy-driven conservative
+  stop into a generic local-only result.
+- The live Pantograph reasoning probe remains blocked by current local
+  llama.cpp support for `Qwen3.5-35B-A3B-GGUF`, but it now exposes boundary
+  outcomes explicitly instead of assuming every useful probe result must reach a
+  successful remote execution.
+
+**Status:** Complete
+
 ## Execution Notes
 
 Update during implementation:
@@ -463,6 +513,10 @@ Update during implementation:
   confirmed no Gestalt UI/app leakage into reusable crates, no Pantograph-host
   composition leakage into Emily core contracts, and no additional code
   corrections were needed before widening adoption.
+- 2026-03-10: Post-Milestone-5 rollout gate completed. The membrane now
+  supports typed `REFLEX` outcomes, deterministic protected-content handling,
+  local fallback before unsafe remote dispatch, protected local reconstruction,
+  and host-visible boundary diagnostics.
 
 ## Commit Cadence Notes
 
@@ -497,6 +551,7 @@ Update during implementation:
 - Milestone 3: Real Gestalt local-only membrane adoption
 - Milestone 4: Gated single-remote membrane adoption
 - Milestone 5: Integration hygiene and boundary audit
+- Post-Milestone-5 rollout gate: `REFLEX`, leakage handling, and local fallback
 
 ### Deviations
 
@@ -507,8 +562,14 @@ Update during implementation:
 
 ### Follow-Ups
 
-- Start the next research-aligned membrane phase or widen Gestalt adoption
-  deliberately from the audited local-agent slice.
+- Broader remote rollout is no longer blocked by missing membrane boundary
+  controls; it is now blocked primarily by the local runtime/model
+  incompatibility for `Qwen3.5-35B-A3B-GGUF` and by the lack of a broader real
+  host workflow.
+- Next product-facing choices are:
+  - validate a supported remote reasoning model through the existing probe, or
+  - keep widening Emily/membrane use inside real current Gestalt behavior while
+    remote reasoning remains gated by infrastructure support
 
 ### Verification Summary
 
