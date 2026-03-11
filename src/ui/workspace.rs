@@ -327,8 +327,9 @@ pub(crate) fn WorkspaceMain(
                         aria_pressed: crt_enabled,
                         title: "Toggle CRT mode (Ctrl+1)",
                         onclick: move |_| {
-                            let next = !app_state.read().crt_enabled();
-                            app_state.write().set_crt_enabled(next);
+                            if let Ok(mut state) = app_state.try_write() {
+                                state.set_crt_enabled(!crt_enabled);
+                            }
                         },
                         if crt_enabled { "CRT On" } else { "CRT Off" }
                     }
@@ -348,8 +349,9 @@ pub(crate) fn WorkspaceMain(
                         aria_controls: "workspace-right-panel",
                         aria_expanded: sidebar_open_value,
                         onclick: move |_| {
-                            let next = !ui_state.read().sidebar_open;
-                            ui_state.write().sidebar_open = next;
+                            if let Ok(mut state) = ui_state.try_write() {
+                                state.sidebar_open = !sidebar_open_value;
+                            }
                         },
                         if sidebar_open_value { "Hide Panels" } else { "Show Panels" }
                     }
@@ -399,7 +401,11 @@ pub(crate) fn WorkspaceMain(
                                                 class: "{pane_class}",
                                                 key: "agent-card-{session_id}",
                                                 style: "{card_style}",
-                                                onclick: move |_| app_state.write().select_session(session_id),
+                                                onclick: move |_| {
+                                                    if let Ok(mut state) = app_state.try_write() {
+                                                        state.select_session(session_id);
+                                                    }
+                                                },
 
                                                 div { class: "terminal-head",
                                                     div {
@@ -415,7 +421,9 @@ pub(crate) fn WorkspaceMain(
                                                                             event.prevent_default();
                                                                             let title = rename_header_draft.read().trim().to_string();
                                                                             if !title.is_empty() {
-                                                                                app_state.write().rename_session(session_id, title);
+                                                                                if let Ok(mut state) = app_state.try_write() {
+                                                                                    state.rename_session(session_id, title);
+                                                                                }
                                                                             }
                                                                             renaming_header.set(None);
                                                                         }
@@ -431,7 +439,9 @@ pub(crate) fn WorkspaceMain(
                                                                     if was_editing {
                                                                         let title = rename_header_draft.read().trim().to_string();
                                                                         if !title.is_empty() {
-                                                                            app_state.write().rename_session(session_id, title);
+                                                                            if let Ok(mut state) = app_state.try_write() {
+                                                                                state.rename_session(session_id, title);
+                                                                            }
                                                                         }
                                                                         renaming_header.set(None);
                                                                     }
@@ -590,7 +600,11 @@ pub(crate) fn WorkspaceMain(
                                                 class: "{pane_class}",
                                                 key: "runner-card-{session_id}",
                                                 style: "{card_style}",
-                                                onclick: move |_| app_state.write().select_session(session_id),
+                                                onclick: move |_| {
+                                                    if let Ok(mut state) = app_state.try_write() {
+                                                        state.select_session(session_id);
+                                                    }
+                                                },
 
                                                 div { class: "terminal-head",
                                                     div {
@@ -606,7 +620,9 @@ pub(crate) fn WorkspaceMain(
                                                                             event.prevent_default();
                                                                             let title = rename_header_draft.read().trim().to_string();
                                                                             if !title.is_empty() {
-                                                                                app_state.write().rename_session(session_id, title);
+                                                                                if let Ok(mut state) = app_state.try_write() {
+                                                                                    state.rename_session(session_id, title);
+                                                                                }
                                                                             }
                                                                             renaming_header.set(None);
                                                                         }
@@ -622,7 +638,9 @@ pub(crate) fn WorkspaceMain(
                                                                     if was_editing {
                                                                         let title = rename_header_draft.read().trim().to_string();
                                                                         if !title.is_empty() {
-                                                                            app_state.write().rename_session(session_id, title);
+                                                                            if let Ok(mut state) = app_state.try_write() {
+                                                                                state.rename_session(session_id, title);
+                                                                            }
                                                                         }
                                                                         renaming_header.set(None);
                                                                     }
