@@ -15,7 +15,7 @@ use emily::runtime::EmilyRuntime;
 use emily::store::surreal::SurrealEmilyStore;
 use emily_membrane::contracts::{
     ContextFragment, MembraneTaskRequest, PolicyExecutionPersistence, RemoteRoutingPreference,
-    RoutingPolicyOutcome, RoutingPolicyRequest, RoutingSensitivity,
+    RoutingPolicyOutcome, RoutingPolicyReflexReason, RoutingPolicyRequest, RoutingSensitivity,
 };
 use emily_membrane::runtime::{MembraneRuntime, MembraneRuntimeError};
 use pantograph_workflow_service::{
@@ -105,15 +105,18 @@ pub struct PantographReasoningValidationReport {
     pub context_fragment_count: usize,
     pub attempts: usize,
     pub policy_outcome: RoutingPolicyOutcome,
-    pub route_decision_id: String,
-    pub remote_episode_id: String,
-    pub validation_id: String,
-    pub provider_request_id: String,
+    pub reflex_reason: Option<RoutingPolicyReflexReason>,
+    pub reflex_audit_id: Option<String>,
+    pub executed_remote: bool,
+    pub route_decision_id: Option<String>,
+    pub remote_episode_id: Option<String>,
+    pub validation_id: Option<String>,
+    pub provider_request_id: Option<String>,
     pub latest_route_kind: Option<RoutingDecisionKind>,
     pub latest_remote_state: Option<RemoteEpisodeState>,
     pub latest_validation_decision: Option<ValidationDecision>,
     pub audit_count: usize,
-    pub response_preview: String,
+    pub response_preview: Option<String>,
 }
 
 pub async fn run_reasoning_probe(
@@ -271,19 +274,22 @@ pub async fn run_reasoning_probe(
             }
         };
 
-        let remote_execution = execution.remote_execution.as_ref().ok_or_else(|| {
-            PantographReasoningProbeError::Host(format!(
-                "reasoning probe did not execute a remote path; policy outcome was {:?}",
-                execution.policy.outcome
-            ))
-        })?;
-
         let routes = runtime.routing_decisions_for_episode(&episode_id).await?;
         let remote_episodes = runtime.remote_episodes_for_episode(&episode_id).await?;
         let validations = runtime.validation_outcomes_for_episode(&episode_id).await?;
         let audits = runtime
             .sovereign_audit_records_for_episode(&episode_id)
             .await?;
+        let response_preview = execution
+            .remote_execution
+            .as_ref()
+            .map(|record| preview_text(&record.reconstruction.output_text, 240))
+            .or_else(|| {
+                execution
+                    .local_execution
+                    .as_ref()
+                    .map(|record| preview_text(&record.reconstruction.output_text, 240))
+            });
         let _ = runtime.close_db().await;
 
         return Ok(PantographReasoningValidationReport {
@@ -299,15 +305,42 @@ pub async fn run_reasoning_probe(
             context_fragment_count: context_fragments.len(),
             attempts: attempt,
             policy_outcome: execution.policy.outcome,
-            route_decision_id: remote_execution.route_decision_id.clone(),
-            remote_episode_id: remote_execution.remote_episode_id.clone(),
-            validation_id: remote_execution.validation_id.clone(),
-            provider_request_id: remote_execution.provider_request_id.clone(),
+            reflex_reason: execution.policy.reflex_reason,
+            reflex_audit_id: execution.reflex_audit_id.clone(),
+            executed_remote: execution.remote_execution.is_some(),
+            route_decision_id: execution
+                .remote_execution
+                .as_ref()
+                .map(|record| record.route_decision_id.clone())
+                .or_else(|| {
+                    execution
+                        .local_execution
+                        .as_ref()
+                        .map(|record| record.route_decision_id.clone())
+                }),
+            remote_episode_id: execution
+                .remote_execution
+                .as_ref()
+                .map(|record| record.remote_episode_id.clone()),
+            validation_id: execution
+                .remote_execution
+                .as_ref()
+                .map(|record| record.validation_id.clone())
+                .or_else(|| {
+                    execution
+                        .local_execution
+                        .as_ref()
+                        .map(|record| record.validation_id.clone())
+                }),
+            provider_request_id: execution
+                .remote_execution
+                .as_ref()
+                .map(|record| record.provider_request_id.clone()),
             latest_route_kind: routes.last().map(|record| record.kind),
             latest_remote_state: remote_episodes.last().map(|record| record.state),
             latest_validation_decision: validations.last().map(|record| record.decision),
             audit_count: audits.len(),
-            response_preview: preview_text(&remote_execution.reconstruction.output_text, 240),
+            response_preview,
         });
     }
 

@@ -794,7 +794,9 @@ fn apply_status_updates(
         return;
     }
 
-    let mut state = app_state.write();
+    let Ok(mut state) = app_state.try_write() else {
+        return;
+    };
     for update in updates {
         state.set_session_status(update.session_id, update.status);
     }
