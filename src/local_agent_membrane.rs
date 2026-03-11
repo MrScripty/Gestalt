@@ -4,8 +4,7 @@ use crate::pantograph_host::build_membrane_provider_registry_from_env;
 use emily_membrane::contracts::{
     ContextFragment, LocalExecutionPersistence, MembraneValidationDisposition,
     PolicyExecutionPersistence, PolicyReflexPersistence, RemoteExecutionPersistence,
-    RoutingPolicyOutcome,
-    RoutingPolicyRequest, RoutingSensitivity,
+    RoutingPolicyOutcome, RoutingPolicyReflexReason, RoutingPolicyRequest, RoutingSensitivity,
 };
 use emily_membrane::providers::MembraneProviderRegistry;
 use emily_membrane::runtime::MembraneRuntime;
@@ -18,10 +17,12 @@ const LOCAL_AGENT_REMOTE_MEMBRANE_TOGGLE_ENV: &str = "GESTALT_ENABLE_LOCAL_AGENT
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalAgentMembraneStatus {
     pub policy_outcome: RoutingPolicyOutcome,
+    pub reflex_reason: Option<RoutingPolicyReflexReason>,
     pub validation_disposition: Option<MembraneValidationDisposition>,
     pub caution: bool,
     pub executed_remote: bool,
     pub reference_count: usize,
+    pub reflex_audit_id: Option<String>,
     pub route_decision_id: Option<String>,
     pub validation_id: Option<String>,
     pub remote_episode_id: Option<String>,
@@ -91,8 +92,28 @@ impl LocalAgentMembraneStatus {
                 " Local-only membrane executed without a validation result.".to_string()
             }
             (RoutingPolicyOutcome::Reflex, _) => {
-                " Local-agent membrane reflex blocked remote handling and kept the task local."
-                    .to_string()
+                let reason = match self.reflex_reason {
+                    Some(RoutingPolicyReflexReason::ProtectedContent) => {
+                        " due to protected local content"
+                    }
+                    Some(RoutingPolicyReflexReason::EarlReflex) => " due to active risk state",
+                    Some(RoutingPolicyReflexReason::SensitivityBlock)
+                    | Some(RoutingPolicyReflexReason::LeakageRisk) => {
+                        " due to a membrane policy guard"
+                    }
+                    Some(RoutingPolicyReflexReason::MissingEpisodeAnchor)
+                    | Some(RoutingPolicyReflexReason::EpisodeClosed)
+                    | Some(RoutingPolicyReflexReason::EpisodeBlocked) => {
+                        " due to the current episode state"
+                    }
+                    Some(RoutingPolicyReflexReason::BoundaryFailure) => {
+                        " due to a boundary runtime failure"
+                    }
+                    None => "",
+                };
+                format!(
+                    " Local-agent membrane reflex blocked remote handling{reason} and kept the task local."
+                )
             }
             (RoutingPolicyOutcome::Rejected, _) => {
                 " Local-agent membrane policy rejected the task.".to_string()
@@ -240,12 +261,14 @@ fn status_from_execution(
 
     LocalAgentMembraneStatus {
         policy_outcome: execution.policy.outcome,
+        reflex_reason: execution.policy.reflex_reason,
         validation_disposition: active_validation.map(|validation| validation.disposition),
         caution: active_reconstruction.is_some_and(|reconstruction| reconstruction.caution),
         executed_remote: remote_execution.is_some(),
         reference_count: active_reconstruction
             .map(|reconstruction| reconstruction.references.len())
             .unwrap_or(0),
+        reflex_audit_id: execution.reflex_audit_id,
         route_decision_id: remote_execution
             .map(|record| record.route_decision_id.clone())
             .or_else(|| local_execution.map(|record| record.route_decision_id.clone())),
@@ -352,16 +375,20 @@ mod tests {
         LocalAgentMembraneStatus, local_agent_membrane_enabled, local_agent_membrane_toggle_env,
         local_agent_remote_membrane_enabled, local_agent_remote_membrane_toggle_env,
     };
-    use emily_membrane::contracts::{MembraneValidationDisposition, RoutingPolicyOutcome};
+    use emily_membrane::contracts::{
+        MembraneValidationDisposition, RoutingPolicyOutcome, RoutingPolicyReflexReason,
+    };
 
     #[test]
     fn membrane_feedback_mentions_review_when_needed() {
         let status = LocalAgentMembraneStatus {
             policy_outcome: RoutingPolicyOutcome::LocalOnly,
+            reflex_reason: None,
             validation_disposition: Some(MembraneValidationDisposition::NeedsReview),
             caution: true,
             executed_remote: false,
             reference_count: 3,
+            reflex_audit_id: None,
             route_decision_id: Some("route".to_string()),
             validation_id: Some("validation".to_string()),
             remote_episode_id: None,
@@ -377,10 +404,12 @@ mod tests {
     fn membrane_feedback_mentions_remote_fallback() {
         let status = LocalAgentMembraneStatus {
             policy_outcome: RoutingPolicyOutcome::SingleRemote,
+            reflex_reason: None,
             validation_disposition: Some(MembraneValidationDisposition::Accepted),
             caution: false,
             executed_remote: false,
             reference_count: 2,
+            reflex_audit_id: None,
             route_decision_id: Some("route".to_string()),
             validation_id: Some("validation".to_string()),
             remote_episode_id: None,
@@ -389,6 +418,27 @@ mod tests {
         assert_eq!(
             status.feedback_suffix(),
             " Remote membrane fallback to local-only after runtime timeout. Local-only membrane validation accepted with 2 provenance references."
+        );
+    }
+
+    #[test]
+    fn membrane_feedback_mentions_protected_content_reflex() {
+        let status = LocalAgentMembraneStatus {
+            policy_outcome: RoutingPolicyOutcome::Reflex,
+            reflex_reason: Some(RoutingPolicyReflexReason::ProtectedContent),
+            validation_disposition: Some(MembraneValidationDisposition::Accepted),
+            caution: false,
+            executed_remote: false,
+            reference_count: 2,
+            reflex_audit_id: Some("audit-reflex".to_string()),
+            route_decision_id: Some("route".to_string()),
+            validation_id: Some("validation".to_string()),
+            remote_episode_id: None,
+            fallback_reason: None,
+        };
+        assert_eq!(
+            status.feedback_suffix(),
+            " Local-agent membrane reflex blocked remote handling due to protected local content and kept the task local."
         );
     }
 

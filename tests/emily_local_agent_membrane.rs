@@ -137,7 +137,7 @@ fn local_agent_membrane_pass_records_remote_artifacts_with_registry() {
         )
         .await;
         let episode = record_episode(bridge.clone(), &prepared, "run-membrane-remote").await;
-        let registry = registry_with_provider(StubProvider {
+        let registry = registry_with_provider(Arc::new(StubProvider {
             provider_id: "stub-remote",
             result: Ok(ProviderDispatchResult {
                 provider_request_id: "unused".to_string(),
@@ -146,7 +146,7 @@ fn local_agent_membrane_pass_records_remote_artifacts_with_registry() {
                 output_text: "Remote summary completed successfully.".to_string(),
                 metadata: serde_json::json!({}),
             }),
-        });
+        }));
 
         let membrane = run_local_agent_membrane_pass_with_registry(
             bridge.clone(),
@@ -219,7 +219,7 @@ fn local_agent_membrane_pass_surfaces_remote_review_required() {
         )
         .await;
         let episode = record_episode(bridge.clone(), &prepared, "run-membrane-remote-review").await;
-        let registry = registry_with_provider(StubProvider {
+        let registry = registry_with_provider(Arc::new(StubProvider {
             provider_id: "stub-remote",
             result: Ok(ProviderDispatchResult {
                 provider_request_id: "unused".to_string(),
@@ -229,7 +229,7 @@ fn local_agent_membrane_pass_surfaces_remote_review_required() {
                     .to_string(),
                 metadata: serde_json::json!({}),
             }),
-        });
+        }));
 
         let membrane = run_local_agent_membrane_pass_with_registry(
             bridge.clone(),
@@ -283,12 +283,12 @@ fn local_agent_membrane_remote_failure_falls_back_to_local_only() {
         )
         .await;
         let episode = record_episode(bridge.clone(), &prepared, "run-membrane-fallback").await;
-        let registry = registry_with_provider(StubProvider {
+        let registry = registry_with_provider(Arc::new(StubProvider {
             provider_id: "stub-remote",
             result: Err(MembraneProviderError::Execution(
                 "runtime_timeout: workflow run exceeded timeout_ms 1".to_string(),
             )),
-        });
+        }));
 
         let membrane = run_local_agent_membrane_pass_with_registry(
             bridge.clone(),
@@ -376,9 +376,8 @@ async fn record_episode(
 }
 
 fn registry_with_provider(
-    provider: StubProvider,
+    provider: Arc<dyn MembraneProvider>,
 ) -> Arc<dyn emily_membrane::providers::MembraneProviderRegistry> {
-    let provider: Arc<dyn MembraneProvider> = Arc::new(provider);
     Arc::new(InMemoryProviderRegistry::single_target(
         RegisteredProviderTarget {
             target: ProviderTarget {
