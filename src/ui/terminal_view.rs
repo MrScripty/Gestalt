@@ -47,10 +47,22 @@ pub(crate) fn terminal_shell(
     let app_state = interaction.app_state;
     let mut ui_state = interaction.ui_state;
     let mut snippet_hotkey_state = interaction.snippet_hotkey_state;
-    let shell_class = if terminal_is_focused {
-        "terminal-shell focused"
+    let crt_enabled = app_state.read().crt_enabled();
+    let shell_class = match (terminal_is_focused, crt_enabled) {
+        (true, true) => "terminal-shell focused crt-enabled",
+        (true, false) => "terminal-shell focused",
+        (false, true) => "terminal-shell crt-enabled",
+        (false, false) => "terminal-shell",
+    };
+    let body_class = if crt_enabled {
+        "terminal-body crt-enabled"
     } else {
-        "terminal-shell"
+        "terminal-body"
+    };
+    let grid_class = if crt_enabled {
+        "terminal-grid crt-enabled"
+    } else {
+        "terminal-grid"
     };
     let body_style = format!(
         "--term-rows: {}; --term-cols: {};",
@@ -423,7 +435,7 @@ pub(crate) fn terminal_shell(
             },
 
             div {
-                class: "terminal-body",
+                class: "{body_class}",
                 id: "{terminal_body_id}",
                 style: "{body_style}",
                 onscroll: move |_| {
@@ -526,7 +538,7 @@ pub(crate) fn terminal_shell(
                         let _ = install_terminal_paste_bridge(shell_id).await;
                     });
                 },
-                div { class: "terminal-grid",
+                div { class: "{grid_class}",
                     for row_idx in 0..rendered_lines.len() {
                         {
                             let line = rendered_lines
@@ -543,11 +555,15 @@ pub(crate) fn terminal_shell(
                             } else {
                                 "terminal-line"
                             };
+                            let line_style = crt_line_style(row_idx, rendered_lines.len());
+                            let line_chars = line.chars().count();
                             rsx! {
                                 div {
                                     class: "{line_class}",
                                     key: "line-{session_id}-{actual_row_idx}",
                                     "data-row": "{actual_row_idx}",
+                                    "data-line-chars": "{line_chars}",
+                                    style: "{line_style}",
                                     if show_caret && actual_row_idx == usize::from(cursor_row) {
                                         {render_terminal_line_with_caret(line, cursor_col)}
                                     } else {
@@ -569,6 +585,23 @@ pub(crate) fn terminal_shell(
             }
         }
     }
+}
+
+fn crt_line_style(row_idx: usize, total_rows: usize) -> String {
+    format!(
+        "--crt-line-bend: {:.4};",
+        crt_line_bend(row_idx, total_rows)
+    )
+}
+
+fn crt_line_bend(row_idx: usize, total_rows: usize) -> f64 {
+    if total_rows <= 1 {
+        return 0.0;
+    }
+
+    let progress = (row_idx as f64 + 0.5) / total_rows as f64;
+    let normalized = (progress * 2.0) - 1.0;
+    normalized * normalized
 }
 
 fn render_terminal_line(line: &str) -> Element {
@@ -991,7 +1024,7 @@ fn row_char_offset(lines: &[String], row: usize) -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_paste_shortcut, is_snippet_hotkey_trigger, split_prompt_prefix};
+    use super::{crt_line_bend, is_paste_shortcut, is_snippet_hotkey_trigger, split_prompt_prefix};
     use dioxus::prelude::Key;
 
     #[test]
@@ -1049,5 +1082,16 @@ mod tests {
     fn recognizes_prompt_fragment_with_user_host_prefix() {
         let line = "jeremy@FizzyPop:/media/jeremy/OrangeCream/Linux Softwa";
         assert!(split_prompt_prefix(line).is_some());
+    }
+
+    #[test]
+    fn crt_line_bend_is_zero_in_the_middle() {
+        assert!(crt_line_bend(1, 3) < 0.01);
+    }
+
+    #[test]
+    fn crt_line_bend_increases_toward_the_edges() {
+        assert!(crt_line_bend(0, 5) > crt_line_bend(2, 5));
+        assert!(crt_line_bend(4, 5) > crt_line_bend(2, 5));
     }
 }

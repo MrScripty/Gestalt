@@ -65,6 +65,71 @@ pub(crate) async fn map_click_to_terminal_cell(
 const root = document.getElementById({terminal_body_id:?});
 if (!root) return "";
 
+const rect = root.getBoundingClientRect();
+if (
+    {client_x} < rect.left ||
+    {client_x} > rect.right ||
+    {client_y} < rect.top ||
+    {client_y} > rect.bottom
+) return "";
+
+const style = window.getComputedStyle(root);
+const parsePx = (value, fallback) => {{
+    const parsed = Number.parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+}};
+
+const paddingLeft = parsePx(style.paddingLeft, 0);
+const paddingRight = parsePx(style.paddingRight, 0);
+const paddingTop = parsePx(style.paddingTop, 0);
+const paddingX = paddingLeft + paddingRight;
+const lineHeight = Math.max(1, parsePx(style.lineHeight, 17));
+const cachedCharWidth = root._gestaltViewportMeasureCache?.charWidth;
+const charWidth = Math.max(
+    1,
+    Number.isFinite(cachedCharWidth) && cachedCharWidth > 0
+        ? cachedCharWidth
+        : parsePx(style.getPropertyValue("--term-char-width"), 8.4)
+);
+
+if (root.classList.contains("crt-enabled")) {{
+    const lines = Array.from(root.querySelectorAll(".terminal-line"));
+    if (!lines.length) return "";
+
+    const localX = {client_x} - rect.left - paddingLeft + root.scrollLeft;
+    const localY = {client_y} - rect.top - paddingTop + root.scrollTop;
+    const rowIndex = Math.min(
+        lines.length - 1,
+        Math.max(0, Math.floor(localY / lineHeight))
+    );
+    const line = lines[rowIndex];
+    const row = Number.parseInt(line.dataset.row ?? `${{rowIndex}}`, 10);
+    if (Number.isNaN(row)) return "";
+
+    const lineChars = Number.parseInt(line.dataset.lineChars ?? "0", 10);
+    const edgeLoss = Math.min(
+        0.35,
+        Math.max(0, parsePx(style.getPropertyValue("--crt-edge-loss"), 0.085))
+    );
+    const rowNorm = lines.length <= 1 ? 0 : ((((rowIndex + 0.5) / lines.length) * 2) - 1);
+    const scale = Math.max(0.7, 1 - (edgeLoss * rowNorm * rowNorm));
+    const contentWidth = Math.max(root.scrollWidth - paddingX, {cols} * charWidth);
+    const centerX = contentWidth / 2;
+    const undistortedX = centerX + ((localX - centerX) / scale);
+    const col = Math.max(
+        0,
+        Math.min(
+            {cols} - 1,
+            Math.min(
+                Number.isFinite(lineChars) ? lineChars : {cols} - 1,
+                Math.floor(Math.max(0, undistortedX) / charWidth)
+            )
+        )
+    );
+
+    return `${{row}},${{col}}`;
+}}
+
 const el = document.elementFromPoint({client_x}, {client_y});
 if (!el || !root.contains(el)) return "";
 
