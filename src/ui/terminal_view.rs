@@ -44,7 +44,7 @@ pub(crate) fn terminal_shell(
     emily_bridge: Arc<EmilyBridge>,
     interaction: TerminalInteractionSignals,
 ) -> Element {
-    let app_state = interaction.app_state;
+    let mut app_state = interaction.app_state;
     let mut ui_state = interaction.ui_state;
     let mut snippet_hotkey_state = interaction.snippet_hotkey_state;
     let crt_enabled = app_state.read().crt_enabled();
@@ -213,6 +213,14 @@ pub(crate) fn terminal_shell(
                 let alt = modifiers.alt();
                 let shift = modifiers.shift();
                 let meta = modifiers.meta();
+
+                if crt_toggle_requested(&key, ctrl, alt, shift, meta) {
+                    event.prevent_default();
+                    event.stop_propagation();
+                    let enabled = app_state.read().crt_enabled();
+                    app_state.write().set_crt_enabled(!enabled);
+                    return;
+                }
 
                 let active_insert_mode = ui_state
                     .read()
@@ -602,6 +610,14 @@ fn crt_line_bend(row_idx: usize, total_rows: usize) -> f64 {
     let progress = (row_idx as f64 + 0.5) / total_rows as f64;
     let normalized = (progress * 2.0) - 1.0;
     normalized * normalized
+}
+
+fn crt_toggle_requested(key: &Key, ctrl: bool, alt: bool, shift: bool, meta: bool) -> bool {
+    if !ctrl || alt || shift || meta {
+        return false;
+    }
+
+    matches!(key, Key::Character(text) if text == "1")
 }
 
 fn render_terminal_line(line: &str) -> Element {
@@ -1024,6 +1040,7 @@ fn row_char_offset(lines: &[String], row: usize) -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
+    use super::crt_toggle_requested;
     use super::{crt_line_bend, is_paste_shortcut, is_snippet_hotkey_trigger, split_prompt_prefix};
     use dioxus::prelude::Key;
 
@@ -1093,5 +1110,16 @@ mod tests {
     fn crt_line_bend_increases_toward_the_edges() {
         assert!(crt_line_bend(0, 5) > crt_line_bend(2, 5));
         assert!(crt_line_bend(4, 5) > crt_line_bend(2, 5));
+    }
+
+    #[test]
+    fn recognizes_ctrl_one_for_crt_toggle() {
+        assert!(crt_toggle_requested(
+            &Key::Character("1".to_string()),
+            true,
+            false,
+            false,
+            false
+        ));
     }
 }

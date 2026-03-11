@@ -74,11 +74,98 @@ body {
   padding: 16px;
   overflow: hidden;
   animation: fade-up 260ms ease-out;
+  position: relative;
+  isolation: isolate;
 }
 
 .shell.resizing {
   user-select: none;
   cursor: col-resize;
+}
+
+.shell.crt-enabled {
+  padding: 22px;
+  border-radius: 30px;
+  background:
+    radial-gradient(circle at 50% -18%, #ffffff1c 0%, transparent 42%),
+    radial-gradient(circle at 50% 120%, #0d140f 0%, #050806 72%);
+  box-shadow:
+    inset 0 0 0 1px #98ff9850,
+    inset 0 0 34px #9bff9b12,
+    inset 0 0 90px #000000b0,
+    0 20px 60px #00000070;
+}
+
+.shell.crt-enabled > * {
+  position: relative;
+  z-index: 1;
+}
+
+.shell.crt-enabled::before,
+.shell.crt-enabled::after {
+  content: "";
+  position: absolute;
+  inset: 10px;
+  border-radius: 26px;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.shell.crt-enabled::before {
+  background:
+    repeating-linear-gradient(180deg, #ffffff08 0 1px, transparent 1px 4px),
+    linear-gradient(90deg, #ff000008 0%, #00ff0010 50%, #0044ff08 100%);
+  mix-blend-mode: screen;
+  opacity: 0.65;
+}
+
+.shell.crt-enabled::after {
+  background:
+    radial-gradient(circle at 50% 50%, transparent 54%, #00000018 74%, #00000080 100%),
+    radial-gradient(circle at 50% 0%, #ffffff18 0%, transparent 30%);
+  box-shadow: inset 0 0 80px #00000095;
+}
+
+.shell.crt-enabled .tab-rail,
+.shell.crt-enabled .workspace {
+  transform: perspective(1800px) rotateX(0.7deg) scale(0.992);
+  transform-origin: center center;
+}
+
+.shell.crt-enabled .tab-rail {
+  background:
+    radial-gradient(circle at 50% 0%, #a6ffb41a 0%, transparent 34%),
+    linear-gradient(180deg, #102019eb 0%, #0a130fef 100%);
+  border-color: #4f765f;
+  box-shadow:
+    inset 0 0 0 1px #9cff9c12,
+    0 0 22px #74ff7410;
+}
+
+.shell.crt-enabled .workspace {
+  background:
+    radial-gradient(circle at 50% 0%, #f7fff814 0%, transparent 38%),
+    linear-gradient(180deg, #e6efe9f0 0%, #d8e7e0ee 100%);
+  border-color: #7f9f8a;
+  box-shadow:
+    inset 0 0 0 1px #fbfff966,
+    0 0 26px #9fff9f12;
+}
+
+.shell.crt-enabled .panel-splitter {
+  box-shadow:
+    inset 0 0 0 1px #89b29f,
+    0 0 14px #7fff7f12;
+}
+
+.shell.crt-enabled .terminal-card,
+.shell.crt-enabled .orchestrator-card,
+.shell.crt-enabled .runner-empty,
+.shell.crt-enabled .workspace-empty {
+  box-shadow:
+    inset 0 0 0 1px #ffffff3b,
+    0 12px 30px #0f1b1d22,
+    0 0 18px #a0ffa010;
 }
 
 .tab-rail {

@@ -528,9 +528,17 @@ pub fn App() -> Element {
         app_state.read().ui_scale(),
     );
     let shell_class = if rail_drag_start.read().is_some() {
-        "shell resizing"
+        if app_state.read().crt_enabled() {
+            "shell resizing crt-enabled"
+        } else {
+            "shell resizing"
+        }
     } else {
-        "shell"
+        if app_state.read().crt_enabled() {
+            "shell crt-enabled"
+        } else {
+            "shell"
+        }
     };
 
     rsx! {
