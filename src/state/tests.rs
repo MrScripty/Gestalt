@@ -622,6 +622,29 @@ fn missing_ui_scale_field_restores_default_scale() {
 }
 
 #[test]
+fn set_crt_enabled_marks_state_dirty() {
+    let mut state = AppState::default();
+    let before = state.revision();
+
+    state.set_crt_enabled(true);
+
+    assert!(state.crt_enabled());
+    assert!(state.revision() > before);
+}
+
+#[test]
+fn missing_crt_enabled_field_restores_default_disabled() {
+    let mut payload = serde_json::to_value(AppState::default()).expect("serialize app state");
+    let object = payload
+        .as_object_mut()
+        .expect("app state should serialize to an object");
+    object.remove("crt_enabled");
+
+    let restored: AppState = serde_json::from_value(payload).expect("deserialize app state");
+    assert!(!restored.crt_enabled());
+}
+
+#[test]
 fn remove_session_preserves_selection_when_other_tab_removed() {
     let mut state = AppState::default();
     let selected = state.sessions()[0].id;

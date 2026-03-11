@@ -8,6 +8,8 @@ pub struct WorkspaceState {
     pub(crate) groups: Vec<TabGroup>,
     #[serde(default = "default_ui_scale")]
     ui_scale: f64,
+    #[serde(default = "default_crt_enabled")]
+    crt_enabled: bool,
     #[serde(default)]
     auxiliary_panels: AuxiliaryPanelLayout,
     pub(crate) selected_session: Option<SessionId>,
@@ -21,6 +23,7 @@ impl Default for WorkspaceState {
             sessions: Vec::new(),
             groups: Vec::new(),
             ui_scale: UI_SCALE_DEFAULT,
+            crt_enabled: default_crt_enabled(),
             auxiliary_panels: AuxiliaryPanelLayout::default(),
             selected_session: None,
             next_session_id: 1,
@@ -564,6 +567,18 @@ impl WorkspaceState {
         true
     }
 
+    pub fn crt_enabled(&self) -> bool {
+        self.crt_enabled
+    }
+
+    pub fn set_crt_enabled(&mut self, enabled: bool) -> bool {
+        if self.crt_enabled == enabled {
+            return false;
+        }
+        self.crt_enabled = enabled;
+        true
+    }
+
     pub fn auxiliary_panel_layout(&self) -> AuxiliaryPanelLayout {
         self.auxiliary_panels.clone()
     }
@@ -793,6 +808,18 @@ impl AppState {
     /// Sets the GUI font scale and marks the state dirty when changed.
     pub fn set_ui_scale(&mut self, scale: f64) {
         if self.workspace.set_ui_scale(scale) {
+            self.mark_dirty();
+        }
+    }
+
+    /// Returns whether CRT mode is enabled for the workspace UI.
+    pub fn crt_enabled(&self) -> bool {
+        self.workspace.crt_enabled()
+    }
+
+    /// Sets CRT mode and marks the state dirty when changed.
+    pub fn set_crt_enabled(&mut self, enabled: bool) {
+        if self.workspace.set_crt_enabled(enabled) {
             self.mark_dirty();
         }
     }

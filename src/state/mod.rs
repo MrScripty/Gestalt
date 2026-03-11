@@ -138,6 +138,10 @@ pub(crate) fn default_ui_scale() -> f64 {
     UI_SCALE_DEFAULT
 }
 
+pub(crate) fn default_crt_enabled() -> bool {
+    false
+}
+
 pub(crate) fn default_next_note_id() -> NoteId {
     1
 }

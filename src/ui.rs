@@ -522,6 +522,19 @@ pub fn App() -> Element {
                 let data = event.data();
                 let key = data.key();
                 let modifiers = data.modifiers();
+                if crt_toggle_requested(
+                    &key,
+                    modifiers.ctrl(),
+                    modifiers.alt(),
+                    modifiers.shift(),
+                    modifiers.meta(),
+                ) {
+                    event.prevent_default();
+                    event.stop_propagation();
+                    let enabled = app_state.read().crt_enabled();
+                    app_state.write().set_crt_enabled(!enabled);
+                    return;
+                }
                 if let Some(direction) =
                     gui_scale_direction(&key, modifiers.ctrl(), modifiers.meta(), modifiers.alt())
                 {
@@ -861,6 +874,14 @@ fn gui_scale_direction(key: &Key, ctrl: bool, meta: bool, alt: bool) -> Option<f
     }
 }
 
+fn crt_toggle_requested(key: &Key, ctrl: bool, alt: bool, shift: bool, meta: bool) -> bool {
+    if !ctrl || alt || shift || meta {
+        return false;
+    }
+
+    matches!(key, Key::Character(text) if text == "1")
+}
+
 fn initialize_emily_bridge() -> EmilyBridge {
     match build_deferred_embedding_provider_from_env() {
         Ok(provider) => {
@@ -891,7 +912,7 @@ fn next_gui_scale(current: f64, step: f64) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{gui_scale_direction, next_gui_scale};
+    use super::{crt_toggle_requested, gui_scale_direction, next_gui_scale};
     use crate::git::{self, RepoContext};
     use dioxus::prelude::Key;
     use std::fs;
@@ -919,6 +940,35 @@ mod tests {
     fn clamps_scale_to_bounds() {
         assert_eq!(next_gui_scale(1.8, 0.1), 1.8);
         assert_eq!(next_gui_scale(0.7, -0.1), 0.7);
+    }
+
+    #[test]
+    fn recognizes_ctrl_one_for_crt_toggle() {
+        assert!(crt_toggle_requested(
+            &Key::Character("1".to_string()),
+            true,
+            false,
+            false,
+            false
+        ));
+    }
+
+    #[test]
+    fn ignores_modified_crt_toggle_chords() {
+        assert!(!crt_toggle_requested(
+            &Key::Character("1".to_string()),
+            true,
+            false,
+            true,
+            false
+        ));
+        assert!(!crt_toggle_requested(
+            &Key::Character("1".to_string()),
+            true,
+            true,
+            false,
+            false
+        ));
     }
 
     #[test]
