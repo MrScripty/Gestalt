@@ -507,14 +507,80 @@ async fn compile_records_protected_references_for_remote_boundary() {
     assert_eq!(ir.protected_references.len(), 3);
     assert!(ir.protected_references.iter().any(|reference| {
         reference.kind == emily_membrane::contracts::MembraneProtectedKind::PersonalIdentifier
+            && reference.local_text.as_deref() == Some("jeremy@example.com")
     }));
     assert!(ir.protected_references.iter().any(|reference| {
         reference.kind == emily_membrane::contracts::MembraneProtectedKind::FilesystemPath
+            && reference.local_text.as_deref()
+                == Some("/media/jeremy/OrangeCream/Linux Software/Gestalt")
     }));
     assert!(ir.protected_references.iter().any(|reference| {
         reference.kind == emily_membrane::contracts::MembraneProtectedKind::Secret
             && reference.disposition
                 == emily_membrane::contracts::MembraneProtectionDisposition::Blocked
+            && reference.local_text.is_none()
+    }));
+}
+
+#[tokio::test]
+async fn reconstruct_with_context_restores_transformable_placeholders_locally() {
+    let runtime = MembraneRuntime::new(Arc::new(StubEmilyApi::default()));
+    let compiled = runtime
+        .compile(MembraneTaskRequest {
+            task_id: "task-sensitive-remote".into(),
+            episode_id: "episode-1".into(),
+            task_text:
+                "Contact jeremy@example.com about /media/jeremy/OrangeCream/Linux Software/Gestalt."
+                    .into(),
+            context_fragments: vec![ContextFragment {
+                fragment_id: "ctx-secret".into(),
+                text: "Use API_KEY=abcd1234 for this provider.".into(),
+            }],
+            allow_remote: true,
+        })
+        .await
+        .expect("compile");
+    let dispatch = emily_membrane::contracts::DispatchResult {
+        task_id: "task-sensitive-remote".into(),
+        route: MembraneRouteKind::SingleRemote,
+        status: emily_membrane::contracts::DispatchStatus::RemoteCompleted,
+        response_text:
+            "REMOTE: Email EMAIL_HANDLE_1 after checking PATH_HANDLE_1 with [BLOCKED_SECRET:ctx-secret]."
+                .into(),
+        remote_reference: Some("remote-sensitive-1".into()),
+    };
+    let validation = ValidationEnvelope {
+        task_id: "task-sensitive-remote".into(),
+        disposition: MembraneValidationDisposition::Accepted,
+        assessments: Vec::new(),
+        findings: Vec::new(),
+        validated_text: Some(dispatch.response_text.clone()),
+    };
+
+    let reconstruction = runtime
+        .reconstruct_with_context(&compiled, &dispatch, &validation)
+        .await
+        .expect("reconstruct");
+
+    assert!(reconstruction.output_text.contains("jeremy@example.com"));
+    assert!(
+        reconstruction
+            .output_text
+            .contains("/media/jeremy/OrangeCream/Linux Software/Gestalt")
+    );
+    assert!(reconstruction.output_text.contains("[WITHHELD_SECRET]"));
+    assert!(
+        reconstruction
+            .output_text
+            .contains("Protected local content remained withheld during remote reconstruction.")
+    );
+    assert!(reconstruction.references.iter().any(|reference| {
+        reference.source == emily_membrane::contracts::ReconstructionSource::ProtectedLocal
+            && reference.reference_id == "task:task-sensitive-remote"
+    }));
+    assert!(reconstruction.references.iter().any(|reference| {
+        reference.source == emily_membrane::contracts::ReconstructionSource::ProtectedLocal
+            && reference.reference_id == "ctx-secret"
     }));
 }
 

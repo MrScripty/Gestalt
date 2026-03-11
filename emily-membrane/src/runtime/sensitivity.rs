@@ -29,6 +29,7 @@ pub(super) fn protect_outbound_text(reference_id: &str, text: &str) -> Protected
                 kind: MembraneProtectedKind::Secret,
                 disposition: MembraneProtectionDisposition::Blocked,
                 placeholder,
+                local_text: None,
             }],
         };
     }
@@ -38,9 +39,14 @@ pub(super) fn protect_outbound_text(reference_id: &str, text: &str) -> Protected
     let mut email_placeholders: BTreeMap<String, String> = BTreeMap::new();
     let mut path_placeholders: BTreeMap<String, String> = BTreeMap::new();
 
-    for token in text.split_whitespace() {
+    let tokens: Vec<&str> = text.split_whitespace().collect();
+    let mut index = 0;
+
+    while index < tokens.len() {
+        let token = tokens[index];
         let normalized = normalize_token(token);
         if normalized.is_empty() {
+            index += 1;
             continue;
         }
 
@@ -61,26 +67,34 @@ pub(super) fn protect_outbound_text(reference_id: &str, text: &str) -> Protected
                 kind: MembraneProtectedKind::PersonalIdentifier,
                 disposition: MembraneProtectionDisposition::Transformed,
                 placeholder,
+                local_text: Some(normalized.to_string()),
             });
+            index += 1;
             continue;
         }
 
         if is_path_token(normalized) {
-            let placeholder = if let Some(existing) = path_placeholders.get(normalized) {
+            let path_text = collect_path_text(&tokens, index);
+            let placeholder = if let Some(existing) = path_placeholders.get(path_text.as_str()) {
                 existing.clone()
             } else {
                 let created = format!("PATH_HANDLE_{}", path_placeholders.len().saturating_add(1));
-                path_placeholders.insert(normalized.to_string(), created.clone());
+                path_placeholders.insert(path_text.clone(), created.clone());
                 created
             };
-            outbound = outbound.replace(normalized, &placeholder);
+            outbound = outbound.replace(&path_text, &placeholder);
             protected_references.push(MembraneProtectedReference {
                 reference_id: reference_id.to_string(),
                 kind: MembraneProtectedKind::FilesystemPath,
                 disposition: MembraneProtectionDisposition::Transformed,
                 placeholder,
+                local_text: Some(path_text),
             });
+            index += 1;
+            continue;
         }
+
+        index += 1;
     }
 
     ProtectedTextReport {
@@ -121,6 +135,22 @@ fn is_path_token(token: &str) -> bool {
         || token.starts_with("~/")
 }
 
+fn collect_path_text(tokens: &[&str], start_index: usize) -> String {
+    let mut path_parts = vec![normalize_token(tokens[start_index]).to_string()];
+    let mut cursor = start_index + 1;
+
+    while cursor < tokens.len() {
+        let normalized = normalize_token(tokens[cursor]);
+        if normalized.is_empty() || !normalized.contains('/') {
+            break;
+        }
+        path_parts.push(normalized.to_string());
+        cursor += 1;
+    }
+
+    path_parts.join(" ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::protect_outbound_text;
@@ -140,6 +170,7 @@ mod tests {
             report.protected_references[0].disposition,
             MembraneProtectionDisposition::Blocked
         );
+        assert_eq!(report.protected_references[0].local_text, None);
     }
 
     #[test]
@@ -155,10 +186,13 @@ mod tests {
         assert!(report.protected_references.iter().any(|reference| {
             reference.kind == MembraneProtectedKind::PersonalIdentifier
                 && reference.disposition == MembraneProtectionDisposition::Transformed
+                && reference.local_text.as_deref() == Some("jeremy@example.com")
         }));
         assert!(report.protected_references.iter().any(|reference| {
             reference.kind == MembraneProtectedKind::FilesystemPath
                 && reference.disposition == MembraneProtectionDisposition::Transformed
+                && reference.local_text.as_deref()
+                    == Some("/media/jeremy/OrangeCream/Linux Software/Gestalt")
         }));
     }
 }

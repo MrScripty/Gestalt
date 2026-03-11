@@ -77,6 +77,18 @@ fn protected_task_request() -> MembraneTaskRequest {
     }
 }
 
+fn transformable_task_request() -> MembraneTaskRequest {
+    MembraneTaskRequest {
+        task_id: "task-remote-transformable".to_string(),
+        episode_id: "ep-membrane-remote".to_string(),
+        task_text:
+            "Summarize the remote membrane path for jeremy@example.com using /media/jeremy/OrangeCream/Linux Software/Gestalt."
+                .to_string(),
+        context_fragments: Vec::new(),
+        allow_remote: true,
+    }
+}
+
 fn persistence() -> RemoteExecutionPersistence {
     RemoteExecutionPersistence {
         route_decision_id: "route-remote-1".to_string(),
@@ -501,6 +513,78 @@ async fn remote_execution_records_route_remote_episode_validation_and_audits_ide
     assert_eq!(validations.len(), 1);
     assert_eq!(audits.len(), 3);
     assert_eq!(episode.state, EpisodeState::Open);
+
+    emily.close_db().await.expect("close db");
+    let _ = std::fs::remove_dir_all(locator.storage_path);
+}
+
+#[tokio::test]
+async fn remote_reconstruction_restores_transformable_placeholders_locally() {
+    let store = Arc::new(SurrealEmilyStore::new());
+    let emily = Arc::new(EmilyRuntime::new(store));
+    let registry = Arc::new(InMemoryProviderRegistry::single_target(
+        default_registered_provider_target(ProviderTarget {
+            provider_id: "test-provider".to_string(),
+            model_id: Some("deterministic-v1".to_string()),
+            profile_id: Some("reasoning".to_string()),
+            capability_tags: vec!["analysis".to_string()],
+            metadata: json!({"origin": "test"}),
+        }),
+        Arc::new(DeterministicTestProvider) as Arc<dyn MembraneProvider>,
+    ));
+    let runtime = MembraneRuntime::with_provider_registry(emily.clone(), registry);
+    let locator = locator();
+
+    emily.open_db(locator.clone()).await.expect("open db");
+    emily
+        .create_episode(episode_request())
+        .await
+        .expect("create episode");
+
+    let execution = runtime
+        .execute_remote_with_registry_and_record(
+            transformable_task_request(),
+            routing_preference(),
+            RemoteExecutionPersistence {
+                route_decision_id: "route-transformable-1".to_string(),
+                route_decided_at_unix_ms: 30,
+                provider_request_id: "provider-request-transformable-1".to_string(),
+                remote_episode_id: "remote-transformable-1".to_string(),
+                remote_dispatched_at_unix_ms: 31,
+                validation_id: "validation-transformable-1".to_string(),
+                validated_at_unix_ms: 32,
+            },
+        )
+        .await
+        .expect("execute transformable remote path");
+
+    assert!(
+        execution
+            .reconstruction
+            .output_text
+            .contains("jeremy@example.com")
+    );
+    assert!(
+        execution
+            .reconstruction
+            .output_text
+            .contains("/media/jeremy/OrangeCream/Linux Software/Gestalt")
+    );
+    assert!(
+        !execution
+            .reconstruction
+            .output_text
+            .contains("EMAIL_HANDLE_1")
+    );
+    assert!(
+        !execution
+            .reconstruction
+            .output_text
+            .contains("PATH_HANDLE_1")
+    );
+    assert!(execution.reconstruction.references.iter().any(|reference| {
+        reference.source == emily_membrane::contracts::ReconstructionSource::ProtectedLocal
+    }));
 
     emily.close_db().await.expect("close db");
     let _ = std::fs::remove_dir_all(locator.storage_path);

@@ -31,6 +31,7 @@ pub enum ReconstructionSource {
     RemoteResult,
     ValidationPolicy,
     ReconstructionHandle,
+    ProtectedLocal,
 }
 
 impl ReconstructionReference {
@@ -46,6 +47,14 @@ impl ReconstructionReference {
                     "inline text reconstruction".to_string()
                 }
             }),
+        }
+    }
+
+    pub(crate) fn protected_local(reference_id: String, summary: String) -> Self {
+        Self {
+            source: ReconstructionSource::ProtectedLocal,
+            reference_id,
+            summary: Some(summary),
         }
     }
 }

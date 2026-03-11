@@ -1,8 +1,9 @@
 use super::{MembraneRuntime, MembraneRuntimeError};
 use crate::contracts::{
-    CompileResult, DispatchResult, MembraneRouteKind, MembraneValidationDisposition,
-    ReconstructionReference, ReconstructionResult, ReconstructionSource, ValidationEnvelope,
-    ValidationFinding, ValidationFindingSeverity,
+    CompileResult, DispatchResult, MembraneProtectedReference, MembraneProtectionDisposition,
+    MembraneRouteKind, MembraneValidationDisposition, ReconstructionReference,
+    ReconstructionResult, ReconstructionSource, ValidationEnvelope, ValidationFinding,
+    ValidationFindingSeverity,
 };
 
 impl<A> MembraneRuntime<A>
@@ -51,6 +52,10 @@ fn build_reconstruction(
             "cannot reconstruct from a rejected validation result".to_string(),
         )),
         MembraneValidationDisposition::Accepted | MembraneValidationDisposition::NeedsReview => {
+            let protected_references = compile
+                .and_then(|compiled| compiled.compiled_task.membrane_ir.as_ref())
+                .map(|ir| ir.protected_references.as_slice())
+                .unwrap_or(&[]);
             let output_text = validation.validated_text.clone().ok_or_else(|| {
                 MembraneRuntimeError::InvalidState(
                     "validated_text is required for reconstruction".to_string(),
@@ -58,8 +63,18 @@ fn build_reconstruction(
             })?;
             Ok(ReconstructionResult {
                 task_id: validation.task_id.clone(),
-                output_text: render_reconstruction_output(dispatch, validation, &output_text),
-                references: build_reconstruction_references(compile, dispatch, validation),
+                output_text: render_reconstruction_output(
+                    dispatch,
+                    validation,
+                    &output_text,
+                    protected_references,
+                ),
+                references: build_reconstruction_references(
+                    compile,
+                    dispatch,
+                    validation,
+                    protected_references,
+                ),
                 caution: validation.disposition == MembraneValidationDisposition::NeedsReview,
             })
         }
@@ -70,6 +85,7 @@ fn build_reconstruction_references(
     compile: Option<&CompileResult>,
     dispatch: Option<&DispatchResult>,
     validation: &ValidationEnvelope,
+    protected_references: &[MembraneProtectedReference],
 ) -> Vec<ReconstructionReference> {
     let mut references = Vec::new();
 
@@ -131,6 +147,8 @@ fn build_reconstruction_references(
         references.extend(validation.findings.iter().map(validation_reference));
     }
 
+    references.extend(protected_references.iter().map(protected_reference));
+
     references
 }
 
@@ -150,7 +168,9 @@ fn render_reconstruction_output(
     dispatch: Option<&DispatchResult>,
     validation: &ValidationEnvelope,
     output_text: &str,
+    protected_references: &[MembraneProtectedReference],
 ) -> String {
+    let output_text = restore_protected_output(output_text, protected_references);
     let mut headers = Vec::new();
 
     if let Some(dispatch) = dispatch {
@@ -185,11 +205,56 @@ fn render_reconstruction_output(
         ));
     }
 
+    if protected_references
+        .iter()
+        .any(|reference| reference.disposition == MembraneProtectionDisposition::Blocked)
+    {
+        headers.push(
+            "Protected local content remained withheld during remote reconstruction.".to_string(),
+        );
+    }
+
     if headers.is_empty() {
-        output_text.to_string()
+        output_text
     } else {
         format!("{}\n\n{}", headers.join("\n"), output_text)
     }
+}
+
+fn protected_reference(reference: &MembraneProtectedReference) -> ReconstructionReference {
+    let summary = match reference.disposition {
+        MembraneProtectionDisposition::Transformed => format!(
+            "transformable {:?} restored locally from '{}'",
+            reference.kind, reference.placeholder
+        ),
+        MembraneProtectionDisposition::Blocked => format!(
+            "blocked {:?} remained withheld behind '{}'",
+            reference.kind, reference.placeholder
+        ),
+    };
+    ReconstructionReference::protected_local(reference.reference_id.clone(), summary)
+}
+
+fn restore_protected_output(
+    output_text: &str,
+    protected_references: &[MembraneProtectedReference],
+) -> String {
+    let mut restored = output_text.to_string();
+
+    for reference in protected_references {
+        match reference.disposition {
+            MembraneProtectionDisposition::Transformed => {
+                if let Some(local_text) = reference.local_text.as_deref() {
+                    restored = restored.replace(&reference.placeholder, local_text);
+                }
+            }
+            MembraneProtectionDisposition::Blocked => {
+                restored = restored.replace(&reference.placeholder, "[WITHHELD_SECRET]");
+            }
+        }
+    }
+
+    restored
 }
 
 fn render_finding_summary(finding: &ValidationFinding) -> String {

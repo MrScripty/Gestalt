@@ -36,6 +36,9 @@ pub struct MembraneProtectedReference {
     pub kind: MembraneProtectedKind,
     pub disposition: MembraneProtectionDisposition,
     pub placeholder: String,
+    /// Local-only original text retained for safe reconstruction when allowed.
+    #[serde(default)]
+    pub local_text: Option<String>,
 }
 
 /// Deterministic first-pass protected content classes.
@@ -104,6 +107,7 @@ mod tests {
                 kind: MembraneProtectedKind::FilesystemPath,
                 disposition: MembraneProtectionDisposition::Transformed,
                 placeholder: "PATH_HANDLE_1".into(),
+                local_text: Some("/media/example/project".into()),
             }],
             boundary: MembraneBoundaryMetadata {
                 remote_allowed: false,
