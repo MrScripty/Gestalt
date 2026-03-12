@@ -68,11 +68,11 @@ pub(crate) fn terminal_shell(
         terminal.rows, terminal.cols
     );
     #[cfg(feature = "native-renderer")]
-    const RENDER_WINDOW_MULTIPLIER: usize = 4;
+    const RENDER_WINDOW_MULTIPLIER: usize = 2;
     #[cfg(not(feature = "native-renderer"))]
     const RENDER_WINDOW_MULTIPLIER: usize = 8;
     #[cfg(feature = "native-renderer")]
-    const RENDER_WINDOW_MIN_ROWS: usize = 128;
+    const RENDER_WINDOW_MIN_ROWS: usize = 48;
     #[cfg(not(feature = "native-renderer"))]
     const RENDER_WINDOW_MIN_ROWS: usize = 256;
     let line_count = terminal.lines.len().max(1);
@@ -139,6 +139,7 @@ pub(crate) fn terminal_shell(
                 })
         })
         .collect::<Vec<_>>();
+    #[cfg(not(feature = "native-renderer"))]
     let snippet_row_ranges = {
         let state = app_state.read();
         state
@@ -602,6 +603,9 @@ pub(crate) fn terminal_shell(
                                 .map(|line| line.as_str())
                                 .unwrap_or_default();
                             let actual_row_idx = window_start.saturating_add(row_idx);
+                            #[cfg(feature = "native-renderer")]
+                            let has_snippet = false;
+                            #[cfg(not(feature = "native-renderer"))]
                             let has_snippet = snippet_row_ranges.iter().any(|(start, end)| {
                                 actual_row_idx >= usize::try_from(*start).unwrap_or(usize::MAX)
                                     && actual_row_idx <= usize::try_from(*end).unwrap_or(0)
@@ -616,7 +620,21 @@ pub(crate) fn terminal_shell(
                                     class: "{line_class}",
                                     key: "line-{session_id}-{actual_row_idx}",
                                     "data-row": "{actual_row_idx}",
-                                    if show_caret && actual_row_idx == usize::from(cursor_row) {
+                                    if cfg!(feature = "native-renderer") {
+                                        {
+                                            let native_line = if show_caret
+                                                && actual_row_idx == usize::from(cursor_row)
+                                            {
+                                                render_native_terminal_line_with_caret(
+                                                    line,
+                                                    cursor_col,
+                                                )
+                                            } else {
+                                                line.to_string()
+                                            };
+                                            rsx!(span { class: "terminal-text", "{native_line}" })
+                                        }
+                                    } else if show_caret && actual_row_idx == usize::from(cursor_row) {
                                         {render_terminal_line_with_caret(line, cursor_col)}
                                     } else {
                                         {render_terminal_line(line)}
@@ -715,6 +733,16 @@ fn char_index_to_byte(input: &str, char_index: usize) -> usize {
         .nth(char_index)
         .map(|(idx, _)| idx)
         .unwrap_or(input.len())
+}
+
+#[cfg(feature = "native-renderer")]
+fn render_native_terminal_line_with_caret(line: &str, cursor_col: u16) -> String {
+    let caret_byte = char_index_to_byte(line, usize::from(cursor_col));
+    let mut rendered = String::with_capacity(line.len().saturating_add(1));
+    rendered.push_str(&line[..caret_byte]);
+    rendered.push('|');
+    rendered.push_str(&line[caret_byte..]);
+    rendered
 }
 
 fn split_prompt_prefix(line: &str) -> Option<(&str, &str)> {

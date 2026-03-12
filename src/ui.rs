@@ -47,6 +47,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 const TERMINAL_RESIZE_POLL_MS: u64 = 180;
+#[cfg(feature = "native-renderer")]
+const TERMINAL_REFRESH_COALESCE_MS: u64 = 75;
+#[cfg(not(feature = "native-renderer"))]
+const TERMINAL_REFRESH_COALESCE_MS: u64 = 16;
 const AUTOSAVE_DEBOUNCE_MS: u64 = 1_200;
 pub(crate) const EMILY_HISTORY_BACKFILL_PAGE_LINES: usize = 1_200;
 const TERMINAL_MIN_RESIZE_COLS: u16 = 80;
@@ -253,7 +257,17 @@ pub fn App() -> Element {
             let terminal_manager = terminal_manager.clone();
             async move {
                 let mut terminal_events = terminal_manager.subscribe_events();
+                let mut pending_refresh = false;
                 loop {
+                    if pending_refresh {
+                        tokio::time::sleep(Duration::from_millis(TERMINAL_REFRESH_COALESCE_MS))
+                            .await;
+                        let next = *refresh_tick.read() + 1;
+                        refresh_tick.set(next);
+                        pending_refresh = false;
+                        continue;
+                    }
+
                     match terminal_events.recv().await {
                         Ok(event)
                             if event.kind
@@ -268,14 +282,12 @@ pub fn App() -> Element {
                                 })
                             };
                             if is_active_session {
-                                let next = *refresh_tick.read() + 1;
-                                refresh_tick.set(next);
+                                pending_refresh = true;
                             }
                         }
                         Ok(_) => {}
                         Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                            let next = *refresh_tick.read() + 1;
-                            refresh_tick.set(next);
+                            pending_refresh = true;
                         }
                         Err(tokio::sync::broadcast::error::RecvError::Closed) => {
                             break;
