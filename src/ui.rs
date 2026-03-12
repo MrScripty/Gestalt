@@ -35,7 +35,6 @@ use crate::state::{SessionId, SessionStatus, clamp_ui_scale};
 use crate::terminal::{PersistedTerminalState, TerminalManager, TerminalMemorySink};
 use crate::ui::git_refresh::use_git_refresh_coordinator;
 #[cfg(feature = "native-renderer")]
-use crate::ui::native_crt::NativeCrtOverlay;
 use crate::ui::tab_rail::TabRail;
 use crate::ui::terminal_input::measure_terminal_viewport;
 use crate::ui::workspace::WorkspaceMain;
@@ -555,15 +554,6 @@ pub fn App() -> Element {
     let native_crt_overlay = rsx! {};
     #[cfg(not(feature = "native-renderer"))]
     let native_crt_overlay = rsx! {};
-    #[cfg(feature = "native-renderer")]
-    let native_baseline_marker = rsx!(
-        div {
-            style: "position: fixed; top: 16px; left: 16px; z-index: 9999; padding: 8px 12px; background: #ff0066; color: white; font-weight: 700; border-radius: 8px;",
-            "NATIVE BASELINE MARKER"
-        }
-    );
-    #[cfg(not(feature = "native-renderer"))]
-    let native_baseline_marker = rsx! {};
     let left_slot = rsx!(TabRail {
         app_state: app_state,
         terminal_manager: terminal_manager,
@@ -634,6 +624,11 @@ pub fn App() -> Element {
                 }
             },
             onmousemove: move |event| {
+                if rail_drag_start.read().is_some() && event.data().held_buttons().is_empty() {
+                    rail_drag_start.set(None);
+                    return;
+                }
+
                 let Some((start_x, start_width)) = *rail_drag_start.read() else {
                     return;
                 };
@@ -646,9 +641,11 @@ pub fn App() -> Element {
                 rail_drag_start.set(None);
             },
             onmouseleave: move |_| {
+                if cfg!(feature = "native-renderer") {
+                    return;
+                }
                 rail_drag_start.set(None);
             },
-            {native_baseline_marker}
             {native_crt_overlay}
             {left_slot}
             button {

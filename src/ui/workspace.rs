@@ -7,6 +7,7 @@ use crate::ui::UiState;
 use crate::ui::run_sidebar_panel_host::RunSidebarPanelHost;
 use crate::ui::sidebar_panel_host::SidebarPanelHost;
 use crate::ui::terminal_view::{SnippetHotkeyState, TerminalInteractionSignals, terminal_shell};
+use dioxus::html::input_data::MouseButton;
 use dioxus::prelude::*;
 use emily::model::VectorizationStatus;
 use std::collections::HashMap;
@@ -22,6 +23,7 @@ const STACK_SPLIT_STEP_RATIO: f64 = 0.03;
 const STACK_SPLIT_MIN_RATIO: f64 = 0.28;
 const STACK_SPLIT_MAX_RATIO: f64 = 0.72;
 const STACK_SPLIT_DRAG_SENSITIVITY_PX: f64 = 520.0;
+const USER_EVENT_WRITE_RETRIES: usize = 8;
 
 fn run_sidebar_style(ratio: f64) -> String {
     format!("--runner-top-ratio: {:.2}%;", ratio * 100.0)
@@ -179,7 +181,7 @@ pub(crate) fn WorkspaceMain(
         .as_ref()
         .map(|projection| projection.orchestrator.clone());
 
-    let mut ui_state = ui_state;
+    let ui_state = ui_state;
     let persistence_feedback_value = ui_state.read().persistence_feedback.clone();
     let mut runner_drag_start = use_signal(|| None::<(f64, i32)>);
     let mut agent_drag_start = use_signal(|| None::<(f64, f64)>);
@@ -235,6 +237,13 @@ pub(crate) fn WorkspaceMain(
         main {
             class: "{workspace_class}",
             onmousemove: move |event| {
+                if !event.data().held_buttons().contains(MouseButton::Primary) {
+                    runner_drag_start.set(None);
+                    agent_drag_start.set(None);
+                    sidebar_drag_start.set(None);
+                    return;
+                }
+
                 let pointer = event.data().client_coordinates();
 
                 if let Some((start_x, start_width)) = *runner_drag_start.read() {
@@ -275,6 +284,9 @@ pub(crate) fn WorkspaceMain(
                 sidebar_drag_start.set(None);
             },
             onmouseleave: move |_| {
+                if cfg!(feature = "native-renderer") {
+                    return;
+                }
                 runner_drag_start.set(None);
                 agent_drag_start.set(None);
                 sidebar_drag_start.set(None);
@@ -332,9 +344,9 @@ pub(crate) fn WorkspaceMain(
                         aria_pressed: crt_enabled,
                         title: "Toggle CRT mode (Ctrl+1)",
                         onclick: move |_| {
-                            if let Ok(mut state) = app_state.try_write() {
+                            apply_user_app_state_update(app_state, |state| {
                                 state.set_crt_enabled(!crt_enabled);
-                            }
+                            });
                         },
                         if crt_enabled { "CRT On" } else { "CRT Off" }
                     }
@@ -354,9 +366,9 @@ pub(crate) fn WorkspaceMain(
                         aria_controls: "workspace-right-panel",
                         aria_expanded: sidebar_open_value,
                         onclick: move |_| {
-                            if let Ok(mut state) = ui_state.try_write() {
+                            with_user_ui_state_update(ui_state, |state| {
                                 state.sidebar_open = !sidebar_open_value;
-                            }
+                            });
                         },
                         if sidebar_open_value { "Hide Panels" } else { "Show Panels" }
                     }
@@ -407,9 +419,9 @@ pub(crate) fn WorkspaceMain(
                                                 key: "agent-card-{session_id}",
                                                 style: "{card_style}",
                                                 onclick: move |_| {
-                                                    if let Ok(mut state) = app_state.try_write() {
+                                                    apply_user_app_state_update(app_state, |state| {
                                                         state.select_session(session_id);
-                                                    }
+                                                    });
                                                 },
 
                                                 div { class: "terminal-head",
@@ -426,9 +438,9 @@ pub(crate) fn WorkspaceMain(
                                                                             event.prevent_default();
                                                                             let title = rename_header_draft.read().trim().to_string();
                                                                             if !title.is_empty() {
-                                                                                if let Ok(mut state) = app_state.try_write() {
+                                                                                apply_user_app_state_update(app_state, |state| {
                                                                                     state.rename_session(session_id, title);
-                                                                                }
+                                                                                });
                                                                             }
                                                                             renaming_header.set(None);
                                                                         }
@@ -444,9 +456,9 @@ pub(crate) fn WorkspaceMain(
                                                                     if was_editing {
                                                                         let title = rename_header_draft.read().trim().to_string();
                                                                         if !title.is_empty() {
-                                                                            if let Ok(mut state) = app_state.try_write() {
+                                                                            apply_user_app_state_update(app_state, |state| {
                                                                                 state.rename_session(session_id, title);
-                                                                            }
+                                                                            });
                                                                         }
                                                                         renaming_header.set(None);
                                                                     }
@@ -606,9 +618,9 @@ pub(crate) fn WorkspaceMain(
                                                 key: "runner-card-{session_id}",
                                                 style: "{card_style}",
                                                 onclick: move |_| {
-                                                    if let Ok(mut state) = app_state.try_write() {
+                                                    apply_user_app_state_update(app_state, |state| {
                                                         state.select_session(session_id);
-                                                    }
+                                                    });
                                                 },
 
                                                 div { class: "terminal-head",
@@ -625,9 +637,9 @@ pub(crate) fn WorkspaceMain(
                                                                             event.prevent_default();
                                                                             let title = rename_header_draft.read().trim().to_string();
                                                                             if !title.is_empty() {
-                                                                                if let Ok(mut state) = app_state.try_write() {
+                                                                                apply_user_app_state_update(app_state, |state| {
                                                                                     state.rename_session(session_id, title);
-                                                                                }
+                                                                                });
                                                                             }
                                                                             renaming_header.set(None);
                                                                         }
@@ -643,9 +655,9 @@ pub(crate) fn WorkspaceMain(
                                                                     if was_editing {
                                                                         let title = rename_header_draft.read().trim().to_string();
                                                                         if !title.is_empty() {
-                                                                            if let Ok(mut state) = app_state.try_write() {
+                                                                            apply_user_app_state_update(app_state, |state| {
                                                                                 state.rename_session(session_id, title);
-                                                                            }
+                                                                            });
                                                                         }
                                                                         renaming_header.set(None);
                                                                     }
@@ -822,6 +834,31 @@ fn apply_status_updates(
     };
     for update in updates {
         state.set_session_status(update.session_id, update.status);
+    }
+}
+
+fn apply_user_app_state_update(
+    mut app_state: Signal<AppState>,
+    update: impl FnOnce(&mut AppState),
+) {
+    let mut update = Some(update);
+    for _ in 0..USER_EVENT_WRITE_RETRIES {
+        if let Ok(mut state) = app_state.try_write() {
+            update.take().unwrap()(&mut state);
+            return;
+        }
+        std::thread::yield_now();
+    }
+}
+
+fn with_user_ui_state_update(mut ui_state: Signal<UiState>, update: impl FnOnce(&mut UiState)) {
+    let mut update = Some(update);
+    for _ in 0..USER_EVENT_WRITE_RETRIES {
+        if let Ok(mut state) = ui_state.try_write() {
+            update.take().unwrap()(&mut state);
+            return;
+        }
+        std::thread::yield_now();
     }
 }
 

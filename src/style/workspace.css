@@ -12,6 +12,10 @@
   min-width: 0;
 }
 
+.shell.native-renderer .workspace {
+  color: #ddede5;
+}
+
 .workspace.resizing {
   user-select: none;
 }
@@ -38,8 +42,16 @@
   color: var(--muted);
 }
 
+.shell.native-renderer .workspace-head p {
+  color: #94b2a6;
+}
+
 .meta-tip {
   font-size: calc(0.74rem * var(--font-scale));
+}
+
+.shell.native-renderer .meta-tip {
+  font-size: 0.74rem;
 }
 
 .status-summary {
@@ -60,13 +72,25 @@
   background: var(--status-idle);
 }
 
+.shell.native-renderer .badge.idle {
+  background: #6ecc77;
+}
+
 .badge.busy {
   background: var(--status-busy);
+}
+
+.shell.native-renderer .badge.busy {
+  background: #d3ad65;
 }
 
 .badge.error {
   background: var(--status-error);
   color: #fff;
+}
+
+.shell.native-renderer .badge.error {
+  background: #d85b65;
 }
 
 .workspace-layout {
@@ -83,7 +107,20 @@
   gap: 10px;
 }
 
+.shell.native-renderer .workspace-layout {
+  grid-template-columns: minmax(0, 1fr) var(--workspace-splitter-size) minmax(260px, var(--runner-width));
+}
+
 .workspace-layout.with-side-panel {
+  grid-template-columns:
+    minmax(0, 1fr)
+    var(--workspace-splitter-size)
+    minmax(260px, var(--runner-width))
+    var(--workspace-splitter-size)
+    minmax(280px, var(--side-panel-width));
+}
+
+.shell.native-renderer .workspace-layout.with-side-panel {
   grid-template-columns:
     minmax(0, 1fr)
     var(--workspace-splitter-size)
@@ -108,6 +145,13 @@
   gap: 0;
 }
 
+.shell.native-renderer .agent-stack.split-enabled {
+  grid-template-rows:
+    minmax(180px, var(--agent-top-ratio))
+    var(--workspace-splitter-size)
+    minmax(180px, 1fr);
+}
+
 .run-sidebar {
   min-height: 0;
   min-width: 0;
@@ -126,6 +170,14 @@
     minmax(220px, 1fr);
 }
 
+.shell.native-renderer .run-sidebar,
+.shell.native-renderer .run-sidebar.split-enabled {
+  grid-template-rows:
+    minmax(220px, var(--runner-top-ratio))
+    var(--workspace-splitter-size)
+    minmax(220px, 1fr);
+}
+
 .side-panel-toggle {
   border: 1px solid #96b5bc;
   border-radius: 8px;
@@ -136,6 +188,10 @@
   font-weight: 700;
   padding: 5px 9px;
   cursor: pointer;
+}
+
+.shell.native-renderer .side-panel-toggle {
+  font-size: 0.68rem;
 }
 
 .icon-button {
@@ -150,6 +206,10 @@
   font-weight: 700;
   line-height: 1;
   cursor: pointer;
+}
+
+.shell.native-renderer .icon-button {
+  font-size: 0.95rem;
 }
 
 .icon-button:focus-visible {
@@ -218,6 +278,10 @@
   font-weight: 700;
   padding: 6px 10px;
   cursor: pointer;
+}
+
+.shell.native-renderer .dialog-actions button {
+  font-size: 0.72rem;
 }
 
 .workspace-side-panel {
