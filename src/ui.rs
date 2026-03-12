@@ -34,7 +34,6 @@ use crate::resource_monitor::{RESOURCE_POLL_MS, ResourceSnapshot, sample_resourc
 use crate::state::{SessionId, SessionStatus, clamp_ui_scale};
 use crate::terminal::{PersistedTerminalState, TerminalManager, TerminalMemorySink};
 use crate::ui::git_refresh::use_git_refresh_coordinator;
-#[cfg(feature = "native-renderer")]
 use crate::ui::tab_rail::TabRail;
 use crate::ui::terminal_input::measure_terminal_viewport;
 use crate::ui::workspace::WorkspaceMain;

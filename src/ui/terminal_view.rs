@@ -735,7 +735,6 @@ fn char_index_to_byte(input: &str, char_index: usize) -> usize {
         .unwrap_or(input.len())
 }
 
-#[cfg(feature = "native-renderer")]
 fn render_native_terminal_line_with_caret(line: &str, cursor_col: u16) -> String {
     let caret_byte = char_index_to_byte(line, usize::from(cursor_col));
     let mut rendered = String::with_capacity(line.len().saturating_add(1));
