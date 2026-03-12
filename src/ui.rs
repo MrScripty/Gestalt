@@ -46,7 +46,6 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
-const TERMINAL_REFRESH_POLL_MS: u64 = 33;
 const TERMINAL_RESIZE_POLL_MS: u64 = 180;
 const AUTOSAVE_DEBOUNCE_MS: u64 = 1_200;
 pub(crate) const EMILY_HISTORY_BACKFILL_PAGE_LINES: usize = 1_200;
@@ -253,42 +252,34 @@ pub fn App() -> Element {
         use_future(move || {
             let terminal_manager = terminal_manager.clone();
             async move {
-                let mut last_revisions = Vec::<(SessionId, u64)>::new();
+                let mut terminal_events = terminal_manager.subscribe_events();
                 loop {
-                    tokio::time::sleep(Duration::from_millis(TERMINAL_REFRESH_POLL_MS)).await;
-
-                    let active_session_ids = {
-                        let state = app_state.read();
-                        state
-                            .active_group_id()
-                            .map(|group_id| state.session_ids_in_group(group_id))
-                    };
-                    let Some(active_session_ids) = active_session_ids else {
-                        if !last_revisions.is_empty() {
-                            last_revisions.clear();
+                    match terminal_events.recv().await {
+                        Ok(event)
+                            if event.kind
+                                == crate::terminal::TerminalEventKind::SnapshotChanged =>
+                        {
+                            let is_active_session = {
+                                let state = app_state.read();
+                                state.active_group_id().is_some_and(|group_id| {
+                                    state
+                                        .workspace_session_ids_for_group(group_id)
+                                        .contains(&event.session_id)
+                                })
+                            };
+                            if is_active_session {
+                                let next = *refresh_tick.read() + 1;
+                                refresh_tick.set(next);
+                            }
+                        }
+                        Ok(_) => {}
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
                             let next = *refresh_tick.read() + 1;
                             refresh_tick.set(next);
                         }
-                        continue;
-                    };
-
-                    let mut revisions = active_session_ids
-                        .into_iter()
-                        .map(|session_id| {
-                            (
-                                session_id,
-                                terminal_manager
-                                    .session_snapshot_revision(session_id)
-                                    .unwrap_or(0),
-                            )
-                        })
-                        .collect::<Vec<_>>();
-                    revisions.sort_unstable_by_key(|(session_id, _)| *session_id);
-
-                    if revisions != last_revisions {
-                        last_revisions = revisions;
-                        let next = *refresh_tick.read() + 1;
-                        refresh_tick.set(next);
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                            break;
+                        }
                     }
                 }
             }
