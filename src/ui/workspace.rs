@@ -11,6 +11,7 @@ use dioxus::prelude::*;
 use emily::model::VectorizationStatus;
 use std::collections::HashMap;
 use std::path::Path;
+use std::rc::Rc;
 use std::sync::Arc;
 
 const RUNNER_WIDTH_MIN_PX: i32 = 260;
@@ -35,6 +36,8 @@ fn workspace_state_snapshot(app_state: Signal<AppState>) -> WorkspaceState {
 pub(crate) fn WorkspaceMain(
     app_state: Signal<AppState>,
     ui_state: Signal<UiState>,
+    terminal_body_mounts: Signal<HashMap<SessionId, Rc<MountedData>>>,
+    terminal_body_stick_bottom: Signal<HashMap<SessionId, bool>>,
     emily_bridge: Signal<Arc<EmilyBridge>>,
     vectorization_status: Signal<VectorizationStatus>,
     terminal_manager: Signal<Arc<TerminalManager>>,
@@ -215,6 +218,8 @@ pub(crate) fn WorkspaceMain(
     let interaction = TerminalInteractionSignals {
         app_state,
         ui_state,
+        terminal_body_mounts,
+        terminal_body_stick_bottom,
         snippet_hotkey_state,
     };
     let workspace_class = if runner_drag_start.read().is_some()

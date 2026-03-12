@@ -8,14 +8,14 @@ use crate::ui::insert_command_mode::{
     command_matches, mode_after_blur, mode_after_focus, route_terminal_key, selected_command_id,
 };
 use crate::ui::terminal_input::{
-    COPY_SELECTION_JS, READ_CLIPBOARD_JS, cursor_move_bytes, install_terminal_paste_bridge,
-    install_terminal_scroll_behavior, is_terminal_scrolled_near_top, key_event_to_bytes,
-    map_click_to_terminal_cell, read_terminal_selection, select_terminal_round,
-    take_terminal_paste_buffer,
+    cursor_move_bytes, key_event_to_bytes, map_click_to_terminal_cell, read_clipboard_text,
+    read_terminal_selection, scroll_terminal_to_bottom, select_terminal_round,
+    write_clipboard_text,
 };
 use crate::ui::{EMILY_HISTORY_BACKFILL_PAGE_LINES, TerminalHistoryState, UiState};
-use dioxus::document;
 use dioxus::prelude::*;
+use std::collections::HashMap;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -32,6 +32,8 @@ pub(crate) struct SnippetHotkeyState {
 pub(crate) struct TerminalInteractionSignals {
     pub app_state: Signal<AppState>,
     pub ui_state: Signal<UiState>,
+    pub terminal_body_mounts: Signal<HashMap<SessionId, Rc<MountedData>>>,
+    pub terminal_body_stick_bottom: Signal<HashMap<SessionId, bool>>,
     pub snippet_hotkey_state: Signal<Option<SnippetHotkeyState>>,
 }
 
@@ -46,6 +48,8 @@ pub(crate) fn terminal_shell(
 ) -> Element {
     let mut app_state = interaction.app_state;
     let mut ui_state = interaction.ui_state;
+    let mut terminal_body_mounts = interaction.terminal_body_mounts;
+    let mut terminal_body_stick_bottom = interaction.terminal_body_stick_bottom;
     let mut snippet_hotkey_state = interaction.snippet_hotkey_state;
     let crt_enabled = app_state.read().crt_enabled();
     let shell_class = match (terminal_is_focused, crt_enabled) {
@@ -86,16 +90,13 @@ pub(crate) fn terminal_shell(
     let show_caret = terminal_is_focused && !terminal.hide_cursor;
     let terminal_shell_id = format!("terminal-shell-{session_id}");
     let terminal_body_id = format!("terminal-body-{session_id}");
-    let body_id_for_click = terminal_body_id.clone();
     let body_id_for_round_select = terminal_body_id.clone();
-    let body_id_for_mount = terminal_body_id.clone();
     let body_id_for_snippet_capture = terminal_body_id.clone();
-    let shell_id_for_mount = terminal_shell_id.clone();
-    let shell_id_for_paste_event = terminal_shell_id.clone();
-    let body_id_for_scroll = terminal_body_id.clone();
+    let body_id_for_copy = terminal_body_id.clone();
     let terminal_manager_for_click = terminal_manager.clone();
     let terminal_manager_for_keydown = terminal_manager;
-    let terminal_manager_for_paste = terminal_manager_for_keydown.clone();
+    let terminal_manager_for_paste_shortcut = terminal_manager_for_keydown.clone();
+    let terminal_manager_for_paste_event = terminal_manager_for_keydown.clone();
     let terminal_manager_for_scroll = terminal_manager_for_keydown.clone();
     let emily_bridge_for_scroll = emily_bridge.clone();
     let emily_bridge_for_snippet = emily_bridge.clone();
@@ -140,6 +141,29 @@ pub(crate) fn terminal_shell(
             .map(|snippet| (snippet.log_ref.start_row, snippet.log_ref.end_row))
             .collect::<Vec<_>>()
     };
+    let body_mount = terminal_body_mounts.read().get(&session_id).cloned();
+    let stick_to_bottom = terminal_body_stick_bottom
+        .read()
+        .get(&session_id)
+        .copied()
+        .unwrap_or(true);
+    let ui_scale = app_state.read().ui_scale();
+
+    {
+        let body_mount = body_mount.clone();
+        let rendered_line_count = rendered_lines.len();
+        use_effect(move || {
+            if !stick_to_bottom || rendered_line_count == 0 {
+                return;
+            }
+            let Some(body_mount) = body_mount.clone() else {
+                return;
+            };
+            spawn(async move {
+                let _ = scroll_terminal_to_bottom(body_mount).await;
+            });
+        });
+    }
 
     rsx! {
         div {
@@ -165,15 +189,20 @@ pub(crate) fn terminal_shell(
                 let click_position = event.data().client_coordinates();
                 let click_x = click_position.x;
                 let click_y = click_position.y;
-                let body_id = body_id_for_click.clone();
+                let body_mount = terminal_body_mounts.read().get(&session_id).cloned();
                 let terminal_manager = terminal_manager_for_click.clone();
+                let ui_scale = ui_scale;
                 spawn(async move {
+                    let Some(body_mount) = body_mount else {
+                        return;
+                    };
                     let Some((target_row, target_col)) = map_click_to_terminal_cell(
-                        body_id,
+                        body_mount,
                         click_x,
                         click_y,
                         click_rows,
                         click_cols,
+                        ui_scale,
                     )
                     .await
                     else {
@@ -365,8 +394,20 @@ pub(crate) fn terminal_shell(
                     shift,
                     meta,
                 ) {
-                    // Let the platform dispatch `paste` so clipboard data is available via the
-                    // trusted paste event path.
+                    event.prevent_default();
+                    event.stop_propagation();
+                    if let Some(mode) = ui_state.read().insert_mode_state.clone()
+                        && mode.session_id == session_id
+                    {
+                        return;
+                    }
+                    let terminal_manager = terminal_manager_for_paste_shortcut.clone();
+                    paste_clipboard_into_terminal(
+                        terminal_manager,
+                        app_state,
+                        session_id,
+                        bracketed_paste,
+                    );
                     return;
                 }
 
@@ -389,11 +430,15 @@ pub(crate) fn terminal_shell(
                         event.prevent_default();
                         event.stop_propagation();
                         let terminal_manager = terminal_manager_for_keydown.clone();
+                        let body_id = body_id_for_copy.clone();
                         spawn(async move {
-                            let copied = document::eval(COPY_SELECTION_JS)
-                                .join::<bool>()
-                                .await
-                                .unwrap_or(false);
+                            let copied = if let Some(selection) =
+                                read_terminal_selection(body_id).await
+                            {
+                                write_clipboard_text(selection.text).await
+                            } else {
+                                false
+                            };
                             if !copied {
                                 send_input_to_session(
                                     &terminal_manager,
@@ -426,14 +471,12 @@ pub(crate) fn terminal_shell(
                 {
                     return;
                 }
-                let terminal_manager = terminal_manager_for_paste.clone();
-                let shell_id = shell_id_for_paste_event.clone();
+                let terminal_manager = terminal_manager_for_paste_event.clone();
                 paste_clipboard_into_terminal(
                     terminal_manager,
                     app_state,
                     session_id,
                     bracketed_paste,
-                    shell_id,
                 );
             },
 
@@ -441,7 +484,13 @@ pub(crate) fn terminal_shell(
                 class: "{body_class}",
                 id: "{terminal_body_id}",
                 style: "{body_style}",
-                onscroll: move |_| {
+                onscroll: move |event| {
+                    let scroll = event.data();
+                    let distance_from_bottom = f64::from(scroll.scroll_height() - scroll.client_height())
+                        - scroll.scroll_top();
+                    terminal_body_stick_bottom
+                        .write()
+                        .insert(session_id, distance_from_bottom <= 24.0);
                     let history_snapshot = ui_state
                         .read()
                         .terminal_history_by_session
@@ -463,12 +512,12 @@ pub(crate) fn terminal_shell(
                             exhausted: true,
                         });
 
-                    let body_id = body_id_for_scroll.clone();
                     let emily_bridge = emily_bridge_for_scroll.clone();
                     let terminal_manager = terminal_manager_for_scroll.clone();
+                    let scroll_top = scroll.scroll_top();
                     spawn(async move {
                         const TOP_THRESHOLD_PX: u32 = 20;
-                        if !is_terminal_scrolled_near_top(body_id, TOP_THRESHOLD_PX).await {
+                        if scroll_top > f64::from(TOP_THRESHOLD_PX) {
                             if let Some(state) = ui_state
                                 .write()
                                 .terminal_history_by_session
@@ -533,13 +582,11 @@ pub(crate) fn terminal_shell(
                         }
                     });
                 },
-                onmounted: move |_| {
-                    let body_id = body_id_for_mount.clone();
-                    let shell_id = shell_id_for_mount.clone();
-                    spawn(async move {
-                        let _ = install_terminal_scroll_behavior(body_id).await;
-                        let _ = install_terminal_paste_bridge(shell_id).await;
-                    });
+                onmounted: move |event| {
+                    terminal_body_mounts
+                        .write()
+                        .insert(session_id, event.data());
+                    terminal_body_stick_bottom.write().insert(session_id, true);
                 },
                 div { class: "terminal-grid",
                     for row_idx in 0..rendered_lines.len() {
@@ -722,20 +769,9 @@ fn paste_clipboard_into_terminal(
     app_state: Signal<AppState>,
     session_id: SessionId,
     bracketed_paste: bool,
-    terminal_body_id: String,
 ) {
     spawn(async move {
-        let bridged_text = take_terminal_paste_buffer(terminal_body_id)
-            .await
-            .unwrap_or_default();
-        let clipboard_text = if bridged_text.is_empty() {
-            document::eval(READ_CLIPBOARD_JS)
-                .join::<String>()
-                .await
-                .unwrap_or_default()
-        } else {
-            bridged_text
-        };
+        let clipboard_text = read_clipboard_text().await.unwrap_or_default();
 
         if clipboard_text.is_empty() {
             return;

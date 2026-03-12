@@ -38,6 +38,7 @@ use crate::ui::workspace::WorkspaceMain;
 use dioxus::prelude::*;
 use emily::model::{VectorizationConfigPatch, VectorizationRunRequest};
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -133,6 +134,8 @@ pub fn App() -> Element {
     };
     let new_group_path = use_signal(String::new);
     let ui_state = use_signal(UiState::default);
+    let terminal_body_mounts = use_signal(|| HashMap::<SessionId, Rc<MountedData>>::new());
+    let terminal_body_stick_bottom = use_signal(|| HashMap::<SessionId, bool>::new());
     let autosave_dirty_notify = use_signal(|| Arc::new(tokio::sync::Notify::new()));
     let git_refresh_notify = use_signal(|| Arc::new(tokio::sync::Notify::new()));
     let refresh_tick = use_signal(|| 0_u64);
@@ -298,6 +301,7 @@ pub fn App() -> Element {
 
     {
         let terminal_manager = terminal_manager.read().clone();
+        let terminal_body_mounts = terminal_body_mounts;
         use_future(move || {
             let terminal_manager = terminal_manager.clone();
             async move {
@@ -322,8 +326,19 @@ pub fn App() -> Element {
                     last_sizes.retain(|session_id, _| active_session_set.contains(session_id));
 
                     for session_id in active_session_ids {
-                        let body_id = format!("terminal-body-{session_id}");
-                        let Some((rows, cols)) = measure_terminal_viewport(body_id).await else {
+                        let (body_mount, ui_scale) = {
+                            let state = app_state.read();
+                            (
+                                terminal_body_mounts.read().get(&session_id).cloned(),
+                                state.ui_scale(),
+                            )
+                        };
+                        let Some(body_mount) = body_mount else {
+                            continue;
+                        };
+                        let Some((rows, cols)) =
+                            measure_terminal_viewport(body_mount, ui_scale).await
+                        else {
                             continue;
                         };
                         let cols = cols.max(TERMINAL_MIN_RESIZE_COLS);
@@ -628,6 +643,8 @@ pub fn App() -> Element {
             WorkspaceMain {
                 app_state: app_state,
                 ui_state: ui_state,
+                terminal_body_mounts: terminal_body_mounts,
+                terminal_body_stick_bottom: terminal_body_stick_bottom,
                 emily_bridge: emily_bridge,
                 vectorization_status: vectorization_status,
                 terminal_manager: terminal_manager,

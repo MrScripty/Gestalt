@@ -9,8 +9,8 @@
 | `workspace.rs` | Main workspace layout and shell composition |
 | `state.rs` | Root-shared transient `UiState` and terminal history paging state |
 | `auxiliary_panel_host.rs` | Shared docked auxiliary tab host and panel body routing |
-| `terminal_view.rs` | Terminal output rendering |
-| `terminal_input.rs` | Terminal input and viewport measurement |
+| `terminal_view.rs` | Terminal output rendering and mounted-element terminal wiring |
+| `terminal_input.rs` | Terminal input, clipboard adapters, and viewport measurement |
 | `tab_rail.rs` | Group/session tab strip behavior |
 | `commands_panel.rs` | Insert-command library UI |
 | `file_browser_panel.rs` | File browser and selection stats UI |
@@ -92,7 +92,7 @@ The following loops are currently retained because upstream signal hooks are not
 | Location | Cadence | Why It Exists | Revisit Trigger |
 | -------- | ------- | ------------- | --------------- |
 | `ui.rs` terminal refresh loop | 33 ms | PTY snapshot revisions are pull-based and shared across many sessions. | Terminal runtime publishes change events directly to UI state. |
-| `ui.rs` terminal resize loop | 180 ms | Viewport measurement is DOM-driven and currently sampled. | Reliable resize observer bridge is available in Dioxus desktop layer. |
+| `ui.rs` terminal resize loop | 180 ms | Viewport measurement is sampled from mounted element bounds because terminal surfaces still need a renderer-neutral sizing path. | A reliable event-driven mounted resize/viewport bridge exists for both desktop and native paths. |
 | `ui.rs` startup background tick | 120 ms + notify nudges | Deferred session startup and initial history backfill still need bounded background progress, but active path group startup is notify-driven. | Session startup and history restore are fully event-driven. |
 | `ui.rs` autosave loop | 1200 ms | Autosave worker completion and signature checks are currently drained by polling. | Autosave worker adopts callback/event notification. |
 | `file_browser_panel.rs` refresh loop | 1000 ms + nonce triggers | Uses nonce-driven event triggers with low-frequency fallback for repo/fs drift. | File-system/repo watcher events can fully replace fallback cadence. |
