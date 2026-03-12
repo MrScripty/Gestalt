@@ -4,16 +4,22 @@ fn main() {
 
 #[cfg(feature = "native-renderer")]
 fn launch_app() {
-    use dioxus_native::{Config, LogicalSize, WindowAttributes};
+    use dioxus_native::{Config, Features, Limits, LogicalSize, WindowAttributes};
 
     let attributes = WindowAttributes::default()
         .with_title("Gestalt")
         .with_inner_size(LogicalSize::new(1600.0, 980.0));
+    let limits = Limits {
+        max_push_constant_size: 16,
+        ..Limits::default()
+    };
 
     dioxus_native::launch_cfg(
         gestalt::ui::App,
         Vec::new(),
         vec![
+            Box::new(Features::PUSH_CONSTANTS),
+            Box::new(limits),
             Box::new(Config::new().with_window_attributes(attributes.clone())),
             Box::new(attributes),
         ],

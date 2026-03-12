@@ -9,6 +9,8 @@ mod git_refresh;
 mod host_open;
 mod insert_command_mode;
 mod local_agent_panel;
+#[cfg(feature = "native-renderer")]
+mod native_crt;
 mod notes_panel;
 mod run_review_panel;
 mod run_sidebar_panel_host;
@@ -32,6 +34,8 @@ use crate::resource_monitor::{RESOURCE_POLL_MS, ResourceSnapshot, sample_resourc
 use crate::state::{SessionId, SessionStatus, clamp_ui_scale};
 use crate::terminal::{PersistedTerminalState, TerminalManager, TerminalMemorySink};
 use crate::ui::git_refresh::use_git_refresh_coordinator;
+#[cfg(feature = "native-renderer")]
+use crate::ui::native_crt::NativeCrtOverlay;
 use crate::ui::tab_rail::TabRail;
 use crate::ui::terminal_input::measure_terminal_viewport;
 use crate::ui::workspace::WorkspaceMain;
@@ -542,19 +546,26 @@ pub fn App() -> Element {
         SHELL_SPLITTER_SIZE_PX,
         app_state.read().ui_scale(),
     );
-    let shell_class = if rail_drag_start.read().is_some() {
-        if app_state.read().crt_enabled() {
-            "shell resizing crt-enabled"
-        } else {
-            "shell resizing"
+    let shell_class = {
+        let mut classes = vec!["shell"];
+        if rail_drag_start.read().is_some() {
+            classes.push("resizing");
         }
-    } else {
         if app_state.read().crt_enabled() {
-            "shell crt-enabled"
-        } else {
-            "shell"
+            classes.push("crt-enabled");
         }
+        #[cfg(feature = "native-renderer")]
+        classes.push("native-renderer");
+        classes.join(" ")
     };
+    #[cfg(feature = "native-renderer")]
+    let native_crt_overlay = if app_state.read().crt_enabled() {
+        rsx!(NativeCrtOverlay {})
+    } else {
+        rsx! {}
+    };
+    #[cfg(not(feature = "native-renderer"))]
+    let native_crt_overlay = rsx! {};
 
     rsx! {
         style { "{STYLE}" }
@@ -604,6 +615,7 @@ pub fn App() -> Element {
             onmouseleave: move |_| {
                 rail_drag_start.set(None);
             },
+            {native_crt_overlay}
             TabRail {
                 app_state: app_state,
                 terminal_manager: terminal_manager,

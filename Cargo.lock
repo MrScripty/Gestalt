@@ -3629,6 +3629,7 @@ version = "0.1.0"
 dependencies = [
  "arboard",
  "async-trait",
+ "bytemuck",
  "dioxus",
  "dioxus-native",
  "emily",
@@ -3647,6 +3648,7 @@ dependencies = [
  "tokio",
  "uuid",
  "vt100",
+ "wgpu 26.0.1",
  "workflow-nodes",
 ]
 
