@@ -552,11 +552,7 @@ pub fn App() -> Element {
         classes.join(" ")
     };
     #[cfg(feature = "native-renderer")]
-    let native_crt_overlay = if app_state.read().crt_enabled() {
-        rsx!(NativeCrtOverlay {})
-    } else {
-        rsx! {}
-    };
+    let native_crt_overlay = rsx! {};
     #[cfg(not(feature = "native-renderer"))]
     let native_crt_overlay = rsx! {};
 
