@@ -684,7 +684,10 @@ pub fn App() -> Element {
                     }
                 },
             }
-            {right_slot}
+            div {
+                class: "shell-main-slot",
+                {right_slot}
+            }
             if *embedding_settings_open.read() {
                 div {
                     class: "dialog-overlay",

@@ -62,6 +62,14 @@ body {
   color: #e4f3eb;
 }
 
+body:has(.shell.native-renderer) {
+  background:
+    radial-gradient(circle at 90% 10%, #7cff5c42 0%, transparent 28%),
+    radial-gradient(circle at 10% 80%, #2bbf8242 0%, transparent 26%),
+    linear-gradient(135deg, #060c0d, #0c1614 50%, #152521);
+  color: #e4f3eb;
+}
+
 .shell {
   --rail-width: 330px;
   --splitter-size: 8px;
@@ -76,6 +84,37 @@ body {
   animation: fade-up 260ms ease-out;
   position: relative;
   isolation: isolate;
+}
+
+.shell.native-renderer {
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.shell.native-renderer > * {
+  min-height: 0;
+}
+
+.shell.native-renderer > .tab-rail {
+  width: 330px;
+  min-width: 330px;
+  flex: 0 0 330px;
+  height: 100%;
+  min-height: 0;
+}
+
+.shell.native-renderer > .shell-splitter {
+  width: 8px;
+  min-width: 8px;
+  flex: 0 0 8px;
+}
+
+.shell.native-renderer > .shell-main-slot {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  flex: 1 1 auto;
 }
 
 .shell.resizing {
@@ -182,12 +221,21 @@ body {
   overflow: hidden;
 }
 
+.shell.native-renderer .tab-rail {
+  border: 1px solid #2e4a3f;
+  height: 100%;
+}
+
 .panel-splitter {
   border: 1px solid var(--line-strong);
   border-radius: 999px;
   background: linear-gradient(180deg, #26443a, #1d332d);
   box-shadow: inset 0 0 0 1px #557c6d;
   padding: 0;
+}
+
+.shell.native-renderer .panel-splitter {
+  border: 1px solid #3b5f50;
 }
 
 .panel-splitter:hover {
@@ -221,6 +269,10 @@ body {
   text-transform: uppercase;
 }
 
+.shell.native-renderer .meta-label {
+  font-size: 0.78rem;
+}
+
 .group-list {
   flex: 1;
   overflow: auto;
@@ -237,9 +289,17 @@ body {
   border: 1px solid var(--line);
 }
 
+.shell.native-renderer .group {
+  border: 1px solid #2e4a3f;
+}
+
 .group.active {
   border-color: var(--accent);
   box-shadow: 0 0 0 1px #86ff5d55;
+}
+
+.shell.native-renderer .group.active {
+  border-color: #86ff5d;
 }
 
 .group-header {
@@ -434,6 +494,7 @@ body {
 .rail-footer {
   border-top: 1px solid #315144;
   padding-top: 10px;
+  flex: 0 0 auto;
 }
 
 .path-input {
