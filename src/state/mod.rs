@@ -276,7 +276,7 @@ impl TabGroup {
 }
 
 /// Terminal tab state tracked in the workspace model.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Session {
     pub id: SessionId,
     pub title: String,

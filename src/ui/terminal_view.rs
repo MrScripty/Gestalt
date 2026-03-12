@@ -28,7 +28,7 @@ pub(crate) struct SnippetHotkeyState {
     pub armed_at_unix_ms: i64,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) struct TerminalInteractionSignals {
     pub app_state: Signal<AppState>,
     pub ui_state: Signal<UiState>,
@@ -67,7 +67,13 @@ pub(crate) fn terminal_shell(
         "--term-rows: {}; --term-cols: {};",
         terminal.rows, terminal.cols
     );
+    #[cfg(feature = "native-renderer")]
+    const RENDER_WINDOW_MULTIPLIER: usize = 4;
+    #[cfg(not(feature = "native-renderer"))]
     const RENDER_WINDOW_MULTIPLIER: usize = 8;
+    #[cfg(feature = "native-renderer")]
+    const RENDER_WINDOW_MIN_ROWS: usize = 128;
+    #[cfg(not(feature = "native-renderer"))]
     const RENDER_WINDOW_MIN_ROWS: usize = 256;
     let line_count = terminal.lines.len().max(1);
     let max_render_rows_u16 = u16::try_from(line_count).unwrap_or(u16::MAX);

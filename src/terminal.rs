@@ -20,7 +20,7 @@ const MIN_COLS: u16 = 8;
 const MAX_PERSISTED_HISTORY_LINES: usize = 20_000;
 
 /// Render-ready terminal frame data extracted from VT state.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TerminalSnapshot {
     pub lines: Vec<String>,
     pub rows: u16,

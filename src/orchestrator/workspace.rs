@@ -16,7 +16,7 @@ pub struct SessionStatusCounts {
     pub error: usize,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct TerminalPaneProjection {
     pub session: Session,
     pub terminal: Arc<TerminalSnapshot>,
