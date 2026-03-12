@@ -39,6 +39,7 @@ use crate::ui::native_crt::NativeCrtOverlay;
 use crate::ui::tab_rail::TabRail;
 use crate::ui::terminal_input::measure_terminal_viewport;
 use crate::ui::workspace::WorkspaceMain;
+use dioxus::document;
 use dioxus::prelude::*;
 use emily::model::{VectorizationConfigPatch, VectorizationRunRequest};
 use std::collections::{HashMap, HashSet};
@@ -46,14 +47,6 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
-const STYLE: &str = concat!(
-    include_str!("style/base.css"),
-    include_str!("style/workspace.css"),
-    include_str!("style/git_panel.css"),
-    include_str!("style/commands_panel.css"),
-    include_str!("style/file_browser_panel.css"),
-    include_str!("style/run_review_panel.css")
-);
 const TERMINAL_REFRESH_POLL_MS: u64 = 33;
 const TERMINAL_RESIZE_POLL_MS: u64 = 180;
 const AUTOSAVE_DEBOUNCE_MS: u64 = 1_200;
@@ -568,7 +561,12 @@ pub fn App() -> Element {
     let native_crt_overlay = rsx! {};
 
     rsx! {
-        style { "{STYLE}" }
+        document::Stylesheet { href: asset!("/src/style/base.css") }
+        document::Stylesheet { href: asset!("/src/style/workspace.css") }
+        document::Stylesheet { href: asset!("/src/style/git_panel.css") }
+        document::Stylesheet { href: asset!("/src/style/commands_panel.css") }
+        document::Stylesheet { href: asset!("/src/style/file_browser_panel.css") }
+        document::Stylesheet { href: asset!("/src/style/run_review_panel.css") }
 
         div {
             class: "{shell_class}",
