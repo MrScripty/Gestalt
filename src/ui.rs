@@ -555,6 +555,53 @@ pub fn App() -> Element {
     let native_crt_overlay = rsx! {};
     #[cfg(not(feature = "native-renderer"))]
     let native_crt_overlay = rsx! {};
+    #[cfg(feature = "native-renderer")]
+    let native_baseline_marker = rsx!(
+        div {
+            style: "position: fixed; top: 16px; left: 16px; z-index: 9999; padding: 8px 12px; background: #ff0066; color: white; font-weight: 700; border-radius: 8px;",
+            "NATIVE BASELINE MARKER"
+        }
+    );
+    #[cfg(not(feature = "native-renderer"))]
+    let native_baseline_marker = rsx! {};
+    let left_slot = rsx!(TabRail {
+        app_state: app_state,
+        terminal_manager: terminal_manager,
+        resource_snapshot: resource_snapshot,
+        on_startup_nudge: move |_| startup_notify.read().notify_one(),
+        dragging_tab: dragging_tab,
+        new_group_path: new_group_path,
+        renaming_tab: renaming_tab,
+        rename_draft: rename_draft,
+    });
+    #[cfg(feature = "native-renderer")]
+    let right_slot = rsx!(
+        div {
+            style: "background: #1565c0; color: white; min-height: 70vh; border-radius: 16px; padding: 24px; font-size: 28px; font-weight: 800;",
+            "RIGHT SLOT PLACEHOLDER"
+        }
+    );
+    #[cfg(not(feature = "native-renderer"))]
+    let right_slot = rsx!(WorkspaceMain {
+        app_state: app_state,
+        ui_state: ui_state,
+        terminal_body_mounts: terminal_body_mounts,
+        terminal_body_stick_bottom: terminal_body_stick_bottom,
+        emily_bridge: emily_bridge,
+        vectorization_status: vectorization_status,
+        terminal_manager: terminal_manager,
+        resource_snapshot: resource_snapshot,
+        refresh_tick: refresh_tick,
+        git_context: git_context,
+        git_context_loading: git_context_loading,
+        git_refresh_nonce: git_refresh_nonce,
+        on_open_embedding_settings: move |_| {
+            let status = vectorization_status.read().clone();
+            embedding_profile_draft.set(status.config.profile_id.clone());
+            embedding_feedback.set(String::new());
+            embedding_settings_open.set(true);
+        },
+    });
 
     rsx! {
         document::Stylesheet { href: asset!("/src/style/base.css") }
@@ -609,17 +656,9 @@ pub fn App() -> Element {
             onmouseleave: move |_| {
                 rail_drag_start.set(None);
             },
+            {native_baseline_marker}
             {native_crt_overlay}
-            TabRail {
-                app_state: app_state,
-                terminal_manager: terminal_manager,
-                resource_snapshot: resource_snapshot,
-                on_startup_nudge: move |_| startup_notify.read().notify_one(),
-                dragging_tab: dragging_tab,
-                new_group_path: new_group_path,
-                renaming_tab: renaming_tab,
-                rename_draft: rename_draft,
-            }
+            {left_slot}
             button {
                 class: "panel-splitter panel-splitter-vertical shell-splitter",
                 r#type: "button",
@@ -645,27 +684,7 @@ pub fn App() -> Element {
                     }
                 },
             }
-
-            WorkspaceMain {
-                app_state: app_state,
-                ui_state: ui_state,
-                terminal_body_mounts: terminal_body_mounts,
-                terminal_body_stick_bottom: terminal_body_stick_bottom,
-                emily_bridge: emily_bridge,
-                vectorization_status: vectorization_status,
-                terminal_manager: terminal_manager,
-                resource_snapshot: resource_snapshot,
-                refresh_tick: refresh_tick,
-                git_context: git_context,
-                git_context_loading: git_context_loading,
-                git_refresh_nonce: git_refresh_nonce,
-                on_open_embedding_settings: move |_| {
-                    let status = vectorization_status.read().clone();
-                    embedding_profile_draft.set(status.config.profile_id.clone());
-                    embedding_feedback.set(String::new());
-                    embedding_settings_open.set(true);
-                },
-            }
+            {right_slot}
             if *embedding_settings_open.read() {
                 div {
                     class: "dialog-overlay",
