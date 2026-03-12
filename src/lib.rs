@@ -40,5 +40,5 @@ pub mod run_checkpoints;
 pub mod state;
 /// PTY-backed terminal runtime and snapshots.
 pub mod terminal;
-/// Dioxus desktop UI composition and interaction handling.
+/// Dioxus UI composition and interaction handling across desktop and native renderer spikes.
 pub mod ui;

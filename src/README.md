@@ -26,7 +26,7 @@ Application source modules for Gestalt's state model, command library, terminal 
 | `terminal.rs` | PTY lifecycle, input/output, and snapshots |
 | `orchestrator/` | Group-level terminal orchestration helpers |
 | `git/` | Git repository query/mutation service layer used by contextual UI controls |
-| `ui.rs` + `ui/` | Dioxus desktop presentation, interaction handling, and autosave workflow |
+| `ui.rs` + `ui/` | Dioxus presentation, interaction handling, autosave workflow, and renderer-specific integration seams |
 | `style/` | UI styling split by layout concerns |
 | `persistence/` | Workspace load/save infrastructure |
 
@@ -54,7 +54,8 @@ Application source modules for Gestalt's state model, command library, terminal 
 - Terminal history source-of-truth is Emily; workspace persistence stores terminal projection metadata only.
 - `local_restore` persists lightweight terminal projection state for startup fidelity.
 - `persistence` is isolated infrastructure with a versioned schema.
+- Renderer-specific startup and platform seams stay at the application/presentation edge so terminal, state, and orchestration contracts remain reusable across the desktop and native renderer paths.
 
 ## Dependencies
 **Internal:** `commands`, `state`, `terminal`, `emily_bridge`, `emily_inspect`, `emily_membrane_dev`, `emily_seed`, `local_agent_context`, `local_agent_episode`, `local_agent_membrane`, `orchestration_activity`, `pantograph_host`, `orchestrator`, `orchestration_log`, `run_checkpoints`, `git`, `persistence`  
-**External:** `dioxus`, `portable-pty`, `vt100`, `serde`, `emily`, `emily-membrane`, `rusqlite`
+**External:** `dioxus`, `dioxus-native` (native spike only), `portable-pty`, `vt100`, `serde`, `emily`, `emily-membrane`, `rusqlite`

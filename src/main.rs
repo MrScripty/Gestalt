@@ -1,4 +1,27 @@
 fn main() {
+    launch_app();
+}
+
+#[cfg(feature = "native-renderer")]
+fn launch_app() {
+    use dioxus_native::{Config, LogicalSize, WindowAttributes};
+
+    let attributes = WindowAttributes::default()
+        .with_title("Gestalt")
+        .with_inner_size(LogicalSize::new(1600.0, 980.0));
+
+    dioxus_native::launch_cfg(
+        gestalt::ui::App,
+        Vec::new(),
+        vec![
+            Box::new(Config::new().with_window_attributes(attributes.clone())),
+            Box::new(attributes),
+        ],
+    );
+}
+
+#[cfg(not(feature = "native-renderer"))]
+fn launch_app() {
     let icon = dioxus::desktop::tao::window::Icon::from_rgba(
         include_bytes!("../assets/Gestalt_small.rgba").to_vec(),
         128,

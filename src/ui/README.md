@@ -1,7 +1,7 @@
 # ui
 
 ## Purpose
-`ui` contains Dioxus presentation components, interaction handlers, and UI-side coordination for terminals, Git, autosave, and workspace layout.
+`ui` contains Dioxus presentation components, interaction handlers, and UI-side coordination for terminals, Git, autosave, workspace layout, and renderer-specific platform adapters.
 
 ## Contents
 | File/Folder | Description |
@@ -35,6 +35,7 @@ Provide responsive desktop UI workflows while delegating domain behavior to lowe
 - Must keep first-interaction paths free of avoidable blocking work.
 - Must coexist with polling loops currently used for runtime sync.
 - Vectorization business behavior remains Emily-owned; UI dispatches actions and renders status.
+- Renderer-specific startup, clipboard, geometry, and post-process integration must stay isolated from terminal/state/orchestrator business logic.
 
 ## Decision
 Keep UI responsibilities component-focused, route runtime/domain mutations through shared services
@@ -46,11 +47,16 @@ current files despite crossing the soft UI-component size threshold because each
 user-facing workflow and no additional responsibility boundary was introduced by the sidebar refresh
 contract fix. The Git panel commit history is intentionally graph-first: the SVG lane tree is the
 primary history surface, while commit metadata stays attached to the same rows without changing Git
-data ownership or action routing.
+data ownership or action routing. The native renderer spike keeps the `App`/workspace/terminal
+facades stable and moves renderer-specific launch, clipboard, mounted-geometry, and WGPU effect
+integration behind narrow presentation adapters instead of spreading renderer conditionals through
+domain-facing code.
 
 ## Alternatives Rejected
 - Single monolithic UI file: rejected due to scale.
 - Direct subprocess usage in many components: rejected due to duplication.
+- Renderer-specific business forks inside `state` or `terminal`: rejected because renderer choice is
+  a presentation/infrastructure concern.
 
 ## Invariants
 - UI state is transient and presentation-oriented.
@@ -71,12 +77,14 @@ data ownership or action routing.
 - Sidebar hosts forward the shared `git_refresh_nonce` into repo-aware child panels; refresh invalidation remains owned by the action-producing child surface rather than the container.
 - Auxiliary panel host membership, order, and active-tab selection come from durable `state`; UI wrappers only render the host-specific shell and route clicks.
 - Git commit tree rendering stays snapshot-driven and presentation-only; lane geometry is derived from `RepoSnapshot.commits` without introducing a second Git state owner in UI.
+- Renderer-specific platform shims may adapt clipboard, mounted element geometry, or post-process rendering, but they must not become a second owner for terminal runtime or workspace state.
 
 ## Revisit Triggers
 - Component files exceed maintainability limits.
 - `local_agent_panel.rs` or `run_review_panel.rs` gains another async workflow, background task owner, or persistence concern while already above the soft size threshold.
 - Polling loops can be replaced by event-driven updates.
 - Commit history density or interaction requirements exceed what the current graph-row layout can express without virtualization or a dedicated graph component boundary.
+- The native renderer path requires broader business-layer changes instead of presentation-edge adapters.
 
 ## Polling Exceptions
 The following loops are currently retained because upstream signal hooks are not yet available at the required boundary:
@@ -94,7 +102,7 @@ Resource polling is root-owned in `ui.rs`; child components consume the shared s
 
 ## Dependencies
 **Internal:** `state`, `terminal`, `orchestrator`, `git`, `persistence`  
-**External:** `dioxus`, `tokio`
+**External:** `dioxus`, `dioxus-native` (native spike only), `tokio`
 
 ## API Consumer Contract
 - UI components may issue async requests to shared services and bridge adapters, but they must not block the UI-sensitive task path on worker responses or disk I/O.
@@ -111,5 +119,6 @@ None.
 ## Usage Examples
 ```rust
 // ui.rs mounts the root app component.
+// main.rs chooses the desktop or native renderer bootstrap.
 // Nested components consume shared signals passed from App.
 ```
