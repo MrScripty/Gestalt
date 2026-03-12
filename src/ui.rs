@@ -574,14 +574,6 @@ pub fn App() -> Element {
         renaming_tab: renaming_tab,
         rename_draft: rename_draft,
     });
-    #[cfg(feature = "native-renderer")]
-    let right_slot = rsx!(
-        div {
-            style: "background: #1565c0; color: white; min-height: 70vh; border-radius: 16px; padding: 24px; font-size: 28px; font-weight: 800;",
-            "RIGHT SLOT PLACEHOLDER"
-        }
-    );
-    #[cfg(not(feature = "native-renderer"))]
     let right_slot = rsx!(WorkspaceMain {
         app_state: app_state,
         ui_state: ui_state,
