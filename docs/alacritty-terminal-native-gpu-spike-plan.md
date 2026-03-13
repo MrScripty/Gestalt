@@ -136,15 +136,15 @@ damage-aware redraw.
 **Goal:** Leave the spike in a traceable, reviewable state.
 
 **Tasks:**
-- [ ] Run targeted verification and record the commands used.
-- [ ] Update module/binary documentation with usage and constraints.
-- [ ] Summarize adoption risks and next-step integration triggers.
+- [x] Run targeted verification and record the commands used.
+- [x] Update module/binary documentation with usage and constraints.
+- [x] Summarize adoption risks and next-step integration triggers.
 
 **Verification:**
 - Verification commands are recorded in the completion summary.
 - Traceability docs reflect the shipped spike boundary.
 
-**Status:** Not started
+**Status:** Completed
 
 ## Execution Notes
 
@@ -197,7 +197,12 @@ damage-aware redraw.
 
 ### Completed
 
-- None yet.
+- Added a feature-gated `terminal_native` module with a local render model, an
+  Alacritty-backed emulator, and a single-session PTY runtime adapter.
+- Added a standalone `terminal_native_spike` binary using Dioxus Native and a
+  GPU-presented texture updated from damage-aware rasterization.
+- Updated repo/module/binary documentation to describe the spike boundary,
+  usage, and current constraints.
 
 ### Deviations
 
@@ -230,7 +235,7 @@ damage-aware redraw.
 
 ### Traceability Links
 
-- Module README updated: N/A
+- Module README updated: `src/terminal_native/README.md`
 - ADR added/updated: N/A
 - PR notes completed per `templates/PULL_REQUEST_TEMPLATE.md`
 
