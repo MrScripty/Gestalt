@@ -4,8 +4,13 @@ version = "0.1.0"
 edition = "2024"
 description = "Desktop workspace for coordinating large terminal fleets"
 
+[features]
+default = []
+terminal-native-spike = ["dep:alacritty_terminal"]
+
 [dependencies]
 dioxus = { version = "0.7.3", features = ["desktop"] }
+alacritty_terminal = { path = "../alacritty/alacritty_terminal", optional = true }
 portable-pty = "0.8"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
 vt100 = "0.15"

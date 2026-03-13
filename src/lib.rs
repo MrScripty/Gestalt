@@ -40,5 +40,8 @@ pub mod run_checkpoints;
 pub mod state;
 /// PTY-backed terminal runtime and snapshots.
 pub mod terminal;
+/// Feature-gated Alacritty-backed native terminal spike runtime and render model.
+#[cfg(feature = "terminal-native-spike")]
+pub mod terminal_native;
 /// Dioxus desktop UI composition and interaction handling.
 pub mod ui;

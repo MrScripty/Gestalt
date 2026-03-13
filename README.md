@@ -26,6 +26,7 @@ It is built with Dioxus Desktop (`0.7.x`) and uses real PTY sessions + VT100 par
 - UI: Dioxus Desktop + CSS layout (`src/ui.rs`, `src/ui/`, `src/style/`)
 - Session/Group/Command state: `src/state.rs`
 - Terminal runtime: PTY + VT100 (`src/terminal.rs`)
+- Native spike runtime: feature-gated Alacritty semantics + renderer-facing frame model (`src/terminal_native/`)
 - Orchestration scaffolding: `src/orchestrator/`
 - Workspace persistence: atomic save/load + schema versioning (`src/persistence/`)
 

@@ -24,6 +24,7 @@ Application source modules for Gestalt's state model, command library, terminal 
 | `run_checkpoints/` | Durable Git-backed run baselines and derived review diffs |
 | `state/` | Core workspace, knowledge, and command state models plus transitions |
 | `terminal.rs` | PTY lifecycle, input/output, and snapshots |
+| `terminal_native/` | Feature-gated Alacritty-backed terminal core and PTY runtime for the native renderer spike |
 | `orchestrator/` | Group-level terminal orchestration helpers |
 | `git/` | Git repository query/mutation service layer used by contextual UI controls |
 | `ui.rs` + `ui/` | Dioxus desktop presentation, interaction handling, and autosave workflow |
@@ -35,6 +36,7 @@ Application source modules for Gestalt's state model, command library, terminal 
   and command domains split behind an aggregate facade for persistence and callers.
 - `terminal` owns live runtime processes and exposes snapshots.
 - `terminal` should avoid redundant scrollback cloning on hot PTY read and resize paths; snapshot rebuild work should use locked line views where possible before publishing a new immutable snapshot.
+- `terminal_native` is feature-gated and keeps the Alacritty-emulation spike behind a dedicated renderer-facing frame contract so the production `terminal` facade remains unchanged during evaluation.
 - `emily_bridge` adapts terminal line events into Emily generic text objects.
 - `emily_inspect` gathers deterministic host-side snapshots from Emily public reads for debug loops.
 - `emily_membrane_dev` hosts development-only membrane runs against isolated Emily databases and inspects the resulting sovereign artifacts.
@@ -56,5 +58,5 @@ Application source modules for Gestalt's state model, command library, terminal 
 - `persistence` is isolated infrastructure with a versioned schema.
 
 ## Dependencies
-**Internal:** `commands`, `state`, `terminal`, `emily_bridge`, `emily_inspect`, `emily_membrane_dev`, `emily_seed`, `local_agent_context`, `local_agent_episode`, `local_agent_membrane`, `orchestration_activity`, `pantograph_host`, `orchestrator`, `orchestration_log`, `run_checkpoints`, `git`, `persistence`  
-**External:** `dioxus`, `portable-pty`, `vt100`, `serde`, `emily`, `emily-membrane`, `rusqlite`
+**Internal:** `commands`, `state`, `terminal`, `terminal_native`, `emily_bridge`, `emily_inspect`, `emily_membrane_dev`, `emily_seed`, `local_agent_context`, `local_agent_episode`, `local_agent_membrane`, `orchestration_activity`, `pantograph_host`, `orchestrator`, `orchestration_log`, `run_checkpoints`, `git`, `persistence`  
+**External:** `dioxus`, `portable-pty`, `vt100`, `alacritty_terminal`, `serde`, `emily`, `emily-membrane`, `rusqlite`

@@ -80,6 +80,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "alacritty_terminal"
+version = "0.25.2-dev"
+dependencies = [
+ "base64 0.22.1",
+ "bitflags 2.11.0",
+ "home",
+ "libc",
+ "log",
+ "miow",
+ "parking_lot",
+ "piper",
+ "polling",
+ "regex-automata",
+ "rustix",
+ "rustix-openpty",
+ "serde",
+ "signal-hook 0.4.3",
+ "unicode-width 0.2.2",
+ "vte 0.15.0",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
 name = "allocator-api2"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1249,6 +1272,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "cursor-icon"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f27ae1dd37df86211c42e150270f82743308803d90a6f6e6651cd730d5e1732f"
+
+[[package]]
 name = "darling"
 version = "0.21.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1572,7 +1601,7 @@ dependencies = [
  "rustc-hash 2.1.1",
  "serde",
  "serde_json",
- "signal-hook",
+ "signal-hook 0.3.18",
  "slab",
  "subtle",
  "tao",
@@ -2022,6 +2051,17 @@ dependencies = [
  "surrealdb",
  "thiserror 2.0.18",
  "tokio",
+]
+
+[[package]]
+name = "emily-membrane"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "emily",
+ "pantograph-workflow-service",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2663,9 +2703,11 @@ dependencies = [
 name = "gestalt"
 version = "0.1.0"
 dependencies = [
+ "alacritty_terminal",
  "async-trait",
  "dioxus",
  "emily",
+ "emily-membrane",
  "inference",
  "node-engine",
  "notify",
@@ -3501,16 +3543,20 @@ name = "inference"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "flate2",
  "futures-util",
  "log",
+ "once_cell",
  "reqwest",
  "serde",
  "serde_json",
  "sysinfo 0.32.1",
+ "tar",
  "thiserror 1.0.69",
  "tokio",
  "uuid",
  "which",
+ "zip",
  "zstd",
 ]
 
@@ -4260,6 +4306,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "miow"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "536bfad37a309d62069485248eeaba1e8d9853aaf951caaeaed0585a95346f08"
+dependencies = [
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "muda"
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4886,12 +4941,14 @@ name = "pantograph-workflow-service"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "chrono",
  "node-engine",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
  "tokio",
  "uuid",
+ "workflow-nodes",
 ]
 
 [[package]]
@@ -5186,6 +5243,17 @@ name = "pin-utils"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
+
+[[package]]
+name = "piper"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c835479a4443ded371d6c535cbfd8d31ad92c5d23ae9770a61bc155e4992a3c1"
+dependencies = [
+ "atomic-waker",
+ "fastrand",
+ "futures-io",
+]
 
 [[package]]
 name = "pkcs1"
@@ -5484,7 +5552,7 @@ checksum = "007d8adb5ddab6f8e3f491ac63566a7d5002cc7ed73901f72057943fa71ae1ae"
 
 [[package]]
 name = "pumas-library"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6224,6 +6292,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustix-openpty"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1de16c7c59892b870a6336f185dc10943517f1327447096bbb7bb32cd85e2393"
+dependencies = [
+ "errno",
+ "libc",
+ "rustix",
+]
+
+[[package]]
 name = "rustls"
 version = "0.23.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6642,6 +6721,16 @@ name = "signal-hook"
 version = "0.3.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d881a16cf4426aa584979d30bd82cb33429027e42122b169753d6ef1085ed6e2"
+dependencies = [
+ "libc",
+ "signal-hook-registry",
+]
+
+[[package]]
+name = "signal-hook"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3b57709da74f9ff9f4a27dce9526eec25ca8407c45a7887243b031a58935fb8e"
 dependencies = [
  "libc",
  "signal-hook-registry",
@@ -8195,7 +8284,7 @@ dependencies = [
  "itoa",
  "log",
  "unicode-width 0.1.14",
- "vte",
+ "vte 0.11.1",
 ]
 
 [[package]]
@@ -8207,6 +8296,20 @@ dependencies = [
  "arrayvec",
  "utf8parse",
  "vte_generate_state_changes",
+]
+
+[[package]]
+name = "vte"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5924018406ce0063cd67f8e008104968b74b563ee1b85dde3ed1f7cb87d3dbd"
+dependencies = [
+ "arrayvec",
+ "bitflags 2.11.0",
+ "cursor-icon",
+ "log",
+ "memchr",
+ "serde",
 ]
 
 [[package]]

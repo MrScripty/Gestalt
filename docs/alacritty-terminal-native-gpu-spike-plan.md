@@ -85,15 +85,15 @@ can remove that bottleneck.
 **Goal:** Define the spike boundary and document the preserved contracts.
 
 **Tasks:**
-- [ ] Add a plan artifact aligned to repo standards.
-- [ ] Create a dedicated `terminal_native` module boundary with README.
-- [ ] Update source/binary documentation to explain the spike role.
+- [x] Add a plan artifact aligned to repo standards.
+- [x] Create a dedicated `terminal_native` module boundary with README.
+- [x] Update source/binary documentation to explain the spike role.
 
 **Verification:**
 - README/plan content matches the required documentation sections.
 - New module ownership and lifecycle notes are explicit.
 
-**Status:** In progress
+**Status:** Completed
 
 ### Milestone 2: Terminal Core Adapter
 
@@ -101,18 +101,18 @@ can remove that bottleneck.
 runtime ownership.
 
 **Tasks:**
-- [ ] Add the spike dependency set with a written rationale in module docs.
-- [ ] Implement PTY startup, reader thread, resize, and input handling for the
+- [x] Add the spike dependency set with a written rationale in module docs.
+- [x] Implement PTY startup, reader thread, resize, and input handling for the
   standalone path.
-- [ ] Implement an adapter that exposes renderable cells and damage information
+- [x] Implement an adapter that exposes renderable cells and damage information
   from `alacritty_terminal`.
-- [ ] Add focused tests for parsing, cursor state, and damage updates.
+- [x] Add focused tests for parsing, cursor state, and damage updates.
 
 **Verification:**
 - Affected tests pass.
 - The standalone binary builds successfully.
 
-**Status:** Not started
+**Status:** In progress
 
 ### Milestone 3: Native GPU Demo Surface
 
