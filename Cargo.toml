@@ -6,11 +6,19 @@ description = "Desktop workspace for coordinating large terminal fleets"
 
 [features]
 default = []
-terminal-native-spike = ["dep:alacritty_terminal"]
+terminal-native-spike = [
+    "dep:alacritty_terminal",
+    "dep:dioxus-native",
+    "dep:font8x8",
+    "dep:wgpu",
+]
 
 [dependencies]
 dioxus = { version = "0.7.3", features = ["desktop"] }
 alacritty_terminal = { path = "../alacritty/alacritty_terminal", optional = true }
+dioxus-native = { version = "0.7.3", optional = true, features = ["autofocus"] }
+font8x8 = { version = "0.3", optional = true }
+wgpu = { version = "26.0", optional = true }
 portable-pty = "0.8"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
 vt100 = "0.15"
@@ -29,3 +37,8 @@ workflow-nodes = { path = "../Pantograph/crates/workflow-nodes", features = ["mo
 uuid = { version = "1", features = ["v4"] }
 rusqlite = { version = "0.32.1", features = ["bundled"] }
 pulldown-cmark = "0.12"
+
+[[bin]]
+name = "terminal_native_spike"
+path = "src/bin/terminal_native_spike.rs"
+required-features = ["terminal-native-spike"]

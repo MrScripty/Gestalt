@@ -12,6 +12,7 @@
 | `emily_pantograph_reasoning_probe.rs` | Live Pantograph reasoning validator that repairs a selected workflow into a puma-backed membrane path and reports the resulting Emily routing, reflex, remote, validation, audit, or compatibility blocker state |
 | `emily_seed.rs` | Deterministic Emily seed corpus runner for local diagnostics and host acceptance prep |
 | `profile_terminal.rs` | PTY input latency profiling utility |
+| `terminal_native_spike.rs` | Feature-gated native GPU terminal spike using the Alacritty-backed `terminal_native` path |
 
 ## Problem
 Developers need targeted runtime diagnostics without altering production app flow.
@@ -47,4 +48,5 @@ cargo run --bin emily_inspect -- --dataset synthetic-agent-round --reseed --rese
 cargo run --bin emily_pantograph_embedding_probe
 GESTALT_PANTOGRAPH_REASONING_WORKFLOW_ID='Coding Agent' cargo run --bin emily_pantograph_reasoning_probe
 GESTALT_ENABLE_MEMBRANE_DEV=1 cargo run --bin emily_membrane_dev -- --reseed --reset
+cargo run --features terminal-native-spike --bin terminal_native_spike
 ```

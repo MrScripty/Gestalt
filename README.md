@@ -60,6 +60,7 @@ Common workflows:
 - `./launcher.sh --perf`
 - `./launcher.sh --release-smoke`
 - `./launcher.sh --run-release`
+- `cargo run --features terminal-native-spike --bin terminal_native_spike`
 
 State isolation controls:
 

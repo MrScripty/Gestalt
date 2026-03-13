@@ -8,7 +8,9 @@ the Alacritty semantics + native GPU rendering spike.
 | File/Folder | Description |
 | ----------- | ----------- |
 | `mod.rs` | Public module exports for the native terminal spike |
+| `demo.rs` | Standalone Dioxus Native GPU-presented demo surface and input loop |
 | `model.rs` | Renderer-facing terminal frame, cursor, cell, and damage types |
+| `raster.rs` | Damage-aware CPU rasterization that uploads terminal pixels into the GPU texture |
 | `emulator.rs` | Alacritty-backed terminal emulator adapter that projects frames into the local model |
 | `session.rs` | Single-session PTY runtime that feeds emulator frames for the spike renderer |
 
@@ -36,6 +38,7 @@ renderer.
 ## Invariants
 - The PTY runtime owns process lifecycle and writer access.
 - The emulator owns terminal semantics and damage tracking.
+- The raster stage owns pixel generation for the GPU-presented texture.
 - The published frame is immutable to consumers and replaced atomically.
 
 ## Revisit Triggers
@@ -44,7 +47,22 @@ renderer.
 
 ## Dependencies
 **Internal:** none  
-**External:** `alacritty_terminal`, `portable-pty`, `parking_lot`
+**External:** `alacritty_terminal`, `dioxus-native`, `font8x8`, `portable-pty`, `parking_lot`, `wgpu`
 
 ## Related ADRs
 None.
+
+## Usage Examples
+```bash
+cargo run --features terminal-native-spike --bin terminal_native_spike
+```
+
+## Current Constraints
+- Glyph rasterization currently uses `font8x8`, so complex Unicode shaping is
+  not yet covered.
+- Selection, mouse reporting, clipboard integration, and IME are intentionally
+  out of scope for this spike.
+- Binary build verification is complete and an X11 smoke pass covered launch,
+  typed input, and resize.
+- A true interactive visual/manual validation run still needs a local desktop
+  session.

@@ -120,16 +120,16 @@ runtime ownership.
 damage-aware redraw.
 
 **Tasks:**
-- [ ] Implement the native window/render loop in a standalone diagnostic binary.
-- [ ] Draw terminal cells, backgrounds, and cursor from the adapter output.
-- [ ] Route keyboard input and resize events back into the PTY/controller path.
-- [ ] Keep platform-specific handling isolated from terminal semantics.
+- [x] Implement the native window/render loop in a standalone diagnostic binary.
+- [x] Draw terminal cells, backgrounds, and cursor from the adapter output.
+- [x] Route keyboard input and resize events back into the PTY/controller path.
+- [x] Keep platform-specific handling isolated from terminal semantics.
 
 **Verification:**
 - Manual run confirms shell startup, typing, and resize behavior.
 - Build/test commands covering the demo path complete successfully.
 
-**Status:** Not started
+**Status:** In progress
 
 ### Milestone 4: Verification and Decision Capture
 
@@ -201,15 +201,32 @@ damage-aware redraw.
 
 ### Deviations
 
-- None yet.
+- Focused emulator verification now runs through a dedicated integration test
+  target because `cargo test --lib --features terminal-native-spike
+  terminal_native` is still blocked by unrelated pre-existing compile failures
+  in `src/pantograph_host.rs` and `src/ui/git_commit_graph.rs`.
+- Full hands-on visual/manual validation of the native binary was not executed
+  in this session; the current evidence is an automated X11 smoke pass.
 
 ### Follow-Ups
 
-- None yet.
+- Run the spike binary in a local desktop session and visually validate shell
+  startup, typing, resize, cursor updates, and exit behavior.
+- Decide whether to improve glyph coverage beyond `font8x8` before integrating
+  this render path into the main app shell.
+- If the direction is accepted, define the seam between the standalone spike
+  runtime and the existing multi-pane `terminal.rs` facade.
 
 ### Verification Summary
 
-- None yet.
+- `cargo test --test terminal_native_core --features terminal-native-spike`
+- `cargo check --lib --features terminal-native-spike`
+- `cargo check --bin terminal_native_spike --features terminal-native-spike`
+- `timeout 15s cargo run --features terminal-native-spike --bin terminal_native_spike`
+- X11 smoke interactions:
+  `wmctrl -l`, `xdotool windowactivate ... type ...`, `xdotool windowsize ...`
+- Attempted but blocked by unrelated crate issues:
+  `cargo test --lib --features terminal-native-spike terminal_native`
 
 ### Traceability Links
 
