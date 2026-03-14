@@ -112,7 +112,7 @@ runtime ownership.
 - Affected tests pass.
 - The standalone binary builds successfully.
 
-**Status:** In progress
+**Status:** Completed
 
 ### Milestone 3: Native GPU Demo Surface
 
