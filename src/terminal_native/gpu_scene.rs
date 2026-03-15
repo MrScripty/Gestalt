@@ -236,15 +236,25 @@ impl TerminalGpuSceneCache {
         let mut glyphs = std::mem::take(&mut self.glyph_rows[row_index]);
         backgrounds.clear();
         glyphs.clear();
+        let cell_width = self.cell_width as f32;
+        let cell_height = self.cell_height as f32;
+        let row_y = f32::from(row) * cell_height;
+        let mut x = 0.0_f32;
 
         for col in 0..self.cols {
             let Some(cell) = self.cell(row, col) else {
+                x += cell_width;
                 continue;
             };
 
             let cursor_here = cursor.row == row && cursor.col == col;
+            if is_plain_blank_cell(cell, cursor_here) {
+                x += cell_width;
+                continue;
+            }
+
             let (bg, fg) = resolved_colors(cell, cursor_here);
-            let rect = cell_rect(row, col, self.cell_width, self.cell_height);
+            let rect = [x, row_y, cell_width, cell_height];
 
             if bg != DEFAULT_BACKGROUND {
                 backgrounds.push(QuadInstance::solid(rect, rgba(bg)));
@@ -254,6 +264,7 @@ impl TerminalGpuSceneCache {
                 || cell.flags.contains(TerminalCellFlags::WIDE_CHAR_SPACER)
                 || cell.codepoint.is_whitespace()
             {
+                x += cell_width;
                 continue;
             }
 
@@ -261,6 +272,7 @@ impl TerminalGpuSceneCache {
             if !tile.empty {
                 glyphs.push(QuadInstance::glyph(rect, rgba(fg), tile.uv_rect));
             }
+            x += cell_width;
         }
 
         if let Some(cached_backgrounds) = self.background_rows.get_mut(row_index) {
@@ -342,13 +354,12 @@ fn extend_cursor_instances(
     }
 }
 
-fn cell_rect(row: u16, col: u16, cell_width: u32, cell_height: u32) -> [f32; 4] {
-    [
-        (u32::from(col) * cell_width) as f32,
-        (u32::from(row) * cell_height) as f32,
-        cell_width as f32,
-        cell_height as f32,
-    ]
+fn is_plain_blank_cell(cell: &TerminalCell, cursor_here: bool) -> bool {
+    !cursor_here
+        && cell.codepoint.is_whitespace()
+        && matches!(cell.bg, TerminalColor::DefaultBackground)
+        && matches!(cell.fg, TerminalColor::DefaultForeground)
+        && cell.flags == TerminalCellFlags::NONE
 }
 
 fn cell_count(rows: u16, cols: u16) -> usize {
