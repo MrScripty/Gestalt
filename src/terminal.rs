@@ -402,7 +402,7 @@ impl TerminalManager {
             },
             Some(Arc::new(move |frame| {
                 let full_frame =
-                    materialize_native_frame(frame_cache_for_callback.read().as_ref(), &frame);
+                    materialize_native_frame(frame_cache_for_callback.read().as_ref(), frame);
                 *frame_cache_for_callback.write() = Arc::clone(&full_frame);
                 *snapshot_cache_for_callback.write() =
                     Arc::new(compatibility_snapshot_from_native_frame(&full_frame, &[]));
@@ -421,7 +421,7 @@ impl TerminalManager {
         .map_err(map_native_terminal_error)?;
 
         let full_frame =
-            materialize_native_frame(frame_cache.read().as_ref(), &session.current_frame());
+            materialize_native_frame(frame_cache.read().as_ref(), session.current_frame());
         *frame_cache.write() = Arc::clone(&full_frame);
         *snapshot_cache.write() = Arc::new(compatibility_snapshot_from_native_frame(
             &full_frame,
@@ -729,7 +729,7 @@ impl TerminalManager {
                     .map_err(map_native_terminal_error)?;
                 let full_frame = materialize_native_frame(
                     runtime_backend.frame_cache.read().as_ref(),
-                    &runtime_backend.session.current_frame(),
+                    runtime_backend.session.current_frame(),
                 );
                 *runtime_backend.frame_cache.write() = Arc::clone(&full_frame);
                 *runtime.snapshot_cache.write() =
@@ -866,9 +866,9 @@ fn map_native_terminal_error(error: crate::terminal_native::NativeTerminalError)
 }
 
 #[cfg(feature = "terminal-native-spike")]
-fn materialize_native_frame(previous: &TerminalFrame, next: &TerminalFrame) -> Arc<TerminalFrame> {
+fn materialize_native_frame(previous: &TerminalFrame, next: Arc<TerminalFrame>) -> Arc<TerminalFrame> {
     let publication = match &next.publication {
-        TerminalCellPublication::Full(cells) => TerminalCellPublication::Full(cells.clone()),
+        TerminalCellPublication::Full(_) => return next,
         TerminalCellPublication::Partial(changes) => {
             let mut cells = previous
                 .full_cells()
@@ -1206,6 +1206,8 @@ impl ScrollbackBuffer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "terminal-native-spike")]
+    use crate::terminal_native::TerminalCursor;
 
     #[test]
     fn merge_scrollback_deduplicates_visible_suffix() {
@@ -1266,5 +1268,54 @@ mod tests {
                 "line 4".to_string(),
             ]
         );
+    }
+
+    #[cfg(feature = "terminal-native-spike")]
+    #[test]
+    fn materialize_native_frame_reuses_full_publications() {
+        let previous = Arc::new(TerminalFrame {
+            rows: 1,
+            cols: 2,
+            cursor: TerminalCursor {
+                row: 0,
+                col: 0,
+                shape: TerminalCursorShape::Hidden,
+            },
+            bracketed_paste: false,
+            display_offset: 0,
+            damage: TerminalDamage::Full,
+            publication: TerminalCellPublication::Full(
+                vec![TerminalCell::default(); 2].into_boxed_slice(),
+            ),
+        });
+        let next = Arc::new(TerminalFrame {
+            rows: 1,
+            cols: 2,
+            cursor: TerminalCursor {
+                row: 0,
+                col: 1,
+                shape: TerminalCursorShape::Block,
+            },
+            bracketed_paste: false,
+            display_offset: 0,
+            damage: TerminalDamage::Full,
+            publication: TerminalCellPublication::Full(
+                vec![
+                    TerminalCell {
+                        codepoint: 'a',
+                        ..TerminalCell::default()
+                    },
+                    TerminalCell {
+                        codepoint: 'b',
+                        ..TerminalCell::default()
+                    },
+                ]
+                .into_boxed_slice(),
+            ),
+        });
+
+        let materialized = materialize_native_frame(previous.as_ref(), Arc::clone(&next));
+
+        assert!(Arc::ptr_eq(&materialized, &next));
     }
 }
