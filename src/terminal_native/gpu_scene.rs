@@ -249,8 +249,21 @@ impl TerminalGpuSceneCache {
                 continue;
             }
 
-            let (bg, fg) = resolved_colors(cell, cursor_here);
             let rect = [x, row_y, cell_width, cell_height];
+            if is_default_visible_cell(cell, cursor_here) {
+                let tile = self.atlas.ensure_glyph(cell.codepoint);
+                if !tile.empty {
+                    glyphs.push(QuadInstance::glyph(
+                        rect,
+                        rgba(DEFAULT_FOREGROUND),
+                        tile.uv_rect,
+                    ));
+                }
+                x += cell_width;
+                continue;
+            }
+
+            let (bg, fg) = resolved_colors(cell, cursor_here);
 
             if bg != DEFAULT_BACKGROUND {
                 backgrounds.push(QuadInstance::solid(rect, rgba(bg)));
@@ -353,6 +366,14 @@ fn extend_cursor_instances(
 fn is_plain_blank_cell(cell: &TerminalCell, cursor_here: bool) -> bool {
     !cursor_here
         && cell.codepoint.is_whitespace()
+        && matches!(cell.bg, TerminalColor::DefaultBackground)
+        && matches!(cell.fg, TerminalColor::DefaultForeground)
+        && cell.flags == TerminalCellFlags::NONE
+}
+
+fn is_default_visible_cell(cell: &TerminalCell, cursor_here: bool) -> bool {
+    !cursor_here
+        && !cell.codepoint.is_whitespace()
         && matches!(cell.bg, TerminalColor::DefaultBackground)
         && matches!(cell.fg, TerminalColor::DefaultForeground)
         && cell.flags == TerminalCellFlags::NONE
