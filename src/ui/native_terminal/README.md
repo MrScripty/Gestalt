@@ -20,8 +20,9 @@ and terminal runtime ownership remain unchanged.
 - Must remain a presentation/infrastructure seam only.
 - Must not become a second owner for PTY/session lifecycle.
 - Must keep the legacy `terminal_view` DOM path available as fallback.
-- The first pilot only activates for the selected pane when `GESTALT_NATIVE_TERMINAL_PILOT`
-  is enabled under the `native-renderer` feature.
+- The pilot defaults to the selected pane when `GESTALT_NATIVE_TERMINAL_PILOT`
+  is enabled under the `native-renderer` feature, and may be widened to all visible panes with
+  `GESTALT_NATIVE_TERMINAL_PILOT_SCOPE=visible`.
 - The first pilot renders the active viewport only and falls back to the legacy path when CRT is
   enabled.
 
@@ -38,6 +39,8 @@ and terminal runtime ownership remain unchanged.
 ```bash
 cargo run --features native-renderer --bin gestalt
 GESTALT_NATIVE_TERMINAL_PILOT=1 cargo run --features native-renderer --bin gestalt
+GESTALT_NATIVE_TERMINAL_PILOT=1 GESTALT_NATIVE_TERMINAL_PILOT_SCOPE=visible \
+  cargo run --features native-renderer --bin gestalt
 GESTALT_NATIVE_TERMINAL_PILOT=1 GESTALT_NATIVE_TERMINAL_BACKEND=1 \
   cargo run --features native-renderer --bin gestalt
 ```
@@ -61,6 +64,12 @@ GESTALT_NATIVE_TERMINAL_PILOT=1 GESTALT_NATIVE_TERMINAL_BACKEND=1 \
   - bounded native run with `GESTALT_NATIVE_TERMINAL_PILOT=1 GESTALT_NATIVE_TERMINAL_BACKEND=1`
     opened the real Gestalt window, accepted an `xdotool`-driven `echo native-pilot-smoke`
     command, and survived two live window resizes before timeout shutdown
+- 2026-03-15 visible-pane pilot smoke:
+  - bounded native run with
+    `GESTALT_NATIVE_TERMINAL_PILOT=1 GESTALT_NATIVE_TERMINAL_PILOT_SCOPE=visible`
+    `GESTALT_NATIVE_TERMINAL_BACKEND=1`
+    launched successfully and stayed up until timeout with all visible workspace panes routed
+    through the native terminal body path
 - 2026-03-15 integrated native replay profiling:
   - `rows rebuilt/frame` p95: `42`
   - `cells rebuilt/frame` p95: `5880`
@@ -69,6 +78,14 @@ GESTALT_NATIVE_TERMINAL_PILOT=1 GESTALT_NATIVE_TERMINAL_BACKEND=1 \
   - Interpretation: the current native replay workload behaves like a near-full-frame path, so the
     next performance work should target cheaper near-full publication and scene rebuild behavior
     rather than assuming narrow partial updates.
+- 2026-03-15 integrated visible-pane profiling:
+  - reduced native-backend sample rendered `3` visible native panes in the active group
+  - `native visible render pass` p95: `472 us`
+  - `native visible row rebuild` p95: `410 us`
+  - `native visible cells rebuilt` p95: `11900`
+  - Interpretation: real integrated visible-pane cost is now measurable separately from the legacy
+    shell path, and the remaining native work is still dominated by near-full-frame scene rebuilds
+    across the visible pane set.
 - Interpretation: the selected-pane pilot launched successfully and did not materially change
   process memory in a no-interaction 10-second workspace run. This is only a launch-path sanity
   check, not a full interactive performance benchmark.
