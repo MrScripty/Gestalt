@@ -57,6 +57,18 @@ GESTALT_NATIVE_TERMINAL_PILOT=1 GESTALT_NATIVE_TERMINAL_BACKEND=1 \
   - `cargo test --features native-renderer frame_builds_cells_from_native_frame` is currently
     blocked by unrelated existing test compile failures in `src/pantograph_host.rs` and
     `src/ui/git_commit_graph.rs`
+- 2026-03-15 pilot interaction smoke:
+  - bounded native run with `GESTALT_NATIVE_TERMINAL_PILOT=1 GESTALT_NATIVE_TERMINAL_BACKEND=1`
+    opened the real Gestalt window, accepted an `xdotool`-driven `echo native-pilot-smoke`
+    command, and survived two live window resizes before timeout shutdown
+- 2026-03-15 integrated native replay profiling:
+  - `rows rebuilt/frame` p95: `42`
+  - `cells rebuilt/frame` p95: `5880`
+  - `spans published/frame` p95: `1`
+  - `cells published/frame` p95: `5880`
+  - Interpretation: the current native replay workload behaves like a near-full-frame path, so the
+    next performance work should target cheaper near-full publication and scene rebuild behavior
+    rather than assuming narrow partial updates.
 - Interpretation: the selected-pane pilot launched successfully and did not materially change
   process memory in a no-interaction 10-second workspace run. This is only a launch-path sanity
   check, not a full interactive performance benchmark.
