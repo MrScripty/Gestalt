@@ -259,8 +259,12 @@ impl TerminalGpuSceneCache {
 
     fn rebuild_row(&mut self, row: u16, cursor: TerminalCursor, atlas: &mut GlyphAtlas) {
         let row_index = usize::from(row);
-        let mut backgrounds = std::mem::take(&mut self.background_rows[row_index]);
-        let mut glyphs = std::mem::take(&mut self.glyph_rows[row_index]);
+        let Some(backgrounds) = self.background_rows.get_mut(row_index) else {
+            return;
+        };
+        let Some(glyphs) = self.glyph_rows.get_mut(row_index) else {
+            return;
+        };
         backgrounds.clear();
         glyphs.clear();
         let cell_width = self.cell_width as f32;
@@ -327,13 +331,6 @@ impl TerminalGpuSceneCache {
                 glyphs.push(QuadInstance::glyph(rect, rgba(fg), tile.uv_rect));
             }
             x += cell_width;
-        }
-
-        if let Some(cached_backgrounds) = self.background_rows.get_mut(row_index) {
-            *cached_backgrounds = backgrounds;
-        }
-        if let Some(cached_glyphs) = self.glyph_rows.get_mut(row_index) {
-            *cached_glyphs = glyphs;
         }
     }
 }
