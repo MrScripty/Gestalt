@@ -90,7 +90,8 @@ cargo run --features terminal-native-spike --bin terminal_native_spike
   replay benchmark now breaks native snapshot cost into damage collection,
   projection update, and publication build in addition to GPU scene
   preparation.
-- Current profiling shows projection update remains the dominant native hot
-  path after the latest publication and allocation reductions.
+- Current profiling now shows native snapshot build below 1 ms p95 on the
+  reduced replay workload; render preparation is the larger remaining native
+  cost after the latest projection and scene-cache reductions.
 - A true interactive visual/manual validation run still needs a local desktop
   session.
