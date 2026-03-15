@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use gestalt::terminal_native::{
     TerminalCell, TerminalCellPublication, TerminalCursor, TerminalCursorShape, TerminalDamage,
     TerminalDamageSpan, TerminalFrame, TerminalRaster,
@@ -54,6 +56,6 @@ fn frame(chars: [char; (TEST_ROWS as usize) * (TEST_COLS as usize)]) -> Terminal
         bracketed_paste: false,
         display_offset: 0,
         damage,
-        publication: TerminalCellPublication::Full(cells.into_boxed_slice().into()),
+        publication: TerminalCellPublication::Full(Arc::new(cells)),
     }
 }

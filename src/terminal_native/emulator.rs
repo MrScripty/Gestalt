@@ -239,7 +239,7 @@ fn build_publication(
     damage: &FrameDamage,
 ) -> TerminalCellPublication {
     match damage {
-        FrameDamage::Full => TerminalCellPublication::Full(Arc::<[TerminalCell]>::from(cells.to_vec())),
+        FrameDamage::Full => TerminalCellPublication::Full(Arc::new(cells.to_vec())),
         FrameDamage::Partial(spans) => {
             TerminalCellPublication::Partial(collect_changed_spans(cells, size, spans))
         }

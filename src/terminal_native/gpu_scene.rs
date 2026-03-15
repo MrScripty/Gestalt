@@ -41,7 +41,7 @@ pub struct TerminalGpuSceneProfile {
 pub struct TerminalGpuSceneCache {
     atlas: SharedGlyphAtlas,
     cells: Vec<TerminalCell>,
-    shared_full_cells: Option<Arc<[TerminalCell]>>,
+    shared_full_cells: Option<Arc<Vec<TerminalCell>>>,
     rows: u16,
     cols: u16,
     background_rows: Vec<Vec<QuadInstance>>,
@@ -110,11 +110,12 @@ impl TerminalGpuSceneCache {
         let row_rebuild_started = Instant::now();
         let atlas = self.atlas.clone();
         let (rows_rebuilt, cells_rebuilt) = atlas.with_mut(|atlas| {
-            let rows_rebuilt = if geometry_changed || matches!(frame.damage, super::TerminalDamage::Full) {
-                self.rebuild_all_rows(frame, atlas)
-            } else {
-                self.rebuild_dirty_rows(frame, atlas)
-            };
+            let rows_rebuilt =
+                if geometry_changed || matches!(frame.damage, super::TerminalDamage::Full) {
+                    self.rebuild_all_rows(frame, atlas)
+                } else {
+                    self.rebuild_dirty_rows(frame, atlas)
+                };
             let cells_rebuilt = rows_rebuilt.saturating_mul(u32::from(self.cols));
             (rows_rebuilt, cells_rebuilt)
         });
@@ -230,7 +231,7 @@ impl TerminalGpuSceneCache {
         if self.cells.len() != cells.len() {
             self.cells.resize(cells.len(), TerminalCell::default());
         }
-        self.cells.clone_from_slice(cells.as_ref());
+        self.cells.clone_from_slice(cells.as_slice());
     }
 
     fn rebuild_all_rows(&mut self, frame: &TerminalFrame, atlas: &mut GlyphAtlas) -> u32 {
@@ -238,7 +239,11 @@ impl TerminalGpuSceneCache {
         let cols = usize::from(self.cols);
         let cell_width = self.cell_width as f32;
         let cell_height = self.cell_height as f32;
-        let cells = self.shared_full_cells.as_deref().unwrap_or(self.cells.as_slice());
+        let cells = self
+            .shared_full_cells
+            .as_deref()
+            .map(std::vec::Vec::as_slice)
+            .unwrap_or(self.cells.as_slice());
 
         for (row_index, ((backgrounds, glyphs), row_cells)) in self
             .background_rows
@@ -305,6 +310,7 @@ impl TerminalGpuSceneCache {
         let Some(row_cells) = self
             .shared_full_cells
             .as_deref()
+            .map(std::vec::Vec::as_slice)
             .unwrap_or(self.cells.as_slice())
             .get(row_start..row_end)
         else {

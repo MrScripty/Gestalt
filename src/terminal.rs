@@ -374,11 +374,11 @@ impl TerminalManager {
             bracketed_paste: false,
             display_offset: 0,
             damage: TerminalDamage::Full,
-            publication: TerminalCellPublication::Full(
-                vec![TerminalCell::default(); usize::from(rows) * usize::from(cols)]
-                    .into_boxed_slice()
-                    .into(),
-            ),
+            publication: TerminalCellPublication::Full(Arc::new(vec![
+                TerminalCell::default();
+                usize::from(rows)
+                    * usize::from(cols)
+            ])),
         });
         let frame_cache = Arc::new(RwLock::new(initial_frame));
         let restored_lines = restored
@@ -867,7 +867,10 @@ fn map_native_terminal_error(error: crate::terminal_native::NativeTerminalError)
 }
 
 #[cfg(feature = "terminal-native-spike")]
-fn materialize_native_frame(previous: &TerminalFrame, next: Arc<TerminalFrame>) -> Arc<TerminalFrame> {
+fn materialize_native_frame(
+    previous: &TerminalFrame,
+    next: Arc<TerminalFrame>,
+) -> Arc<TerminalFrame> {
     let publication = match &next.publication {
         TerminalCellPublication::Full(_) => return next,
         TerminalCellPublication::Partial(changes) => {
@@ -885,7 +888,7 @@ fn materialize_native_frame(previous: &TerminalFrame, next: Arc<TerminalFrame>) 
                     target.clone_from_slice(changes.cells_for_span(span));
                 }
             }
-            TerminalCellPublication::Full(cells.into_boxed_slice().into())
+            TerminalCellPublication::Full(Arc::new(cells))
         }
     };
 
@@ -1295,9 +1298,7 @@ mod tests {
             bracketed_paste: false,
             display_offset: 0,
             damage: TerminalDamage::Full,
-            publication: TerminalCellPublication::Full(
-                vec![TerminalCell::default(); 2].into_boxed_slice().into(),
-            ),
+            publication: TerminalCellPublication::Full(Arc::new(vec![TerminalCell::default(); 2])),
         });
         let next = Arc::new(TerminalFrame {
             rows: 1,
@@ -1310,20 +1311,16 @@ mod tests {
             bracketed_paste: false,
             display_offset: 0,
             damage: TerminalDamage::Full,
-            publication: TerminalCellPublication::Full(
-                vec![
-                    TerminalCell {
-                        codepoint: 'a',
-                        ..TerminalCell::default()
-                    },
-                    TerminalCell {
-                        codepoint: 'b',
-                        ..TerminalCell::default()
-                    },
-                ]
-                .into_boxed_slice()
-                .into(),
-            ),
+            publication: TerminalCellPublication::Full(Arc::new(vec![
+                TerminalCell {
+                    codepoint: 'a',
+                    ..TerminalCell::default()
+                },
+                TerminalCell {
+                    codepoint: 'b',
+                    ..TerminalCell::default()
+                },
+            ])),
         });
 
         let materialized = materialize_native_frame(previous.as_ref(), Arc::clone(&next));
@@ -1345,30 +1342,26 @@ mod tests {
             bracketed_paste: false,
             display_offset: 0,
             damage: TerminalDamage::Full,
-            publication: TerminalCellPublication::Full(
-                vec![
-                    TerminalCell {
-                        codepoint: 'a',
-                        ..TerminalCell::default()
-                    },
-                    TerminalCell {
-                        codepoint: 'b',
-                        ..TerminalCell::default()
-                    },
-                    TerminalCell::default(),
-                    TerminalCell::default(),
-                    TerminalCell {
-                        codepoint: 'x',
-                        flags: TerminalCellFlags::HIDDEN,
-                        ..TerminalCell::default()
-                    },
-                    TerminalCell::default(),
-                    TerminalCell::default(),
-                    TerminalCell::default(),
-                ]
-                .into_boxed_slice()
-                .into(),
-            ),
+            publication: TerminalCellPublication::Full(Arc::new(vec![
+                TerminalCell {
+                    codepoint: 'a',
+                    ..TerminalCell::default()
+                },
+                TerminalCell {
+                    codepoint: 'b',
+                    ..TerminalCell::default()
+                },
+                TerminalCell::default(),
+                TerminalCell::default(),
+                TerminalCell {
+                    codepoint: 'x',
+                    flags: TerminalCellFlags::HIDDEN,
+                    ..TerminalCell::default()
+                },
+                TerminalCell::default(),
+                TerminalCell::default(),
+                TerminalCell::default(),
+            ])),
         };
 
         let lines = frame_visible_lines(&frame);

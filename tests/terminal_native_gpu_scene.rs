@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use gestalt::terminal_native::{
     TerminalCell, TerminalCellPublication, TerminalCellSpanBatch, TerminalCellSpanUpdate,
     TerminalCursor, TerminalCursorShape, TerminalDamage, TerminalDamageSpan, TerminalFrame,
@@ -71,7 +73,10 @@ fn gpu_scene_rebuilds_cursor_rows_without_cell_damage() {
     };
     let (second_len, second_color) = {
         let second = cache.prepare(&moved, TEST_WIDTH, TEST_HEIGHT);
-        (second.glyph_instances.len(), second.glyph_instances[0].color)
+        (
+            second.glyph_instances.len(),
+            second.glyph_instances[0].color,
+        )
     };
 
     assert_eq!(first_len, 1);
@@ -107,7 +112,7 @@ fn frame_with_cursor(
         bracketed_paste: false,
         display_offset: 0,
         damage: TerminalDamage::Full,
-        publication: TerminalCellPublication::Full(cells.into_boxed_slice().into()),
+        publication: TerminalCellPublication::Full(Arc::new(cells)),
     }
 }
 

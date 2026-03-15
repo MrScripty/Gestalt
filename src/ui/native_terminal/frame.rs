@@ -3,6 +3,9 @@ use crate::terminal_native::{
     TerminalCell, TerminalCellFlags, TerminalCellPublication, TerminalCursorShape, TerminalFrame,
 };
 
+#[cfg(test)]
+use std::sync::Arc;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct NativeTerminalFrame {
     pub rows: u16,
@@ -188,37 +191,33 @@ mod tests {
             bracketed_paste: false,
             display_offset: 0,
             damage: TerminalDamage::Full,
-            publication: TerminalCellPublication::Full(
-                vec![
-                    TerminalCell {
-                        codepoint: 'a',
-                        ..TerminalCell::default()
-                    },
-                    TerminalCell {
-                        codepoint: 'b',
-                        ..TerminalCell::default()
-                    },
-                    TerminalCell {
-                        codepoint: 'c',
-                        ..TerminalCell::default()
-                    },
-                    TerminalCell {
-                        codepoint: 'd',
-                        ..TerminalCell::default()
-                    },
-                    TerminalCell {
-                        codepoint: 'e',
-                        flags: TerminalCellFlags::HIDDEN,
-                        ..TerminalCell::default()
-                    },
-                    TerminalCell {
-                        codepoint: 'f',
-                        ..TerminalCell::default()
-                    },
-                ]
-                .into_boxed_slice()
-                .into(),
-            ),
+            publication: TerminalCellPublication::Full(Arc::new(vec![
+                TerminalCell {
+                    codepoint: 'a',
+                    ..TerminalCell::default()
+                },
+                TerminalCell {
+                    codepoint: 'b',
+                    ..TerminalCell::default()
+                },
+                TerminalCell {
+                    codepoint: 'c',
+                    ..TerminalCell::default()
+                },
+                TerminalCell {
+                    codepoint: 'd',
+                    ..TerminalCell::default()
+                },
+                TerminalCell {
+                    codepoint: 'e',
+                    flags: TerminalCellFlags::HIDDEN,
+                    ..TerminalCell::default()
+                },
+                TerminalCell {
+                    codepoint: 'f',
+                    ..TerminalCell::default()
+                },
+            ])),
         };
 
         let native = NativeTerminalFrame::from_native_frame(&frame, true);
