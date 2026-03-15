@@ -302,11 +302,15 @@ fn update_projected_row(
 ) {
     let line = viewport_to_point(display_offset, Point::new(usize::from(row), Column(0))).line;
     let width = usize::from(size.cols);
-    let mut index = usize::from(row) * width + usize::from(left);
+    let row_start = usize::from(row) * width + usize::from(left);
+    let row_end = row_start + usize::from(right - left) + 1;
+    let Some(target_cells) = cells.get_mut(row_start..row_end) else {
+        return;
+    };
+    let source_cells = &grid[line][Column(usize::from(left))..Column(usize::from(right) + 1)];
 
-    for col in left..=right {
-        cells[index] = project_cell(&grid[line][Column(usize::from(col))]);
-        index += 1;
+    for (target, source) in target_cells.iter_mut().zip(source_cells.iter()) {
+        *target = project_cell(source);
     }
 }
 
