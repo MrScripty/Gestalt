@@ -207,6 +207,15 @@ impl TerminalGpuSceneCache {
         }
 
         if let Some(cells) = frame.full_cells_shared() {
+            if self
+                .shared_full_cells
+                .as_ref()
+                .is_some_and(|previous| Arc::ptr_eq(previous, cells))
+                && self.last_cursor == Some(frame.cursor)
+            {
+                self.dirty_rows.fill(false);
+                return;
+            }
             self.mark_full_frame_dirty_rows(frame, cells.as_slice());
             self.shared_full_cells = Some(Arc::clone(cells));
             return;
