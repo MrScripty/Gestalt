@@ -11,8 +11,9 @@ use alacritty_terminal::term::{
 use alacritty_terminal::vte::ansi::{Color, CursorShape, NamedColor, Processor};
 
 use super::model::{
-    TerminalCell, TerminalCellFlags, TerminalColor, TerminalCursor, TerminalCursorShape,
-    TerminalDamage as FrameDamage, TerminalDamageSpan, TerminalFrame,
+    TerminalCell, TerminalCellFlags, TerminalCellPublication, TerminalCellUpdate, TerminalColor,
+    TerminalCursor, TerminalCursorShape, TerminalDamage as FrameDamage, TerminalDamageSpan,
+    TerminalFrame,
 };
 
 const DEFAULT_ROWS: u16 = 42;
@@ -102,7 +103,7 @@ impl AlacrittyEmulator {
             &damage,
         );
         let bracketed_paste = self.term.mode().contains(TermMode::BRACKETED_PASTE);
-        let cells = Arc::<[TerminalCell]>::from(self.projected_cells.clone());
+        let publication = build_publication(&self.projected_cells, self.size, &damage);
         self.last_display_offset = display_offset;
 
         self.term.reset_damage();
@@ -114,7 +115,7 @@ impl AlacrittyEmulator {
             bracketed_paste,
             display_offset,
             damage,
-            cells,
+            publication,
         }
     }
 }
@@ -179,6 +180,21 @@ fn project_damage_into(
         FrameDamage::Full => rebuild_projected_cells(cells, grid, size, display_offset),
         FrameDamage::Partial(spans) => {
             update_damage_spans(cells, grid, size, display_offset, spans)
+        }
+    }
+}
+
+fn build_publication(
+    cells: &[TerminalCell],
+    size: ViewportSize,
+    damage: &FrameDamage,
+) -> TerminalCellPublication {
+    match damage {
+        FrameDamage::Full => {
+            TerminalCellPublication::Full(Arc::<[TerminalCell]>::from(cells.to_vec()))
+        }
+        FrameDamage::Partial(spans) => {
+            TerminalCellPublication::Partial(collect_changed_cells(cells, size, spans).into())
         }
     }
 }
@@ -251,6 +267,36 @@ fn update_projected_cell(
         Point::new(usize::from(row), Column(usize::from(col))),
     );
     cells[index] = project_cell(&grid[point.line][point.column]);
+}
+
+fn collect_changed_cells(
+    cells: &[TerminalCell],
+    size: ViewportSize,
+    spans: &[TerminalDamageSpan],
+) -> Vec<TerminalCellUpdate> {
+    let width = usize::from(size.cols);
+    let mut changes = Vec::new();
+
+    for span in spans {
+        if span.left > span.right {
+            continue;
+        }
+
+        for col in span.left..=span.right {
+            let index = usize::from(span.row)
+                .saturating_mul(width)
+                .saturating_add(usize::from(col));
+            if let Some(cell) = cells.get(index) {
+                changes.push(TerminalCellUpdate {
+                    row: span.row,
+                    col,
+                    cell: cell.clone(),
+                });
+            }
+        }
+    }
+
+    changes
 }
 
 fn project_cell(cell: &Cell) -> TerminalCell {
@@ -348,8 +394,9 @@ mod tests {
 
         assert_eq!(frame.cursor.row, 0);
         assert_eq!(frame.cursor.col, 2);
-        assert_eq!(frame.cell(0, 0).unwrap().codepoint, 'h');
-        assert_eq!(frame.cell(0, 1).unwrap().codepoint, 'i');
+        let changes = changed_cells(&frame);
+        assert_eq!(change_at(&changes, 0, 0).unwrap().codepoint, 'h');
+        assert_eq!(change_at(&changes, 0, 1).unwrap().codepoint, 'i');
         match &frame.damage {
             FrameDamage::Full => panic!("expected partial damage after steady-state update"),
             FrameDamage::Partial(lines) => assert!(lines.iter().any(|line| line.row == 0)),
@@ -370,7 +417,10 @@ mod tests {
 
         assert!(frame.bracketed_paste);
         assert_eq!(frame.cursor.shape, TerminalCursorShape::Hidden);
-        assert_eq!(frame.cell(0, 0).unwrap().fg, TerminalColor::Palette(1));
+        assert_eq!(
+            change_at(&changed_cells(&frame), 0, 0).unwrap().fg,
+            TerminalColor::Palette(1)
+        );
     }
 
     #[test]
@@ -391,6 +441,10 @@ mod tests {
         assert_eq!(frame.rows, 3);
         assert_eq!(frame.cols, 6);
         assert_eq!(frame.damage, FrameDamage::Full);
+        assert!(matches!(
+            frame.publication,
+            TerminalCellPublication::Full(_)
+        ));
         assert_eq!(frame.cell(0, 0).unwrap().codepoint, 'a');
     }
 
@@ -409,9 +463,32 @@ mod tests {
         emulator.ingest(b"!");
         let frame = emulator.snapshot();
 
-        assert_eq!(frame.cell(0, 0).unwrap().codepoint, 'h');
-        assert_eq!(frame.cell(0, 1).unwrap().codepoint, 'i');
-        assert_eq!(frame.cell(0, 2).unwrap().codepoint, '!');
+        let changes = changed_cells(&frame);
+        assert!(change_at(&changes, 0, 0).is_none());
+        assert!(change_at(&changes, 0, 1).is_none());
+        assert_eq!(change_at(&changes, 0, 2).unwrap().codepoint, '!');
         assert!(matches!(frame.damage, FrameDamage::Partial(_)));
+    }
+
+    fn changed_cells(frame: &TerminalFrame) -> Vec<(u16, u16, TerminalCell)> {
+        frame
+            .changed_cells()
+            .unwrap_or(&[])
+            .iter()
+            .map(|change| (change.row, change.col, change.cell.clone()))
+            .collect()
+    }
+
+    fn change_at(
+        changes: &[(u16, u16, TerminalCell)],
+        row: u16,
+        col: u16,
+    ) -> Option<&TerminalCell> {
+        changes
+            .iter()
+            .find(|(candidate_row, candidate_col, _)| {
+                *candidate_row == row && *candidate_col == col
+            })
+            .map(|(_, _, cell)| cell)
     }
 }

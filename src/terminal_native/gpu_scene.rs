@@ -24,16 +24,23 @@ pub struct TerminalGpuScene {
 
 pub struct TerminalGpuSceneCache {
     atlas: GlyphAtlas,
+    cells: Vec<TerminalCell>,
+    rows: u16,
+    cols: u16,
 }
 
 impl TerminalGpuSceneCache {
     pub fn new() -> Self {
         Self {
             atlas: GlyphAtlas::new(),
+            cells: Vec::new(),
+            rows: 0,
+            cols: 0,
         }
     }
 
     pub fn prepare(&mut self, frame: &TerminalFrame, width: u32, height: u32) -> TerminalGpuScene {
+        self.apply_frame(frame);
         let cell_width = cell_extent(width, frame.cols);
         let cell_height = cell_extent(height, frame.rows);
         self.atlas.set_cell_size(cell_width, cell_height);
@@ -45,7 +52,7 @@ impl TerminalGpuSceneCache {
 
         for row in 0..frame.rows {
             for col in 0..frame.cols {
-                let Some(cell) = frame.cell(row, col) else {
+                let Some(cell) = self.cell(row, col) else {
                     continue;
                 };
 
@@ -90,6 +97,37 @@ impl TerminalGpuSceneCache {
 
     pub fn cached_glyph_count(&self) -> usize {
         self.atlas.cached_glyph_count()
+    }
+
+    fn apply_frame(&mut self, frame: &TerminalFrame) {
+        if self.rows != frame.rows || self.cols != frame.cols {
+            self.rows = frame.rows;
+            self.cols = frame.cols;
+            self.cells
+                .resize(cell_count(frame.rows, frame.cols), TerminalCell::default());
+        }
+
+        if let Some(cells) = frame.full_cells() {
+            self.cells.clear();
+            self.cells.extend_from_slice(cells);
+            return;
+        }
+
+        if let Some(changes) = frame.changed_cells() {
+            for change in changes {
+                let Some(index) = cell_index(self.cols, change.row, change.col) else {
+                    continue;
+                };
+                if let Some(cell) = self.cells.get_mut(index) {
+                    *cell = change.cell.clone();
+                }
+            }
+        }
+    }
+
+    fn cell(&self, row: u16, col: u16) -> Option<&TerminalCell> {
+        let index = cell_index(self.cols, row, col)?;
+        self.cells.get(index)
     }
 }
 
@@ -170,6 +208,16 @@ fn cell_rect(row: u16, col: u16, cell_width: u32, cell_height: u32) -> [f32; 4] 
         cell_width as f32,
         cell_height as f32,
     ]
+}
+
+fn cell_count(rows: u16, cols: u16) -> usize {
+    usize::from(rows) * usize::from(cols)
+}
+
+fn cell_index(cols: u16, row: u16, col: u16) -> Option<usize> {
+    usize::from(row)
+        .checked_mul(usize::from(cols))?
+        .checked_add(usize::from(col))
 }
 
 fn cell_extent(size: u32, cells: u16) -> u32 {

@@ -9,17 +9,38 @@ pub struct TerminalFrame {
     pub bracketed_paste: bool,
     pub display_offset: usize,
     pub damage: TerminalDamage,
-    pub cells: Arc<[TerminalCell]>,
+    pub publication: TerminalCellPublication,
 }
 
 impl TerminalFrame {
+    pub fn full_cells(&self) -> Option<&[TerminalCell]> {
+        match &self.publication {
+            TerminalCellPublication::Full(cells) => Some(cells.as_ref()),
+            TerminalCellPublication::Partial(_) => None,
+        }
+    }
+
+    pub fn changed_cells(&self) -> Option<&[TerminalCellUpdate]> {
+        match &self.publication {
+            TerminalCellPublication::Full(_) => None,
+            TerminalCellPublication::Partial(changes) => Some(changes.as_ref()),
+        }
+    }
+
     pub fn cell(&self, row: u16, col: u16) -> Option<&TerminalCell> {
         let width = usize::from(self.cols);
         let index = usize::from(row)
             .checked_mul(width)?
             .checked_add(usize::from(col))?;
-        self.cells.get(index)
+        self.full_cells()?.get(index)
     }
+}
+
+/// Immutable terminal cell publication for a single frame.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TerminalCellPublication {
+    Full(Arc<[TerminalCell]>),
+    Partial(Arc<[TerminalCellUpdate]>),
 }
 
 /// Renderable terminal cell projected from the emulator grid.
@@ -126,4 +147,12 @@ pub struct TerminalDamageSpan {
     pub row: u16,
     pub left: u16,
     pub right: u16,
+}
+
+/// Single renderer-facing cell update within the viewport.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TerminalCellUpdate {
+    pub row: u16,
+    pub col: u16,
+    pub cell: TerminalCell,
 }

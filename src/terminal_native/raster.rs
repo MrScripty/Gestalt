@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use font8x8::{BASIC_FONTS, UnicodeFonts};
 
@@ -22,7 +21,8 @@ pub struct TerminalRaster {
     cols: u16,
     pixels: Vec<u8>,
     last_cursor: Option<TerminalCursor>,
-    last_cells: Option<Arc<[TerminalCell]>>,
+    cells: Vec<TerminalCell>,
+    last_cells: Option<Vec<TerminalCell>>,
     tile_cache: HashMap<TileCacheKey, Vec<u8>>,
 }
 
@@ -47,6 +47,7 @@ impl TerminalRaster {
             cols: 0,
             pixels: Vec::new(),
             last_cursor: None,
+            cells: Vec::new(),
             last_cells: None,
             tile_cache: HashMap::new(),
         }
@@ -75,14 +76,19 @@ impl TerminalRaster {
         self.cell_height = cell_extent(height, frame.rows);
         if geometry_changed {
             self.tile_cache.clear();
+            self.cells.resize(
+                usize::from(frame.rows) * usize::from(frame.cols),
+                TerminalCell::default(),
+            );
             self.last_cells = None;
         }
+        self.apply_frame(frame);
 
         if geometry_changed || matches!(frame.damage, TerminalDamage::Full) {
             self.clear(DEFAULT_BACKGROUND);
             self.redraw_full(frame);
             self.last_cursor = Some(frame.cursor);
-            self.last_cells = Some(frame.cells.clone());
+            self.last_cells = Some(self.cells.clone());
             return;
         }
 
@@ -92,7 +98,7 @@ impl TerminalRaster {
             self.redraw_partial(frame);
         }
         self.last_cursor = Some(frame.cursor);
-        self.last_cells = Some(frame.cells.clone());
+        self.last_cells = Some(self.cells.clone());
     }
 
     pub fn pixels(&self) -> &[u8] {
@@ -159,7 +165,7 @@ impl TerminalRaster {
     }
 
     fn redraw_cell(&mut self, frame: &TerminalFrame, row: u16, col: u16) {
-        let Some(cell) = frame.cell(row, col) else {
+        let Some(cell) = self.cell(row, col) else {
             return;
         };
 
@@ -212,28 +218,16 @@ impl TerminalRaster {
         }
 
         let previous = self.last_cells.as_deref()?;
-        if previous.len() != frame.cells.len() || frame.rows <= 1 {
+        if previous.len() != self.cells.len() || frame.rows <= 1 {
             return None;
         }
 
         let max_shift = MAX_SCROLL_REUSE_ROWS.min(frame.rows.saturating_sub(1));
         for delta in 1..=max_shift {
-            if rows_match_upward_shift(
-                previous,
-                frame.cells.as_ref(),
-                frame.rows,
-                frame.cols,
-                delta,
-            ) {
+            if rows_match_upward_shift(previous, &self.cells, frame.rows, frame.cols, delta) {
                 return Some(delta as i16);
             }
-            if rows_match_downward_shift(
-                previous,
-                frame.cells.as_ref(),
-                frame.rows,
-                frame.cols,
-                delta,
-            ) {
+            if rows_match_downward_shift(previous, &self.cells, frame.rows, frame.cols, delta) {
                 return Some(-(delta as i16));
             }
         }
@@ -287,6 +281,38 @@ impl TerminalRaster {
         for pixel in self.pixels[range].chunks_exact_mut(4) {
             pixel.copy_from_slice(&DEFAULT_BACKGROUND);
         }
+    }
+
+    fn apply_frame(&mut self, frame: &TerminalFrame) {
+        if let Some(cells) = frame.full_cells() {
+            self.cells.clear();
+            self.cells.extend_from_slice(cells);
+            return;
+        }
+
+        if self.cells.len() != usize::from(frame.rows) * usize::from(frame.cols) {
+            self.cells.resize(
+                usize::from(frame.rows) * usize::from(frame.cols),
+                TerminalCell::default(),
+            );
+        }
+
+        if let Some(changes) = frame.changed_cells() {
+            for change in changes {
+                let index =
+                    usize::from(change.row) * usize::from(frame.cols) + usize::from(change.col);
+                if let Some(cell) = self.cells.get_mut(index) {
+                    *cell = change.cell.clone();
+                }
+            }
+        }
+    }
+
+    fn cell(&self, row: u16, col: u16) -> Option<&TerminalCell> {
+        let index = usize::from(row)
+            .checked_mul(usize::from(self.cols))?
+            .checked_add(usize::from(col))?;
+        self.cells.get(index)
     }
 
     fn draw_missing_glyph(&mut self, row: u16, col: u16, color: [u8; 4]) {

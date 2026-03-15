@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use gestalt::terminal_native::{
-    TerminalCell, TerminalCursor, TerminalCursorShape, TerminalDamage, TerminalFrame,
-    TerminalGpuSceneCache,
+    TerminalCell, TerminalCellPublication, TerminalCellUpdate, TerminalCursor, TerminalCursorShape,
+    TerminalDamage, TerminalDamageSpan, TerminalFrame, TerminalGpuSceneCache,
 };
 
 const TEST_ROWS: u16 = 2;
@@ -12,7 +12,7 @@ const TEST_HEIGHT: u32 = 36;
 
 #[test]
 fn gpu_scene_reuses_cached_glyphs_across_frames() {
-    let frame = frame(['a', 'b', ' ', 'a', 'b', ' ']);
+    let frame = full_frame(['a', 'b', ' ', 'a', 'b', ' ']);
     let mut cache = TerminalGpuSceneCache::new();
 
     let first = cache.prepare(&frame, TEST_WIDTH, TEST_HEIGHT);
@@ -25,7 +25,27 @@ fn gpu_scene_reuses_cached_glyphs_across_frames() {
     assert_eq!(cache.cached_glyph_count(), 2);
 }
 
-fn frame(chars: [char; (TEST_ROWS as usize) * (TEST_COLS as usize)]) -> TerminalFrame {
+#[test]
+fn gpu_scene_applies_partial_updates_over_cached_cells() {
+    let full = full_frame(['h', 'i', ' ', ' ', ' ', ' ']);
+    let partial = partial_frame(vec![TerminalCellUpdate {
+        row: 0,
+        col: 2,
+        cell: TerminalCell {
+            codepoint: '!',
+            ..TerminalCell::default()
+        },
+    }]);
+    let mut cache = TerminalGpuSceneCache::new();
+
+    let _ = cache.prepare(&full, TEST_WIDTH, TEST_HEIGHT);
+    let updated = cache.prepare(&partial, TEST_WIDTH, TEST_HEIGHT);
+
+    assert_eq!(updated.glyph_instances.len(), 3);
+    assert_eq!(cache.cached_glyph_count(), 3);
+}
+
+fn full_frame(chars: [char; (TEST_ROWS as usize) * (TEST_COLS as usize)]) -> TerminalFrame {
     let cells = chars
         .into_iter()
         .map(|codepoint| TerminalCell {
@@ -45,6 +65,29 @@ fn frame(chars: [char; (TEST_ROWS as usize) * (TEST_COLS as usize)]) -> Terminal
         bracketed_paste: false,
         display_offset: 0,
         damage: TerminalDamage::Full,
-        cells: Arc::<[TerminalCell]>::from(cells),
+        publication: TerminalCellPublication::Full(Arc::<[TerminalCell]>::from(cells)),
+    }
+}
+
+fn partial_frame(changes: Vec<TerminalCellUpdate>) -> TerminalFrame {
+    TerminalFrame {
+        rows: TEST_ROWS,
+        cols: TEST_COLS,
+        cursor: TerminalCursor {
+            row: 0,
+            col: 0,
+            shape: TerminalCursorShape::Hidden,
+        },
+        bracketed_paste: false,
+        display_offset: 0,
+        damage: TerminalDamage::Partial(
+            [TerminalDamageSpan {
+                row: 0,
+                left: 2,
+                right: 2,
+            }]
+            .into(),
+        ),
+        publication: TerminalCellPublication::Partial(Arc::<[TerminalCellUpdate]>::from(changes)),
     }
 }
