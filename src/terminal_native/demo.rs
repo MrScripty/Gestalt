@@ -1,4 +1,5 @@
 use super::controller::NativeTerminalController;
+use super::gpu_renderer::NativeTerminalGpuShared;
 use super::input::special_key_event_to_bytes;
 use super::paint::NativeTerminalPaintSource;
 use super::{
@@ -13,6 +14,7 @@ use dioxus_native::use_wgpu;
 pub fn TerminalNativeDemo(
     left: NativeTerminalController,
     right: NativeTerminalController,
+    shared_gpu: NativeTerminalGpuShared,
 ) -> Element {
     let status = format!("left:{}  right:{}", status_line(&left), status_line(&right));
 
@@ -37,10 +39,12 @@ pub fn TerminalNativeDemo(
                 TerminalNativePane {
                     title: "pane-1",
                     controller: left,
+                    shared_gpu: shared_gpu.clone(),
                 }
                 TerminalNativePane {
                     title: "pane-2",
                     controller: right,
+                    shared_gpu,
                 }
             }
         }
@@ -48,13 +52,19 @@ pub fn TerminalNativeDemo(
 }
 
 #[component]
-fn TerminalNativePane(title: &'static str, controller: NativeTerminalController) -> Element {
+fn TerminalNativePane(
+    title: &'static str,
+    controller: NativeTerminalController,
+    shared_gpu: NativeTerminalGpuShared,
+) -> Element {
     let mut input_buffer = use_signal(String::new);
     let paint_controller = controller.clone();
+    let paint_gpu = shared_gpu.clone();
     let key_controller = controller.clone();
     let input_controller = controller.clone();
-    let paint_source_id =
-        use_wgpu(move || NativeTerminalPaintSource::new(paint_controller.clone()));
+    let paint_source_id = use_wgpu(move || {
+        NativeTerminalPaintSource::new(paint_controller.clone(), paint_gpu.clone())
+    });
     let input_buffer_value = input_buffer.read().clone();
 
     rsx! {

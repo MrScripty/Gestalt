@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use bytemuck::{Pod, Zeroable};
 
-use super::glyph_atlas::GlyphAtlas;
+use super::glyph_atlas::{GlyphAtlas, SharedGlyphAtlas};
 use super::{
     TerminalCell, TerminalCellFlags, TerminalColor, TerminalCursor, TerminalCursorShape,
     TerminalFrame,
@@ -36,7 +36,7 @@ pub struct TerminalGpuSceneProfile {
 }
 
 pub struct TerminalGpuSceneCache {
-    atlas: GlyphAtlas,
+    atlas: SharedGlyphAtlas,
     cells: Vec<TerminalCell>,
     rows: u16,
     cols: u16,
@@ -50,8 +50,12 @@ pub struct TerminalGpuSceneCache {
 
 impl TerminalGpuSceneCache {
     pub fn new() -> Self {
+        Self::with_shared_atlas(SharedGlyphAtlas::new())
+    }
+
+    pub fn with_shared_atlas(atlas: SharedGlyphAtlas) -> Self {
         Self {
-            atlas: GlyphAtlas::new(),
+            atlas,
             cells: Vec::new(),
             rows: 0,
             cols: 0,
@@ -83,15 +87,19 @@ impl TerminalGpuSceneCache {
         let geometry_changed = self.cell_width != cell_width || self.cell_height != cell_height;
         self.cell_width = cell_width;
         self.cell_height = cell_height;
-        self.atlas.set_cell_size(cell_width, cell_height);
+        self.atlas
+            .with_mut(|atlas| atlas.set_cell_size(cell_width, cell_height));
         self.ensure_row_cache();
 
         let row_rebuild_started = Instant::now();
-        if geometry_changed || matches!(frame.damage, super::TerminalDamage::Full) {
-            self.rebuild_all_rows(frame);
-        } else {
-            self.rebuild_dirty_rows(frame);
-        }
+        let atlas = self.atlas.clone();
+        atlas.with_mut(|atlas| {
+            if geometry_changed || matches!(frame.damage, super::TerminalDamage::Full) {
+                self.rebuild_all_rows(frame, atlas);
+            } else {
+                self.rebuild_dirty_rows(frame, atlas);
+            }
+        });
         let row_rebuild_us = row_rebuild_started.elapsed().as_micros();
 
         let flatten_started = Instant::now();
@@ -137,12 +145,8 @@ impl TerminalGpuSceneCache {
         )
     }
 
-    pub fn atlas(&self) -> &GlyphAtlas {
-        &self.atlas
-    }
-
-    pub fn atlas_mut(&mut self) -> &mut GlyphAtlas {
-        &mut self.atlas
+    pub fn shared_atlas(&self) -> SharedGlyphAtlas {
+        self.atlas.clone()
     }
 
     pub fn cached_glyph_count(&self) -> usize {
@@ -189,13 +193,13 @@ impl TerminalGpuSceneCache {
         self.dirty_rows.resize(row_count, false);
     }
 
-    fn rebuild_all_rows(&mut self, frame: &TerminalFrame) {
+    fn rebuild_all_rows(&mut self, frame: &TerminalFrame, atlas: &mut GlyphAtlas) {
         for row in 0..self.rows {
-            self.rebuild_row(row, frame.cursor);
+            self.rebuild_row(row, frame.cursor, atlas);
         }
     }
 
-    fn rebuild_dirty_rows(&mut self, frame: &TerminalFrame) {
+    fn rebuild_dirty_rows(&mut self, frame: &TerminalFrame, atlas: &mut GlyphAtlas) {
         self.dirty_rows.fill(false);
 
         if let super::TerminalDamage::Partial(spans) = &frame.damage {
@@ -217,12 +221,12 @@ impl TerminalGpuSceneCache {
 
         for row in 0..self.dirty_rows.len() {
             if self.dirty_rows[row] {
-                self.rebuild_row(row as u16, frame.cursor);
+                self.rebuild_row(row as u16, frame.cursor, atlas);
             }
         }
     }
 
-    fn rebuild_row(&mut self, row: u16, cursor: TerminalCursor) {
+    fn rebuild_row(&mut self, row: u16, cursor: TerminalCursor, atlas: &mut GlyphAtlas) {
         let row_index = usize::from(row);
         let mut backgrounds = std::mem::take(&mut self.background_rows[row_index]);
         let mut glyphs = std::mem::take(&mut self.glyph_rows[row_index]);
@@ -249,7 +253,7 @@ impl TerminalGpuSceneCache {
 
             let rect = [x, row_y, cell_width, cell_height];
             if is_default_visible_cell(cell, cursor_here) {
-                let tile = self.atlas.ensure_glyph(cell.codepoint);
+                let tile = atlas.ensure_glyph(cell.codepoint);
                 if !tile.empty {
                     glyphs.push(QuadInstance::glyph(
                         rect,
@@ -261,7 +265,7 @@ impl TerminalGpuSceneCache {
                 continue;
             }
             if is_simple_foreground_cell(cell, cursor_here) {
-                let tile = self.atlas.ensure_glyph(cell.codepoint);
+                let tile = atlas.ensure_glyph(cell.codepoint);
                 if !tile.empty {
                     glyphs.push(QuadInstance::glyph(
                         rect,
@@ -287,7 +291,7 @@ impl TerminalGpuSceneCache {
                 continue;
             }
 
-            let tile = self.atlas.ensure_glyph(cell.codepoint);
+            let tile = atlas.ensure_glyph(cell.codepoint);
             if !tile.empty {
                 glyphs.push(QuadInstance::glyph(rect, rgba(fg), tile.uv_rect));
             }

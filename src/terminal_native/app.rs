@@ -4,6 +4,7 @@ use dioxus_native::Config;
 use super::constants::{WINDOW_HEIGHT_PX, WINDOW_TITLE, WINDOW_WIDTH_PX};
 use super::controller::NativeTerminalController;
 use super::demo::TerminalNativeDemo;
+use super::gpu_renderer::NativeTerminalGpuShared;
 
 pub fn launch_terminal_native_spike() {
     let attributes = dioxus_native::WindowAttributes::default()
@@ -31,11 +32,13 @@ fn TerminalNativeSpikeApp() -> Element {
             NativeTerminalController::spawn_for_current_dir(),
         ]
     });
+    let shared_gpu = use_hook(NativeTerminalGpuShared::default);
 
     rsx! {
         TerminalNativeDemo {
             left: controllers[0].clone(),
             right: controllers[1].clone(),
+            shared_gpu: shared_gpu.clone(),
         }
     }
 }

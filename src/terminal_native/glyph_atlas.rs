@@ -1,6 +1,8 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use ab_glyph::{Font, FontArc, PxScale, ScaleFont, point};
+use parking_lot::Mutex;
 
 use super::constants::ATLAS_TEXTURE_SIZE_PX;
 
@@ -25,6 +27,17 @@ pub struct GlyphAtlas {
     columns_per_row: u32,
     next_index: u32,
     dirty: bool,
+}
+
+#[derive(Clone)]
+pub struct SharedGlyphAtlas {
+    inner: Arc<Mutex<GlyphAtlas>>,
+}
+
+impl Default for SharedGlyphAtlas {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl GlyphAtlas {
@@ -175,6 +188,28 @@ impl GlyphAtlas {
             self.pixels[dst_start..dst_start + tile_row_bytes]
                 .copy_from_slice(&tile[src_start..src_start + tile_row_bytes]);
         }
+    }
+}
+
+impl SharedGlyphAtlas {
+    pub fn new() -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(GlyphAtlas::new())),
+        }
+    }
+
+    pub fn with<R>(&self, f: impl FnOnce(&GlyphAtlas) -> R) -> R {
+        let atlas = self.inner.lock();
+        f(&atlas)
+    }
+
+    pub fn with_mut<R>(&self, f: impl FnOnce(&mut GlyphAtlas) -> R) -> R {
+        let mut atlas = self.inner.lock();
+        f(&mut atlas)
+    }
+
+    pub fn cached_glyph_count(&self) -> usize {
+        self.with(GlyphAtlas::cached_glyph_count)
     }
 }
 

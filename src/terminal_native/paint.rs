@@ -1,10 +1,11 @@
 use dioxus_native::{CustomPaintCtx, CustomPaintSource, DeviceHandle, TextureHandle};
 
 use super::controller::NativeTerminalController;
-use super::gpu_renderer::NativeTerminalGpuRenderer;
+use super::gpu_renderer::{NativeTerminalGpuRenderer, NativeTerminalGpuShared};
 
 pub struct NativeTerminalPaintSource {
     controller: NativeTerminalController,
+    shared_gpu: NativeTerminalGpuShared,
     state: RendererState,
 }
 
@@ -14,9 +15,10 @@ enum RendererState {
 }
 
 impl NativeTerminalPaintSource {
-    pub fn new(controller: NativeTerminalController) -> Self {
+    pub fn new(controller: NativeTerminalController, shared_gpu: NativeTerminalGpuShared) -> Self {
         Self {
             controller,
+            shared_gpu,
             state: RendererState::Suspended,
         }
     }
@@ -24,7 +26,7 @@ impl NativeTerminalPaintSource {
 
 impl CustomPaintSource for NativeTerminalPaintSource {
     fn resume(&mut self, device_handle: &DeviceHandle) {
-        let renderer = NativeTerminalGpuRenderer::new(device_handle);
+        let renderer = NativeTerminalGpuRenderer::with_shared(&self.shared_gpu, device_handle);
         self.state = RendererState::Active(Box::new(renderer));
     }
 

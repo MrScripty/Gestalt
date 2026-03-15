@@ -1,7 +1,9 @@
 use bytemuck::cast_slice;
 use dioxus_native::{CustomPaintCtx, DeviceHandle, TextureHandle};
+use parking_lot::Mutex;
+use std::sync::Arc;
 use wgpu::{
-    BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor,
+    BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
     BindGroupLayoutEntry, BindingResource, BindingType, BlendState, Buffer, BufferAddress,
     BufferBindingType, BufferDescriptor, BufferUsages, Color, ColorTargetState, ColorWrites,
     CommandEncoderDescriptor, Device, Extent3d, FilterMode, FragmentState, FrontFace,
@@ -16,9 +18,10 @@ use wgpu::{
 };
 
 use super::constants::{
-    ATLAS_TEXTURE_LABEL, GLYPH_PIPELINE_LABEL, GLYPH_SHADER_LABEL, INSTANCE_BUFFER_LABEL,
-    TEXTURE_LABEL, UNIFORM_BUFFER_LABEL,
+    ATLAS_TEXTURE_LABEL, ATLAS_TEXTURE_SIZE_PX, GLYPH_PIPELINE_LABEL, GLYPH_SHADER_LABEL,
+    INSTANCE_BUFFER_LABEL, TEXTURE_LABEL, UNIFORM_BUFFER_LABEL,
 };
+use super::glyph_atlas::SharedGlyphAtlas;
 use super::gpu_scene::{QuadInstance, TerminalGpuSceneCache};
 
 const DEFAULT_CLEAR: Color = Color {
@@ -29,12 +32,9 @@ const DEFAULT_CLEAR: Color = Color {
 };
 
 pub struct NativeTerminalGpuRenderer {
-    device: Device,
-    queue: Queue,
-    pipeline: RenderPipeline,
+    core: Arc<SharedGpuRendererCore>,
     bind_group: BindGroup,
     uniform_buffer: Buffer,
-    atlas_texture: Texture,
     output: Option<OutputTexture>,
     background_buffer: Option<InstanceBuffer>,
     glyph_buffer: Option<InstanceBuffer>,
@@ -55,23 +55,94 @@ struct InstanceBuffer {
     capacity: usize,
 }
 
+#[derive(Clone, Default)]
+pub struct NativeTerminalGpuShared {
+    core: Arc<Mutex<Option<Arc<SharedGpuRendererCore>>>>,
+}
+
+impl PartialEq for NativeTerminalGpuShared {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.core, &other.core)
+    }
+}
+
+impl Eq for NativeTerminalGpuShared {}
+
+struct SharedGpuRendererCore {
+    device: Device,
+    queue: Queue,
+    pipeline: RenderPipeline,
+    bind_group_layout: BindGroupLayout,
+    sampler: wgpu::Sampler,
+    atlas: SharedGlyphAtlas,
+    atlas_texture: Texture,
+    atlas_view: TextureView,
+}
+
 impl NativeTerminalGpuRenderer {
-    pub fn new(device_handle: &DeviceHandle) -> Self {
+    fn new(core: Arc<SharedGpuRendererCore>) -> Self {
+        let uniform_buffer = core
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some(UNIFORM_BUFFER_LABEL),
+                contents: cast_slice(&[[1.0f32, 1.0, 0.0, 0.0]]),
+                usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+            });
+        let bind_group = core.device.create_bind_group(&BindGroupDescriptor {
+            label: Some(GLYPH_PIPELINE_LABEL),
+            layout: &core.bind_group_layout,
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: uniform_buffer.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: BindingResource::TextureView(&core.atlas_view),
+                },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: BindingResource::Sampler(&core.sampler),
+                },
+            ],
+        });
+
+        Self {
+            core: core.clone(),
+            bind_group,
+            uniform_buffer,
+            output: None,
+            background_buffer: None,
+            glyph_buffer: None,
+            overlay_buffer: None,
+            scene_cache: TerminalGpuSceneCache::with_shared_atlas(core.atlas.clone()),
+            last_revision: 0,
+            last_size: (0, 0),
+        }
+    }
+
+    pub fn with_shared(shared: &NativeTerminalGpuShared, device_handle: &DeviceHandle) -> Self {
+        Self::new(shared.acquire(device_handle))
+    }
+}
+
+impl NativeTerminalGpuShared {
+    fn acquire(&self, device_handle: &DeviceHandle) -> Arc<SharedGpuRendererCore> {
+        let mut guard = self.core.lock();
+        if let Some(core) = guard.as_ref() {
+            return Arc::clone(core);
+        }
+
         let device = device_handle.device.clone();
         let queue = device_handle.queue.clone();
-        let scene_cache = TerminalGpuSceneCache::new();
-        let atlas_texture = create_atlas_texture(&device, scene_cache.atlas().atlas_size());
+        let atlas = SharedGlyphAtlas::new();
+        let atlas_texture = create_atlas_texture(&device, ATLAS_TEXTURE_SIZE_PX);
         let atlas_view = atlas_texture.create_view(&TextureViewDescriptor::default());
         let sampler = device.create_sampler(&SamplerDescriptor {
             label: Some(ATLAS_TEXTURE_LABEL),
             mag_filter: FilterMode::Linear,
             min_filter: FilterMode::Linear,
             ..Default::default()
-        });
-        let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(UNIFORM_BUFFER_LABEL),
-            contents: cast_slice(&[[1.0f32, 1.0, 0.0, 0.0]]),
-            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
         });
         let bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             label: Some(GLYPH_PIPELINE_LABEL),
@@ -101,24 +172,6 @@ impl NativeTerminalGpuRenderer {
                     visibility: ShaderStages::FRAGMENT,
                     ty: BindingType::Sampler(SamplerBindingType::Filtering),
                     count: None,
-                },
-            ],
-        });
-        let bind_group = device.create_bind_group(&BindGroupDescriptor {
-            label: Some(GLYPH_PIPELINE_LABEL),
-            layout: &bind_group_layout,
-            entries: &[
-                BindGroupEntry {
-                    binding: 0,
-                    resource: uniform_buffer.as_entire_binding(),
-                },
-                BindGroupEntry {
-                    binding: 1,
-                    resource: BindingResource::TextureView(&atlas_view),
-                },
-                BindGroupEntry {
-                    binding: 2,
-                    resource: BindingResource::Sampler(&sampler),
                 },
             ],
         });
@@ -183,23 +236,22 @@ impl NativeTerminalGpuRenderer {
             cache: None,
         });
 
-        Self {
+        let core = Arc::new(SharedGpuRendererCore {
             device,
             queue,
             pipeline,
-            bind_group,
-            uniform_buffer,
+            bind_group_layout,
+            sampler,
+            atlas,
             atlas_texture,
-            output: None,
-            background_buffer: None,
-            glyph_buffer: None,
-            overlay_buffer: None,
-            scene_cache,
-            last_revision: 0,
-            last_size: (0, 0),
-        }
+            atlas_view,
+        });
+        *guard = Some(Arc::clone(&core));
+        core
     }
+}
 
+impl NativeTerminalGpuRenderer {
     pub fn render(
         &mut self,
         ctx: &mut CustomPaintCtx<'_>,
@@ -212,51 +264,58 @@ impl NativeTerminalGpuRenderer {
             return None;
         }
 
-        let output = ensure_output_texture(ctx, &self.device, &mut self.output, width, height);
+        let device = self.core.device.clone();
+        let queue = self.core.queue.clone();
+        let pipeline = self.core.pipeline.clone();
+        let bind_group = self.bind_group.clone();
+        let (output_view, output_handle) = {
+            let output = ensure_output_texture(ctx, &device, &mut self.output, width, height);
+            (output.view.clone(), output.handle.clone())
+        };
         let needs_redraw = self.last_revision != revision || self.last_size != (width, height);
         if !needs_redraw {
-            return Some(output.handle.clone());
+            return Some(output_handle);
         }
 
         let scene = self.scene_cache.prepare(frame, width, height);
-        if self.scene_cache.atlas().is_dirty() {
-            self.queue.write_texture(
-                TexelCopyTextureInfo {
-                    texture: &self.atlas_texture,
-                    mip_level: 0,
-                    origin: Origin3d::ZERO,
-                    aspect: TextureAspect::All,
-                },
-                self.scene_cache.atlas().pixels(),
-                TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(self.scene_cache.atlas().atlas_size()),
-                    rows_per_image: Some(self.scene_cache.atlas().atlas_size()),
-                },
-                Extent3d {
-                    width: self.scene_cache.atlas().atlas_size(),
-                    height: self.scene_cache.atlas().atlas_size(),
-                    depth_or_array_layers: 1,
-                },
-            );
-            self.scene_cache.atlas_mut().mark_uploaded();
-        }
+        self.core.atlas.with_mut(|atlas| {
+            if atlas.is_dirty() {
+                queue.write_texture(
+                    TexelCopyTextureInfo {
+                        texture: &self.core.atlas_texture,
+                        mip_level: 0,
+                        origin: Origin3d::ZERO,
+                        aspect: TextureAspect::All,
+                    },
+                    atlas.pixels(),
+                    TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(atlas.atlas_size()),
+                        rows_per_image: Some(atlas.atlas_size()),
+                    },
+                    Extent3d {
+                        width: atlas.atlas_size(),
+                        height: atlas.atlas_size(),
+                        depth_or_array_layers: 1,
+                    },
+                );
+                atlas.mark_uploaded();
+            }
+        });
 
-        self.queue.write_buffer(
+        queue.write_buffer(
             &self.uniform_buffer,
             0,
             cast_slice(&[[width as f32, height as f32, 0.0, 0.0]]),
         );
-        let mut encoder = self
-            .device
-            .create_command_encoder(&CommandEncoderDescriptor {
-                label: Some(TEXTURE_LABEL),
-            });
+        let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+            label: Some(TEXTURE_LABEL),
+        });
         {
             let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
                 label: Some(TEXTURE_LABEL),
                 color_attachments: &[Some(RenderPassColorAttachment {
-                    view: &output.view,
+                    view: &output_view,
                     resolve_target: None,
                     depth_slice: None,
                     ops: wgpu::Operations {
@@ -268,36 +327,36 @@ impl NativeTerminalGpuRenderer {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
-            pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &self.bind_group, &[]);
+            pass.set_pipeline(&pipeline);
+            pass.set_bind_group(0, &bind_group, &[]);
             draw_instances(
-                &self.device,
-                &self.queue,
+                &device,
+                &queue,
                 &mut self.background_buffer,
                 &scene.background_instances,
                 &mut pass,
             );
             draw_instances(
-                &self.device,
-                &self.queue,
+                &device,
+                &queue,
                 &mut self.glyph_buffer,
                 &scene.glyph_instances,
                 &mut pass,
             );
             draw_instances(
-                &self.device,
-                &self.queue,
+                &device,
+                &queue,
                 &mut self.overlay_buffer,
                 &scene.overlay_instances,
                 &mut pass,
             );
         }
 
-        self.queue.submit(Some(encoder.finish()));
+        queue.submit(Some(encoder.finish()));
         self.last_revision = revision;
         self.last_size = (width, height);
 
-        Some(output.handle.clone())
+        Some(output_handle)
     }
 }
 

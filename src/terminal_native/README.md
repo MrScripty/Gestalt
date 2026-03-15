@@ -60,6 +60,7 @@ renderer.
 - The emulator publishes immutable frames as either a full cell snapshot or a partial row-span update set.
 - Full publication is required on resize, full damage, or display-offset changes.
 - The GPU renderer owns atlas textures, pipelines, and output texture lifecycle.
+- Panes in the same native window share one GPU renderer core and one glyph atlas cache instead of constructing separate atlas textures and pipelines per pane.
 - Renderer-side caches may retain prior immutable state, but they only apply published changes and never mutate emulator-owned state.
 
 ## Revisit Triggers
@@ -81,6 +82,9 @@ cargo run --features terminal-native-spike --bin terminal_native_spike
 ## Current Constraints
 - The hot render path now uses a bundled DejaVu Sans Mono glyph atlas, but it
   still assumes fixed terminal cells rather than full text shaping.
+- The current shared glyph atlas assumes panes in the same window converge on
+  the same fixed cell metrics; materially different pane cell sizes would
+  thrash the shared atlas and need a keyed atlas pool instead.
 - Selection, mouse reporting, clipboard integration, and IME are intentionally
   out of scope for this spike.
 - Keyboard capture still relies on an invisible full-surface input overlay
