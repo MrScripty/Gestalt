@@ -21,10 +21,10 @@ pub struct QuadInstance {
     pub uv_rect: [f32; 4],
 }
 
-pub struct TerminalGpuScene {
-    pub background_instances: Vec<QuadInstance>,
-    pub glyph_instances: Vec<QuadInstance>,
-    pub overlay_instances: Vec<QuadInstance>,
+pub struct TerminalGpuScene<'a> {
+    pub background_instances: &'a [QuadInstance],
+    pub glyph_instances: &'a [QuadInstance],
+    pub overlay_instances: &'a [QuadInstance],
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -43,6 +43,9 @@ pub struct TerminalGpuSceneCache {
     background_rows: Vec<Vec<QuadInstance>>,
     glyph_rows: Vec<Vec<QuadInstance>>,
     dirty_rows: Vec<bool>,
+    flat_backgrounds: Vec<QuadInstance>,
+    flat_glyphs: Vec<QuadInstance>,
+    flat_overlays: Vec<QuadInstance>,
     last_cursor: Option<TerminalCursor>,
     cell_width: u32,
     cell_height: u32,
@@ -62,13 +65,21 @@ impl TerminalGpuSceneCache {
             background_rows: Vec::new(),
             glyph_rows: Vec::new(),
             dirty_rows: Vec::new(),
+            flat_backgrounds: Vec::new(),
+            flat_glyphs: Vec::new(),
+            flat_overlays: Vec::new(),
             last_cursor: None,
             cell_width: 1,
             cell_height: 1,
         }
     }
 
-    pub fn prepare(&mut self, frame: &TerminalFrame, width: u32, height: u32) -> TerminalGpuScene {
+    pub fn prepare(
+        &mut self,
+        frame: &TerminalFrame,
+        width: u32,
+        height: u32,
+    ) -> TerminalGpuScene<'_> {
         self.prepare_profiled(frame, width, height).0
     }
 
@@ -77,7 +88,7 @@ impl TerminalGpuSceneCache {
         frame: &TerminalFrame,
         width: u32,
         height: u32,
-    ) -> (TerminalGpuScene, TerminalGpuSceneProfile) {
+    ) -> (TerminalGpuScene<'_>, TerminalGpuSceneProfile) {
         let apply_frame_started = Instant::now();
         self.apply_frame(frame);
         let apply_frame_us = apply_frame_started.elapsed().as_micros();
@@ -113,28 +124,36 @@ impl TerminalGpuSceneCache {
             .iter()
             .map(std::vec::Vec::len)
             .sum::<usize>();
-        let mut backgrounds = Vec::with_capacity(background_count);
-        let mut glyphs = Vec::with_capacity(glyph_count);
-        let mut overlays = Vec::with_capacity(8);
+        self.flat_backgrounds.clear();
+        self.flat_glyphs.clear();
+        self.flat_overlays.clear();
+        self.flat_backgrounds.reserve(background_count);
+        self.flat_glyphs.reserve(glyph_count);
+        self.flat_overlays.reserve(8);
 
         for row in &self.background_rows {
-            backgrounds.extend_from_slice(row);
+            self.flat_backgrounds.extend_from_slice(row);
         }
         for row in &self.glyph_rows {
-            glyphs.extend_from_slice(row);
+            self.flat_glyphs.extend_from_slice(row);
         }
         let flatten_us = flatten_started.elapsed().as_micros();
 
         let overlay_started = Instant::now();
-        extend_cursor_instances(&mut overlays, frame, cell_width as f32, cell_height as f32);
+        extend_cursor_instances(
+            &mut self.flat_overlays,
+            frame,
+            cell_width as f32,
+            cell_height as f32,
+        );
         let overlay_us = overlay_started.elapsed().as_micros();
         self.last_cursor = Some(frame.cursor);
 
         (
             TerminalGpuScene {
-                background_instances: backgrounds,
-                glyph_instances: glyphs,
-                overlay_instances: overlays,
+                background_instances: self.flat_backgrounds.as_slice(),
+                glyph_instances: self.flat_glyphs.as_slice(),
+                overlay_instances: self.flat_overlays.as_slice(),
             },
             TerminalGpuSceneProfile {
                 apply_frame_us,
