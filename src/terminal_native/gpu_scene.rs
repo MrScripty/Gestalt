@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::Instant;
 
 use bytemuck::{Pod, Zeroable};
@@ -40,6 +41,7 @@ pub struct TerminalGpuSceneProfile {
 pub struct TerminalGpuSceneCache {
     atlas: SharedGlyphAtlas,
     cells: Vec<TerminalCell>,
+    shared_full_cells: Option<Arc<[TerminalCell]>>,
     rows: u16,
     cols: u16,
     background_rows: Vec<Vec<QuadInstance>>,
@@ -62,6 +64,7 @@ impl TerminalGpuSceneCache {
         Self {
             atlas,
             cells: Vec::new(),
+            shared_full_cells: None,
             rows: 0,
             cols: 0,
             background_rows: Vec::new(),
@@ -182,6 +185,7 @@ impl TerminalGpuSceneCache {
         if self.rows != frame.rows || self.cols != frame.cols {
             self.rows = frame.rows;
             self.cols = frame.cols;
+            self.shared_full_cells = None;
             self.cells
                 .resize(cell_count(frame.rows, frame.cols), TerminalCell::default());
             self.background_rows
@@ -191,14 +195,12 @@ impl TerminalGpuSceneCache {
             self.dirty_rows.resize(usize::from(frame.rows), false);
         }
 
-        if let Some(cells) = frame.full_cells() {
-            if self.cells.len() != cells.len() {
-                self.cells.resize(cells.len(), TerminalCell::default());
-            }
-            self.cells.clone_from_slice(cells);
+        if let Some(cells) = frame.full_cells_shared() {
+            self.shared_full_cells = Some(Arc::clone(cells));
             return;
         }
 
+        self.materialize_shared_full_cells();
         if let Some(changes) = frame.changed_spans() {
             for change in changes.spans() {
                 let start =
@@ -220,20 +222,29 @@ impl TerminalGpuSceneCache {
         self.dirty_rows.resize(row_count, false);
     }
 
+    fn materialize_shared_full_cells(&mut self) {
+        let Some(cells) = self.shared_full_cells.take() else {
+            return;
+        };
+
+        if self.cells.len() != cells.len() {
+            self.cells.resize(cells.len(), TerminalCell::default());
+        }
+        self.cells.clone_from_slice(cells.as_ref());
+    }
+
     fn rebuild_all_rows(&mut self, frame: &TerminalFrame, atlas: &mut GlyphAtlas) -> u32 {
         let row_count = usize::from(self.rows);
         let cols = usize::from(self.cols);
         let cell_width = self.cell_width as f32;
         let cell_height = self.cell_height as f32;
+        let cells = self.shared_full_cells.as_deref().unwrap_or(self.cells.as_slice());
 
-        for (row_index, (row_cells, (backgrounds, glyphs))) in self
-            .cells
-            .chunks_exact(cols)
-            .zip(
-                self.background_rows
-                    .iter_mut()
-                    .zip(self.glyph_rows.iter_mut()),
-            )
+        for (row_index, ((backgrounds, glyphs), row_cells)) in self
+            .background_rows
+            .iter_mut()
+            .zip(self.glyph_rows.iter_mut())
+            .zip(cells.chunks_exact(cols))
             .enumerate()
             .take(row_count)
         {
@@ -291,7 +302,12 @@ impl TerminalGpuSceneCache {
         };
         let row_start = usize::from(row) * usize::from(self.cols);
         let row_end = row_start + usize::from(self.cols);
-        let Some(row_cells) = self.cells.get(row_start..row_end) else {
+        let Some(row_cells) = self
+            .shared_full_cells
+            .as_deref()
+            .unwrap_or(self.cells.as_slice())
+            .get(row_start..row_end)
+        else {
             return;
         };
         rebuild_row_cells(

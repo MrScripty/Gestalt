@@ -13,6 +13,13 @@ pub struct TerminalFrame {
 }
 
 impl TerminalFrame {
+    pub fn full_cells_shared(&self) -> Option<&Arc<[TerminalCell]>> {
+        match &self.publication {
+            TerminalCellPublication::Full(cells) => Some(cells),
+            TerminalCellPublication::Partial(_) => None,
+        }
+    }
+
     pub fn full_cells(&self) -> Option<&[TerminalCell]> {
         match &self.publication {
             TerminalCellPublication::Full(cells) => Some(cells.as_ref()),
@@ -39,7 +46,7 @@ impl TerminalFrame {
 /// Immutable terminal cell publication for a single frame.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TerminalCellPublication {
-    Full(Box<[TerminalCell]>),
+    Full(Arc<[TerminalCell]>),
     Partial(TerminalCellSpanBatch),
 }
 

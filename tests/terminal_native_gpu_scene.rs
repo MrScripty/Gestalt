@@ -107,7 +107,7 @@ fn frame_with_cursor(
         bracketed_paste: false,
         display_offset: 0,
         damage: TerminalDamage::Full,
-        publication: TerminalCellPublication::Full(cells.into_boxed_slice()),
+        publication: TerminalCellPublication::Full(cells.into_boxed_slice().into()),
     }
 }
 

@@ -216,7 +216,8 @@ mod tests {
                         ..TerminalCell::default()
                     },
                 ]
-                .into_boxed_slice(),
+                .into_boxed_slice()
+                .into(),
             ),
         };
 

@@ -376,7 +376,8 @@ impl TerminalManager {
             damage: TerminalDamage::Full,
             publication: TerminalCellPublication::Full(
                 vec![TerminalCell::default(); usize::from(rows) * usize::from(cols)]
-                    .into_boxed_slice(),
+                    .into_boxed_slice()
+                    .into(),
             ),
         });
         let frame_cache = Arc::new(RwLock::new(initial_frame));
@@ -884,7 +885,7 @@ fn materialize_native_frame(previous: &TerminalFrame, next: Arc<TerminalFrame>) 
                     target.clone_from_slice(changes.cells_for_span(span));
                 }
             }
-            TerminalCellPublication::Full(cells.into_boxed_slice())
+            TerminalCellPublication::Full(cells.into_boxed_slice().into())
         }
     };
 
@@ -1295,7 +1296,7 @@ mod tests {
             display_offset: 0,
             damage: TerminalDamage::Full,
             publication: TerminalCellPublication::Full(
-                vec![TerminalCell::default(); 2].into_boxed_slice(),
+                vec![TerminalCell::default(); 2].into_boxed_slice().into(),
             ),
         });
         let next = Arc::new(TerminalFrame {
@@ -1320,7 +1321,8 @@ mod tests {
                         ..TerminalCell::default()
                     },
                 ]
-                .into_boxed_slice(),
+                .into_boxed_slice()
+                .into(),
             ),
         });
 
@@ -1364,7 +1366,8 @@ mod tests {
                     TerminalCell::default(),
                     TerminalCell::default(),
                 ]
-                .into_boxed_slice(),
+                .into_boxed_slice()
+                .into(),
             ),
         };
 
