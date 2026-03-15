@@ -23,6 +23,7 @@
 | `insert_command_mode.rs` | Insert mode state and controls |
 | `local_agent_panel.rs` | Local agent control panel and run-start dispatch surface |
 | `native_crt.rs` | Native-only WGPU CRT overlay tied to the shell toggle |
+| `native_terminal/` | Native terminal pane pilot adapter and renderer-only pane body seam |
 | `run_review_panel.rs` | Latest run checkpoint review UI |
 | `run_sidebar_panel_host.rs` | Run-sidebar wrapper around the shared auxiliary dock host |
 | `sidebar_panel_host.rs` | Right-sidebar wrapper around the shared auxiliary dock host |

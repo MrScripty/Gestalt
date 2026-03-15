@@ -11,6 +11,8 @@ mod insert_command_mode;
 mod local_agent_panel;
 #[cfg(feature = "native-renderer")]
 mod native_crt;
+#[cfg(feature = "native-renderer")]
+mod native_terminal;
 mod notes_panel;
 mod run_review_panel;
 mod run_sidebar_panel_host;
