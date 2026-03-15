@@ -32,6 +32,7 @@ pub struct TerminalGpuSceneCache {
     cols: u16,
     background_rows: Vec<Vec<QuadInstance>>,
     glyph_rows: Vec<Vec<QuadInstance>>,
+    dirty_rows: Vec<bool>,
     last_cursor: Option<TerminalCursor>,
     cell_width: u32,
     cell_height: u32,
@@ -46,6 +47,7 @@ impl TerminalGpuSceneCache {
             cols: 0,
             background_rows: Vec::new(),
             glyph_rows: Vec::new(),
+            dirty_rows: Vec::new(),
             last_cursor: None,
             cell_width: 1,
             cell_height: 1,
@@ -121,6 +123,7 @@ impl TerminalGpuSceneCache {
                 .resize_with(usize::from(frame.rows), std::vec::Vec::new);
             self.glyph_rows
                 .resize_with(usize::from(frame.rows), std::vec::Vec::new);
+            self.dirty_rows.resize(usize::from(frame.rows), false);
         }
 
         if let Some(cells) = frame.full_cells() {
@@ -151,6 +154,7 @@ impl TerminalGpuSceneCache {
         self.background_rows
             .resize_with(row_count, std::vec::Vec::new);
         self.glyph_rows.resize_with(row_count, std::vec::Vec::new);
+        self.dirty_rows.resize(row_count, false);
     }
 
     fn rebuild_all_rows(&mut self, frame: &TerminalFrame) {
@@ -160,11 +164,11 @@ impl TerminalGpuSceneCache {
     }
 
     fn rebuild_dirty_rows(&mut self, frame: &TerminalFrame) {
-        let mut dirty_rows = vec![false; usize::from(self.rows)];
+        self.dirty_rows.fill(false);
 
         if let super::TerminalDamage::Partial(spans) = &frame.damage {
             for span in spans.iter() {
-                if let Some(dirty) = dirty_rows.get_mut(usize::from(span.row)) {
+                if let Some(dirty) = self.dirty_rows.get_mut(usize::from(span.row)) {
                     *dirty = true;
                 }
             }
@@ -172,23 +176,26 @@ impl TerminalGpuSceneCache {
 
         if let Some(previous_cursor) = self.last_cursor {
             if previous_cursor.row < self.rows {
-                dirty_rows[usize::from(previous_cursor.row)] = true;
+                self.dirty_rows[usize::from(previous_cursor.row)] = true;
             }
         }
         if frame.cursor.row < self.rows {
-            dirty_rows[usize::from(frame.cursor.row)] = true;
+            self.dirty_rows[usize::from(frame.cursor.row)] = true;
         }
 
-        for (row, dirty) in dirty_rows.into_iter().enumerate() {
-            if dirty {
+        for row in 0..self.dirty_rows.len() {
+            if self.dirty_rows[row] {
                 self.rebuild_row(row as u16, frame.cursor);
             }
         }
     }
 
     fn rebuild_row(&mut self, row: u16, cursor: TerminalCursor) {
-        let mut backgrounds = Vec::new();
-        let mut glyphs = Vec::new();
+        let row_index = usize::from(row);
+        let mut backgrounds = std::mem::take(&mut self.background_rows[row_index]);
+        let mut glyphs = std::mem::take(&mut self.glyph_rows[row_index]);
+        backgrounds.clear();
+        glyphs.clear();
 
         for col in 0..self.cols {
             let Some(cell) = self.cell(row, col) else {
@@ -216,10 +223,10 @@ impl TerminalGpuSceneCache {
             }
         }
 
-        if let Some(cached_backgrounds) = self.background_rows.get_mut(usize::from(row)) {
+        if let Some(cached_backgrounds) = self.background_rows.get_mut(row_index) {
             *cached_backgrounds = backgrounds;
         }
-        if let Some(cached_glyphs) = self.glyph_rows.get_mut(usize::from(row)) {
+        if let Some(cached_glyphs) = self.glyph_rows.get_mut(row_index) {
             *cached_glyphs = glyphs;
         }
     }
