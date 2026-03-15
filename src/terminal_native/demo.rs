@@ -106,12 +106,9 @@ fn TerminalNativePane(
 }
 
 fn status_line(controller: &NativeTerminalController) -> String {
-    let frame = controller.frame();
+    let summary = controller.summary();
     format!(
         "{}x{}  revision={}  closed={}",
-        frame.cols,
-        frame.rows,
-        controller.revision(),
-        controller.is_closed()
+        summary.cols, summary.rows, summary.revision, summary.closed
     )
 }

@@ -5,7 +5,9 @@ use super::constants::{
     CELL_HEIGHT_PX, CELL_WIDTH_PX, DEFAULT_SCROLLBACK, DEFAULT_SESSION_COLS, DEFAULT_SESSION_ROWS,
     MIN_TERMINAL_COLS, MIN_TERMINAL_ROWS,
 };
-use super::{NativeTerminalSession, NativeTerminalSessionConfig, TerminalFrame};
+use super::{
+    NativeTerminalSession, NativeTerminalSessionConfig, NativeTerminalSessionSummary, TerminalFrame,
+};
 
 #[derive(Clone)]
 pub struct NativeTerminalController {
@@ -54,8 +56,8 @@ impl NativeTerminalController {
         self.session.revision()
     }
 
-    pub fn is_closed(&self) -> bool {
-        self.session.is_closed()
+    pub fn summary(&self) -> NativeTerminalSessionSummary {
+        self.session.summary()
     }
 
     pub fn send_input(&self, bytes: &[u8]) {

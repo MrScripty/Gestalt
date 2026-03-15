@@ -28,4 +28,7 @@ pub use model::{
     TerminalDamageSpan, TerminalFrame,
 };
 pub use raster::TerminalRaster;
-pub use session::{NativeTerminalError, NativeTerminalSession, NativeTerminalSessionConfig};
+pub use session::{
+    NativeTerminalError, NativeTerminalSession, NativeTerminalSessionConfig,
+    NativeTerminalSessionSummary,
+};

@@ -1,6 +1,6 @@
 use std::io::{Read, Write};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU64, Ordering};
 use std::thread;
 
 use parking_lot::{Mutex, RwLock};
@@ -59,8 +59,18 @@ pub struct NativeTerminalSession {
 struct SharedSessionState {
     emulator: Mutex<AlacrittyEmulator>,
     frame: RwLock<Arc<TerminalFrame>>,
+    rows: AtomicU16,
+    cols: AtomicU16,
     revision: AtomicU64,
     closed: AtomicBool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NativeTerminalSessionSummary {
+    pub rows: u16,
+    pub cols: u16,
+    pub revision: u64,
+    pub closed: bool,
 }
 
 impl NativeTerminalSession {
@@ -100,6 +110,8 @@ impl NativeTerminalSession {
         let shared = Arc::new(SharedSessionState {
             emulator: Mutex::new(emulator),
             frame: RwLock::new(initial_frame),
+            rows: AtomicU16::new(config.rows),
+            cols: AtomicU16::new(config.cols),
             revision: AtomicU64::new(1),
             closed: AtomicBool::new(false),
         });
@@ -120,6 +132,15 @@ impl NativeTerminalSession {
 
     pub fn revision(&self) -> u64 {
         self.shared.revision.load(Ordering::Acquire)
+    }
+
+    pub fn summary(&self) -> NativeTerminalSessionSummary {
+        NativeTerminalSessionSummary {
+            rows: self.shared.rows.load(Ordering::Acquire),
+            cols: self.shared.cols.load(Ordering::Acquire),
+            revision: self.shared.revision.load(Ordering::Acquire),
+            closed: self.shared.closed.load(Ordering::Acquire),
+        }
     }
 
     pub fn is_closed(&self) -> bool {
@@ -191,6 +212,8 @@ fn spawn_reader_thread(
 }
 
 fn publish_frame(shared: &SharedSessionState, frame: TerminalFrame) {
+    shared.rows.store(frame.rows, Ordering::Release);
+    shared.cols.store(frame.cols, Ordering::Release);
     *shared.frame.write() = Arc::new(frame);
     shared.revision.fetch_add(1, Ordering::AcqRel);
 }
