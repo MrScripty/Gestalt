@@ -176,6 +176,7 @@ fn main() -> Result<(), String> {
             .map_err(|error| error.to_string())?;
     }
 
+    println!("Seeding terminal output...");
     seed_terminal_output(&terminal_manager, &session_ids, config.warmup_history_lines)?;
 
     println!(
@@ -187,12 +188,16 @@ fn main() -> Result<(), String> {
         config.warmup_history_lines
     );
 
+    println!("Profiling render hold...");
     let render_profile =
         profile_render_hold(&terminal_manager, &app_state, config.render_iterations);
+    println!("Profiling autosave hold...");
     let autosave_profile =
         profile_autosave_hold(&terminal_manager, &app_state, config.autosave_iterations);
+    println!("Profiling refresh loop...");
     let refresh_profile =
         profile_refresh_loop(&terminal_manager, &app_state, config.refresh_iterations);
+    println!("Profiling git watcher poll...");
     let git_watcher_poll_profile =
         profile_git_watcher_poll_cost(&cwd, config.git_watcher_poll_samples);
     let render_hold_stats = stats_from_sorted(&render_profile.hold_times_us);
@@ -214,10 +219,12 @@ fn main() -> Result<(), String> {
     let orchestrator_snapshot_build_stats =
         stats_from_sorted(&refresh_profile.orchestrator_snapshot_build_us);
     let git_watcher_poll_cost_stats = stats_from_sorted(&git_watcher_poll_profile);
+    println!("Profiling startup restore...");
     let startup_profile = profile_startup_restore(config.startup_samples)?;
     let startup_active_path_group_ready_stats =
         stats_from_sorted(&startup_profile.active_path_group_ready_us);
     let startup_full_restore_stats = stats_from_sorted(&startup_profile.full_restore_us);
+    println!("Profiling replay benchmark...");
     let replay_benchmark = profile_terminal_replay_benchmark(&config);
 
     println!();
@@ -370,6 +377,7 @@ fn main() -> Result<(), String> {
     );
     print_replay_benchmark(&replay_benchmark);
 
+    println!("Profiling baseline keypress latency...");
     let baseline =
         profile_typing_latency(&terminal_manager, session_ids[0], config.typing_samples)?;
     println!();
@@ -383,6 +391,7 @@ fn main() -> Result<(), String> {
         render_stop.clone(),
     );
     thread::sleep(Duration::from_millis(250));
+    println!("Profiling render contention keypress latency...");
     let render_contended =
         profile_typing_latency(&terminal_manager, session_ids[0], config.typing_samples)?;
     render_stop.store(true, Ordering::Relaxed);
@@ -405,6 +414,7 @@ fn main() -> Result<(), String> {
         autosave_stop.clone(),
     );
     thread::sleep(Duration::from_millis(250));
+    println!("Profiling render + autosave contention keypress latency...");
     let full_contended =
         profile_typing_latency(&terminal_manager, session_ids[0], config.typing_samples)?;
     render_stop.store(true, Ordering::Relaxed);
