@@ -171,6 +171,12 @@ pub(crate) fn terminal_shell(
         .copied()
         .unwrap_or(true);
     let ui_scale = app_state.read().ui_scale();
+    #[cfg(feature = "native-renderer")]
+    let native_frame = if native_terminal_active {
+        terminal_manager_for_keydown.native_frame_shared(session_id)
+    } else {
+        None
+    };
 
     {
         let body_mount = body_mount.clone();
@@ -193,6 +199,7 @@ pub(crate) fn terminal_shell(
         NativeTerminalBody {
             key: "native-terminal-{session_id}",
             terminal: terminal.clone(),
+            native_frame: native_frame.clone(),
             show_caret: show_caret,
         }
     };

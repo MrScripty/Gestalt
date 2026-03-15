@@ -1,4 +1,7 @@
 use crate::terminal::TerminalSnapshot;
+use crate::terminal_native::{
+    TerminalCell, TerminalCellFlags, TerminalCellPublication, TerminalCursorShape, TerminalFrame,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct NativeTerminalFrame {
@@ -62,6 +65,41 @@ impl NativeTerminalFrame {
         let index = usize::from(row) * usize::from(self.cols) + usize::from(col);
         self.cells.get(index).copied().unwrap_or_default()
     }
+
+    pub(crate) fn from_native_frame(frame: &TerminalFrame, show_cursor: bool) -> Self {
+        let rows = frame.rows.max(1);
+        let cols = frame.cols.max(1);
+        let mut cells = vec![NativeTerminalCell::default(); usize::from(rows) * usize::from(cols)];
+
+        if let Some(full_cells) = full_cells(frame) {
+            for row in 0..rows {
+                let row_offset = usize::from(row) * usize::from(cols);
+                for col in 0..cols {
+                    let index = row_offset + usize::from(col);
+                    if let Some(cell) = full_cells.get(index) {
+                        cells[index] = NativeTerminalCell {
+                            codepoint: native_codepoint(cell),
+                        };
+                    }
+                }
+            }
+        }
+
+        let cursor = show_cursor
+            .then_some(frame.cursor)
+            .filter(|cursor| !matches!(cursor.shape, TerminalCursorShape::Hidden))
+            .map(|cursor| NativeTerminalCursor {
+                row: cursor.row.min(rows.saturating_sub(1)),
+                col: cursor.col.min(cols.saturating_sub(1)),
+            });
+
+        Self {
+            rows,
+            cols,
+            cells,
+            cursor,
+        }
+    }
 }
 
 fn visible_window(snapshot: &TerminalSnapshot, rows: u16) -> &[String] {
@@ -70,10 +108,34 @@ fn visible_window(snapshot: &TerminalSnapshot, rows: u16) -> &[String] {
     &snapshot.lines[window_start..]
 }
 
+fn full_cells(frame: &TerminalFrame) -> Option<&[TerminalCell]> {
+    match &frame.publication {
+        TerminalCellPublication::Full(cells) => Some(cells.as_ref()),
+        TerminalCellPublication::Partial(_) => None,
+    }
+}
+
+fn native_codepoint(cell: &TerminalCell) -> char {
+    if cell.flags.contains(TerminalCellFlags::HIDDEN)
+        || cell.flags.contains(TerminalCellFlags::WIDE_CHAR_SPACER)
+        || cell
+            .flags
+            .contains(TerminalCellFlags::LEADING_WIDE_CHAR_SPACER)
+    {
+        ' '
+    } else {
+        cell.codepoint
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::NativeTerminalFrame;
     use crate::terminal::TerminalSnapshot;
+    use crate::terminal_native::{
+        TerminalCell, TerminalCellFlags, TerminalCellPublication, TerminalCursor,
+        TerminalCursorShape, TerminalDamage, TerminalFrame,
+    };
 
     #[test]
     fn frame_uses_last_visible_rows() {
@@ -111,5 +173,58 @@ mod tests {
         let cursor = frame.cursor.unwrap();
         assert_eq!(cursor.row, 0);
         assert_eq!(cursor.col, 2);
+    }
+
+    #[test]
+    fn frame_builds_cells_from_native_frame() {
+        let frame = TerminalFrame {
+            rows: 2,
+            cols: 3,
+            cursor: TerminalCursor {
+                row: 1,
+                col: 2,
+                shape: TerminalCursorShape::Block,
+            },
+            bracketed_paste: false,
+            display_offset: 0,
+            damage: TerminalDamage::Full,
+            publication: TerminalCellPublication::Full(
+                vec![
+                    TerminalCell {
+                        codepoint: 'a',
+                        ..TerminalCell::default()
+                    },
+                    TerminalCell {
+                        codepoint: 'b',
+                        ..TerminalCell::default()
+                    },
+                    TerminalCell {
+                        codepoint: 'c',
+                        ..TerminalCell::default()
+                    },
+                    TerminalCell {
+                        codepoint: 'd',
+                        ..TerminalCell::default()
+                    },
+                    TerminalCell {
+                        codepoint: 'e',
+                        flags: TerminalCellFlags::HIDDEN,
+                        ..TerminalCell::default()
+                    },
+                    TerminalCell {
+                        codepoint: 'f',
+                        ..TerminalCell::default()
+                    },
+                ]
+                .into_boxed_slice(),
+            ),
+        };
+
+        let native = NativeTerminalFrame::from_native_frame(&frame, true);
+
+        assert_eq!(native.cell(0, 0).codepoint, 'a');
+        assert_eq!(native.cell(1, 1).codepoint, ' ');
+        assert_eq!(native.cursor.unwrap().row, 1);
+        assert_eq!(native.cursor.unwrap().col, 2);
     }
 }
