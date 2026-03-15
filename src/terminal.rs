@@ -1,4 +1,9 @@
 use crate::state::SessionId;
+#[cfg(feature = "terminal-native-spike")]
+use crate::terminal_native::{
+    NativeTerminalSession, NativeTerminalSessionConfig, TerminalCell, TerminalCellFlags,
+    TerminalCellPublication, TerminalCursorShape, TerminalDamage, TerminalFrame,
+};
 use parking_lot::{Mutex, RwLock};
 use portable_pty::{CommandBuilder, MasterPty, NativePtySystem, PtySize, PtySystem};
 use serde::{Deserialize, Serialize};
@@ -18,6 +23,8 @@ const DEFAULT_SCROLLBACK: usize = 12_000;
 const MIN_ROWS: u16 = 2;
 const MIN_COLS: u16 = 8;
 const MAX_PERSISTED_HISTORY_LINES: usize = 20_000;
+#[cfg(feature = "terminal-native-spike")]
+const NATIVE_TERMINAL_BACKEND_ENV_VAR: &str = "GESTALT_NATIVE_TERMINAL_BACKEND";
 
 /// Render-ready terminal frame data extracted from VT state.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -102,17 +109,33 @@ pub trait TerminalMemorySink: Send + Sync {
 }
 
 struct TerminalRuntime {
-    master: Mutex<Box<dyn MasterPty + Send>>,
-    child: Mutex<Box<dyn portable_pty::Child + Send>>,
-    writer: Mutex<Box<dyn Write + Send>>,
-    parser: Arc<Mutex<Parser>>,
-    scrollback: Arc<RwLock<ScrollbackBuffer>>,
+    backend: TerminalRuntimeBackend,
     cwd: Arc<RwLock<String>>,
     input_pending: Mutex<Vec<u8>>,
     memory_sink: Option<Arc<dyn TerminalMemorySink>>,
     snapshot_cache: Arc<RwLock<Arc<TerminalSnapshot>>>,
     snapshot_revision: Arc<AtomicU64>,
     last_activity_unix_ms: Arc<AtomicI64>,
+}
+
+enum TerminalRuntimeBackend {
+    Legacy(LegacyTerminalRuntime),
+    #[cfg(feature = "terminal-native-spike")]
+    Native(NativeTerminalRuntime),
+}
+
+struct LegacyTerminalRuntime {
+    master: Mutex<Box<dyn MasterPty + Send>>,
+    child: Mutex<Box<dyn portable_pty::Child + Send>>,
+    writer: Mutex<Box<dyn Write + Send>>,
+    parser: Arc<Mutex<Parser>>,
+    scrollback: Arc<RwLock<ScrollbackBuffer>>,
+}
+
+#[cfg(feature = "terminal-native-spike")]
+struct NativeTerminalRuntime {
+    session: NativeTerminalSession,
+    frame_cache: Arc<RwLock<Arc<TerminalFrame>>>,
 }
 
 struct ReaderThreadContext {
@@ -143,6 +166,13 @@ enum EscapeParseState {
     Csi,
     Osc,
     OscEsc,
+}
+
+struct TerminalStartupState {
+    restored: Option<PersistedTerminalState>,
+    cwd: String,
+    rows: u16,
+    cols: u16,
 }
 
 impl TerminalManager {
@@ -179,6 +209,17 @@ impl TerminalManager {
             return Ok(());
         }
 
+        let startup = self.session_startup_state(session_id, cwd);
+
+        #[cfg(feature = "terminal-native-spike")]
+        if native_terminal_backend_enabled() {
+            return self.ensure_native_session(session_id, startup);
+        }
+
+        self.ensure_legacy_session(session_id, startup)
+    }
+
+    fn session_startup_state(&self, session_id: SessionId, cwd: &str) -> TerminalStartupState {
         let restored = self.pending_restore.lock().remove(&session_id);
         let session_cwd = restored
             .as_ref()
@@ -192,6 +233,25 @@ impl TerminalManager {
             .as_ref()
             .map_or(DEFAULT_COLS, |state| state.cols.max(MIN_COLS));
 
+        TerminalStartupState {
+            restored,
+            cwd: session_cwd,
+            rows,
+            cols,
+        }
+    }
+
+    fn ensure_legacy_session(
+        &self,
+        session_id: SessionId,
+        startup: TerminalStartupState,
+    ) -> Result<(), TerminalError> {
+        let TerminalStartupState {
+            restored,
+            cwd,
+            rows,
+            cols,
+        } = startup;
         let pty_system = NativePtySystem::default();
         let pair = pty_system
             .openpty(PtySize {
@@ -203,14 +263,14 @@ impl TerminalManager {
             .map_err(|error| TerminalError::CreatePty(error.to_string()))?;
 
         let mut command = CommandBuilder::new(&self.shell);
-        command.cwd(&session_cwd);
+        command.cwd(&cwd);
         command.env("TERM", "xterm-256color");
 
         let child =
             pair.slave
                 .spawn_command(command)
                 .map_err(|error| TerminalError::StartShell {
-                    cwd: cwd.to_string(),
+                    cwd: cwd.clone(),
                     details: error.to_string(),
                 })?;
 
@@ -235,7 +295,7 @@ impl TerminalManager {
 
         let parser = Arc::new(Mutex::new(parser));
         let scrollback = Arc::new(RwLock::new(ScrollbackBuffer::from_restored(restored_lines)));
-        let cwd = Arc::new(RwLock::new(session_cwd));
+        let cwd = Arc::new(RwLock::new(cwd));
         let initial_snapshot = {
             let parser = parser.lock();
             let scrollback = scrollback.read();
@@ -258,11 +318,13 @@ impl TerminalManager {
         });
 
         let runtime = Arc::new(TerminalRuntime {
-            master: Mutex::new(master),
-            child: Mutex::new(child),
-            writer: Mutex::new(writer),
-            parser,
-            scrollback,
+            backend: TerminalRuntimeBackend::Legacy(LegacyTerminalRuntime {
+                master: Mutex::new(master),
+                child: Mutex::new(child),
+                writer: Mutex::new(writer),
+                parser,
+                scrollback,
+            }),
             cwd,
             input_pending: Mutex::new(Vec::new()),
             memory_sink: self.memory_sink.clone(),
@@ -273,9 +335,115 @@ impl TerminalManager {
 
         let mut sessions = self.sessions.write();
         if sessions.contains_key(&session_id) {
-            let mut child = runtime.child.lock();
-            let _ = child.kill();
-            let _ = child.wait();
+            if let TerminalRuntimeBackend::Legacy(runtime) = &runtime.backend {
+                let mut child = runtime.child.lock();
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            return Ok(());
+        }
+        sessions.insert(session_id, runtime);
+
+        Ok(())
+    }
+
+    #[cfg(feature = "terminal-native-spike")]
+    fn ensure_native_session(
+        &self,
+        session_id: SessionId,
+        startup: TerminalStartupState,
+    ) -> Result<(), TerminalError> {
+        let TerminalStartupState {
+            restored,
+            cwd,
+            rows,
+            cols,
+        } = startup;
+
+        let cwd = Arc::new(RwLock::new(cwd));
+        let snapshot_revision = Arc::new(AtomicU64::new(1));
+        let last_activity_unix_ms = Arc::new(AtomicI64::new(0));
+        let initial_frame = Arc::new(TerminalFrame {
+            rows,
+            cols,
+            cursor: crate::terminal_native::TerminalCursor {
+                row: 0,
+                col: 0,
+                shape: TerminalCursorShape::Hidden,
+            },
+            bracketed_paste: false,
+            display_offset: 0,
+            damage: TerminalDamage::Full,
+            publication: TerminalCellPublication::Full(
+                vec![TerminalCell::default(); usize::from(rows) * usize::from(cols)]
+                    .into_boxed_slice(),
+            ),
+        });
+        let frame_cache = Arc::new(RwLock::new(initial_frame));
+        let restored_lines = restored
+            .as_ref()
+            .map(|state| state.lines.clone())
+            .unwrap_or_default();
+        let initial_snapshot =
+            compatibility_snapshot_from_native_frame(&frame_cache.read(), &restored_lines);
+        let snapshot_cache = Arc::new(RwLock::new(Arc::new(initial_snapshot)));
+
+        let frame_cache_for_callback = Arc::clone(&frame_cache);
+        let snapshot_cache_for_callback = Arc::clone(&snapshot_cache);
+        let snapshot_revision_for_callback = Arc::clone(&snapshot_revision);
+        let last_activity_for_callback = Arc::clone(&last_activity_unix_ms);
+        let event_tx = self.events.clone();
+        let session = NativeTerminalSession::spawn_with_callback(
+            NativeTerminalSessionConfig {
+                cwd: cwd.read().clone(),
+                rows,
+                cols,
+                scrollback: DEFAULT_SCROLLBACK,
+            },
+            Some(Arc::new(move |frame| {
+                let full_frame =
+                    materialize_native_frame(frame_cache_for_callback.read().as_ref(), &frame);
+                *frame_cache_for_callback.write() = Arc::clone(&full_frame);
+                *snapshot_cache_for_callback.write() =
+                    Arc::new(compatibility_snapshot_from_native_frame(&full_frame, &[]));
+                snapshot_revision_for_callback.fetch_add(1, Ordering::Relaxed);
+                last_activity_for_callback.store(current_unix_ms(), Ordering::Relaxed);
+                let _ = event_tx.send(TerminalEvent {
+                    session_id,
+                    kind: TerminalEventKind::Activity,
+                });
+                let _ = event_tx.send(TerminalEvent {
+                    session_id,
+                    kind: TerminalEventKind::SnapshotChanged,
+                });
+            })),
+        )
+        .map_err(map_native_terminal_error)?;
+
+        let full_frame =
+            materialize_native_frame(frame_cache.read().as_ref(), &session.current_frame());
+        *frame_cache.write() = Arc::clone(&full_frame);
+        *snapshot_cache.write() = Arc::new(compatibility_snapshot_from_native_frame(
+            &full_frame,
+            &restored_lines,
+        ));
+        last_activity_unix_ms.store(session.last_activity_unix_ms(), Ordering::Relaxed);
+
+        let runtime = Arc::new(TerminalRuntime {
+            backend: TerminalRuntimeBackend::Native(NativeTerminalRuntime {
+                session,
+                frame_cache,
+            }),
+            cwd,
+            input_pending: Mutex::new(Vec::new()),
+            memory_sink: self.memory_sink.clone(),
+            snapshot_cache,
+            snapshot_revision,
+            last_activity_unix_ms,
+        });
+
+        let mut sessions = self.sessions.write();
+        if sessions.contains_key(&session_id) {
             return Ok(());
         }
         sessions.insert(session_id, runtime);
@@ -299,15 +467,52 @@ impl TerminalManager {
             .session_runtime(session_id)
             .ok_or(TerminalError::SessionMissing)?;
         let lock_started = Instant::now();
-        let mut writer = runtime.writer.lock();
-        let lock_wait = lock_started.elapsed();
+        match &runtime.backend {
+            TerminalRuntimeBackend::Legacy(runtime_backend) => {
+                let mut writer = runtime_backend.writer.lock();
+                let lock_wait = lock_started.elapsed();
 
-        writer
-            .write_all(input)
-            .map_err(|error| TerminalError::WriteInput(error.to_string()))?;
-        writer
-            .flush()
-            .map_err(|error| TerminalError::FlushInput(error.to_string()))?;
+                writer
+                    .write_all(input)
+                    .map_err(|error| TerminalError::WriteInput(error.to_string()))?;
+                writer
+                    .flush()
+                    .map_err(|error| TerminalError::FlushInput(error.to_string()))?;
+                runtime
+                    .last_activity_unix_ms
+                    .store(current_unix_ms(), Ordering::Relaxed);
+                self.publish_event(TerminalEvent {
+                    session_id,
+                    kind: TerminalEventKind::Activity,
+                });
+
+                if let Some(memory_sink) = runtime.memory_sink.as_ref() {
+                    let mut pending = runtime.input_pending.lock();
+                    let lines = parse_input_lines(&mut pending, input);
+                    if !lines.is_empty() {
+                        let cwd = runtime.cwd.read().clone();
+                        let now_ms = current_unix_ms();
+                        for line in lines {
+                            memory_sink.record_input_line(session_id, &cwd, line, now_ms);
+                        }
+                    }
+                }
+
+                return Ok(SendInputProfile {
+                    lock_wait,
+                    total: started.elapsed(),
+                });
+            }
+            #[cfg(feature = "terminal-native-spike")]
+            TerminalRuntimeBackend::Native(runtime_backend) => {
+                runtime_backend
+                    .session
+                    .send_input(input)
+                    .map_err(map_native_terminal_error)?;
+            }
+        }
+
+        let lock_wait = lock_started.elapsed();
         runtime
             .last_activity_unix_ms
             .store(current_unix_ms(), Ordering::Relaxed);
@@ -369,6 +574,17 @@ impl TerminalManager {
         Some(runtime.snapshot_cache.read().clone())
     }
 
+    #[cfg(feature = "terminal-native-spike")]
+    pub fn native_frame_shared(&self, session_id: SessionId) -> Option<Arc<TerminalFrame>> {
+        let runtime = self.session_runtime(session_id)?;
+        match &runtime.backend {
+            TerminalRuntimeBackend::Legacy(_) => None,
+            TerminalRuntimeBackend::Native(runtime_backend) => {
+                Some(runtime_backend.frame_cache.read().clone())
+            }
+        }
+    }
+
     /// Returns a persistence-friendly snapshot for the given session.
     /// History lines are intentionally omitted; Emily is the source of truth.
     pub fn snapshot_for_persist(&self, session_id: SessionId) -> Option<PersistedTerminalState> {
@@ -419,19 +635,39 @@ impl TerminalManager {
         }
 
         if let Some(runtime) = self.session_runtime(session_id) {
-            let parser = runtime.parser.lock();
-            let inserted = {
-                let mut scrollback = runtime.scrollback.write();
-                prepend_history_lines_limited(
-                    &mut scrollback.lines,
-                    older_lines,
-                    MAX_PERSISTED_HISTORY_LINES,
-                )
+            let inserted = match &runtime.backend {
+                TerminalRuntimeBackend::Legacy(runtime_backend) => {
+                    let parser = runtime_backend.parser.lock();
+                    let inserted = {
+                        let mut scrollback = runtime_backend.scrollback.write();
+                        prepend_history_lines_limited(
+                            &mut scrollback.lines,
+                            older_lines,
+                            MAX_PERSISTED_HISTORY_LINES,
+                        )
+                    };
+                    if inserted > 0 {
+                        let scrollback = runtime_backend.scrollback.read();
+                        let snapshot = terminal_snapshot_from_parser(&parser, &scrollback.lines);
+                        *runtime.snapshot_cache.write() = Arc::new(snapshot);
+                    }
+                    inserted
+                }
+                #[cfg(feature = "terminal-native-spike")]
+                TerminalRuntimeBackend::Native(_) => {
+                    let mut snapshot = runtime.snapshot_cache.read().as_ref().clone();
+                    let inserted = prepend_history_lines_limited(
+                        &mut snapshot.lines,
+                        older_lines,
+                        MAX_PERSISTED_HISTORY_LINES,
+                    );
+                    if inserted > 0 {
+                        *runtime.snapshot_cache.write() = Arc::new(snapshot);
+                    }
+                    inserted
+                }
             };
             if inserted > 0 {
-                let scrollback = runtime.scrollback.read();
-                let snapshot = terminal_snapshot_from_parser(&parser, &scrollback.lines);
-                *runtime.snapshot_cache.write() = Arc::new(snapshot);
                 runtime.snapshot_revision.fetch_add(1, Ordering::Relaxed);
                 self.publish_event(TerminalEvent {
                     session_id,
@@ -466,22 +702,40 @@ impl TerminalManager {
 
         let rows = rows.max(MIN_ROWS);
         let cols = cols.max(MIN_COLS);
-        runtime
-            .master
-            .lock()
-            .resize(PtySize {
-                rows,
-                cols,
-                pixel_width: 0,
-                pixel_height: 0,
-            })
-            .map_err(|error| TerminalError::ResizePty(error.to_string()))?;
+        match &runtime.backend {
+            TerminalRuntimeBackend::Legacy(runtime_backend) => {
+                runtime_backend
+                    .master
+                    .lock()
+                    .resize(PtySize {
+                        rows,
+                        cols,
+                        pixel_width: 0,
+                        pixel_height: 0,
+                    })
+                    .map_err(|error| TerminalError::ResizePty(error.to_string()))?;
 
-        let mut parser = runtime.parser.lock();
-        parser.set_size(rows, cols);
-        let scrollback = runtime.scrollback.read();
-        let snapshot = terminal_snapshot_from_parser(&parser, &scrollback.lines);
-        *runtime.snapshot_cache.write() = Arc::new(snapshot);
+                let mut parser = runtime_backend.parser.lock();
+                parser.set_size(rows, cols);
+                let scrollback = runtime_backend.scrollback.read();
+                let snapshot = terminal_snapshot_from_parser(&parser, &scrollback.lines);
+                *runtime.snapshot_cache.write() = Arc::new(snapshot);
+            }
+            #[cfg(feature = "terminal-native-spike")]
+            TerminalRuntimeBackend::Native(runtime_backend) => {
+                runtime_backend
+                    .session
+                    .resize(rows, cols)
+                    .map_err(map_native_terminal_error)?;
+                let full_frame = materialize_native_frame(
+                    runtime_backend.frame_cache.read().as_ref(),
+                    &runtime_backend.session.current_frame(),
+                );
+                *runtime_backend.frame_cache.write() = Arc::clone(&full_frame);
+                *runtime.snapshot_cache.write() =
+                    Arc::new(compatibility_snapshot_from_native_frame(&full_frame, &[]));
+            }
+        }
         runtime.snapshot_revision.fetch_add(1, Ordering::Relaxed);
         self.publish_event(TerminalEvent {
             session_id,
@@ -500,7 +754,13 @@ impl TerminalManager {
     /// Returns the root shell process identifier for a running session.
     pub fn session_process_id(&self, session_id: SessionId) -> Option<u32> {
         let runtime = self.session_runtime(session_id)?;
-        runtime.child.lock().process_id()
+        match &runtime.backend {
+            TerminalRuntimeBackend::Legacy(runtime_backend) => {
+                runtime_backend.child.lock().process_id()
+            }
+            #[cfg(feature = "terminal-native-spike")]
+            TerminalRuntimeBackend::Native(runtime_backend) => runtime_backend.session.process_id(),
+        }
     }
 
     /// Terminates and unregisters a session runtime if it exists.
@@ -512,9 +772,11 @@ impl TerminalManager {
             return false;
         };
 
-        let mut child = runtime.child.lock();
-        let _ = child.kill();
-        let _ = child.wait();
+        if let TerminalRuntimeBackend::Legacy(runtime_backend) = &runtime.backend {
+            let mut child = runtime_backend.child.lock();
+            let _ = child.kill();
+            let _ = child.wait();
+        }
         true
     }
 
@@ -554,10 +816,148 @@ impl Drop for TerminalManager {
             .map(|(_, runtime)| runtime)
             .collect::<Vec<_>>();
         for runtime in runtimes {
-            let mut child = runtime.child.lock();
-            let _ = child.kill();
-            let _ = child.wait();
+            if let TerminalRuntimeBackend::Legacy(runtime_backend) = &runtime.backend {
+                let mut child = runtime_backend.child.lock();
+                let _ = child.kill();
+                let _ = child.wait();
+            }
         }
+    }
+}
+
+#[cfg(feature = "terminal-native-spike")]
+fn native_terminal_backend_enabled() -> bool {
+    std::env::var(NATIVE_TERMINAL_BACKEND_ENV_VAR)
+        .ok()
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
+
+#[cfg(feature = "terminal-native-spike")]
+fn map_native_terminal_error(error: crate::terminal_native::NativeTerminalError) -> TerminalError {
+    match error {
+        crate::terminal_native::NativeTerminalError::CreatePty(details) => {
+            TerminalError::CreatePty(details)
+        }
+        crate::terminal_native::NativeTerminalError::StartShell { cwd, details } => {
+            TerminalError::StartShell { cwd, details }
+        }
+        crate::terminal_native::NativeTerminalError::OpenWriter(details) => {
+            TerminalError::OpenWriter(details)
+        }
+        crate::terminal_native::NativeTerminalError::OpenReader(details) => {
+            TerminalError::OpenReader(details)
+        }
+        crate::terminal_native::NativeTerminalError::WriteInput(details) => {
+            TerminalError::WriteInput(details)
+        }
+        crate::terminal_native::NativeTerminalError::FlushInput(details) => {
+            TerminalError::FlushInput(details)
+        }
+        crate::terminal_native::NativeTerminalError::ResizePty(details) => {
+            TerminalError::ResizePty(details)
+        }
+    }
+}
+
+#[cfg(feature = "terminal-native-spike")]
+fn materialize_native_frame(previous: &TerminalFrame, next: &TerminalFrame) -> Arc<TerminalFrame> {
+    let publication = match &next.publication {
+        TerminalCellPublication::Full(cells) => TerminalCellPublication::Full(cells.clone()),
+        TerminalCellPublication::Partial(changes) => {
+            let mut cells = previous
+                .full_cells()
+                .map(|cells| cells.to_vec())
+                .unwrap_or_else(|| {
+                    vec![TerminalCell::default(); usize::from(next.rows) * usize::from(next.cols)]
+                });
+            let width = usize::from(next.cols);
+            for span in changes.spans() {
+                let start = usize::from(span.row) * width + usize::from(span.left);
+                let end = start + usize::from(span.len);
+                if let Some(target) = cells.get_mut(start..end) {
+                    target.clone_from_slice(changes.cells_for_span(span));
+                }
+            }
+            TerminalCellPublication::Full(cells.into_boxed_slice())
+        }
+    };
+
+    Arc::new(TerminalFrame {
+        rows: next.rows,
+        cols: next.cols,
+        cursor: next.cursor,
+        bracketed_paste: next.bracketed_paste,
+        display_offset: next.display_offset,
+        damage: next.damage.clone(),
+        publication,
+    })
+}
+
+#[cfg(feature = "terminal-native-spike")]
+fn compatibility_snapshot_from_native_frame(
+    frame: &TerminalFrame,
+    restored_lines: &[String],
+) -> TerminalSnapshot {
+    let visible_lines = frame_visible_lines(frame);
+    let lines = if restored_lines.is_empty() {
+        visible_lines.clone()
+    } else {
+        let restored = normalized_history_lines(restored_lines);
+        merge_scrollback_with_visible(&restored, &visible_lines)
+    };
+    let visible_start = lines.len().saturating_sub(visible_lines.len());
+
+    TerminalSnapshot {
+        lines,
+        rows: frame.rows,
+        cols: frame.cols,
+        cursor_row: u16::try_from(visible_start + usize::from(frame.cursor.row))
+            .unwrap_or(u16::MAX),
+        cursor_col: frame.cursor.col.min(frame.cols.saturating_sub(1)),
+        hide_cursor: matches!(frame.cursor.shape, TerminalCursorShape::Hidden),
+        bracketed_paste: frame.bracketed_paste,
+    }
+}
+
+#[cfg(feature = "terminal-native-spike")]
+fn frame_visible_lines(frame: &TerminalFrame) -> Vec<String> {
+    let mut lines = Vec::with_capacity(usize::from(frame.rows));
+    let cells = frame.full_cells();
+
+    for row in 0..frame.rows {
+        let mut line = String::with_capacity(usize::from(frame.cols));
+        for col in 0..frame.cols {
+            let codepoint = cells
+                .and_then(|cells| {
+                    cells.get(usize::from(row) * usize::from(frame.cols) + usize::from(col))
+                })
+                .map(project_native_snapshot_char)
+                .unwrap_or(' ');
+            line.push(codepoint);
+        }
+        lines.push(line.trim_end_matches(' ').to_string());
+    }
+
+    lines
+}
+
+#[cfg(feature = "terminal-native-spike")]
+fn project_native_snapshot_char(cell: &TerminalCell) -> char {
+    if cell.flags.contains(TerminalCellFlags::HIDDEN)
+        || cell.flags.contains(TerminalCellFlags::WIDE_CHAR_SPACER)
+        || cell
+            .flags
+            .contains(TerminalCellFlags::LEADING_WIDE_CHAR_SPACER)
+    {
+        ' '
+    } else {
+        cell.codepoint
     }
 }
 

@@ -6,7 +6,13 @@ description = "Desktop workspace for coordinating large terminal fleets"
 
 [features]
 default = []
-native-renderer = ["dep:ab_glyph", "dep:bytemuck", "dep:dioxus-native", "dep:wgpu"]
+native-renderer = [
+    "terminal-native-spike",
+    "dep:ab_glyph",
+    "dep:bytemuck",
+    "dep:dioxus-native",
+    "dep:wgpu",
+]
 terminal-native-spike = [
     "dep:alacritty_terminal",
     "dep:ab_glyph",

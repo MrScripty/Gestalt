@@ -1,7 +1,8 @@
 use std::io::{Read, Write};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU16, AtomicU64, Ordering};
 use std::thread;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use parking_lot::{Mutex, RwLock};
 use portable_pty::{CommandBuilder, MasterPty, NativePtySystem, PtySize, PtySystem};
@@ -9,6 +10,8 @@ use thiserror::Error;
 
 use super::emulator::{AlacrittyEmulator, AlacrittyEmulatorConfig};
 use super::model::TerminalFrame;
+
+type FramePublishedCallback = Arc<dyn Fn(Arc<TerminalFrame>) + Send + Sync>;
 
 /// Startup parameters for the single-session native terminal spike runtime.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -62,7 +65,9 @@ struct SharedSessionState {
     rows: AtomicU16,
     cols: AtomicU16,
     revision: AtomicU64,
+    last_activity_unix_ms: AtomicI64,
     closed: AtomicBool,
+    frame_published: Option<FramePublishedCallback>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,6 +80,13 @@ pub struct NativeTerminalSessionSummary {
 
 impl NativeTerminalSession {
     pub fn spawn(config: NativeTerminalSessionConfig) -> Result<Self, NativeTerminalError> {
+        Self::spawn_with_callback(config, None)
+    }
+
+    pub fn spawn_with_callback(
+        config: NativeTerminalSessionConfig,
+        frame_published: Option<FramePublishedCallback>,
+    ) -> Result<Self, NativeTerminalError> {
         let pty_system = NativePtySystem::default();
         let pair = pty_system
             .openpty(PtySize {
@@ -113,7 +125,9 @@ impl NativeTerminalSession {
             rows: AtomicU16::new(config.rows),
             cols: AtomicU16::new(config.cols),
             revision: AtomicU64::new(1),
+            last_activity_unix_ms: AtomicI64::new(0),
             closed: AtomicBool::new(false),
+            frame_published,
         });
 
         spawn_reader_thread(reader, Arc::clone(&shared));
@@ -134,6 +148,10 @@ impl NativeTerminalSession {
         self.shared.revision.load(Ordering::Acquire)
     }
 
+    pub fn last_activity_unix_ms(&self) -> i64 {
+        self.shared.last_activity_unix_ms.load(Ordering::Acquire)
+    }
+
     pub fn summary(&self) -> NativeTerminalSessionSummary {
         NativeTerminalSessionSummary {
             rows: self.shared.rows.load(Ordering::Acquire),
@@ -147,6 +165,10 @@ impl NativeTerminalSession {
         self.shared.closed.load(Ordering::Acquire)
     }
 
+    pub fn process_id(&self) -> Option<u32> {
+        self.child.lock().process_id()
+    }
+
     pub fn send_input(&self, bytes: &[u8]) -> Result<(), NativeTerminalError> {
         let mut writer = self.writer.lock();
         writer
@@ -154,7 +176,11 @@ impl NativeTerminalSession {
             .map_err(|error| NativeTerminalError::WriteInput(error.to_string()))?;
         writer
             .flush()
-            .map_err(|error| NativeTerminalError::FlushInput(error.to_string()))
+            .map_err(|error| NativeTerminalError::FlushInput(error.to_string()))?;
+        self.shared
+            .last_activity_unix_ms
+            .store(current_unix_ms(), Ordering::Release);
+        Ok(())
     }
 
     pub fn resize(&self, rows: u16, cols: u16) -> Result<bool, NativeTerminalError> {
@@ -200,7 +226,13 @@ fn spawn_reader_thread(
                 Ok(count) => {
                     let mut emulator = shared.emulator.lock();
                     emulator.ingest(&buffer[..count]);
-                    publish_frame(&shared, emulator.snapshot());
+                    shared
+                        .last_activity_unix_ms
+                        .store(current_unix_ms(), Ordering::Release);
+                    let frame = publish_frame(&shared, emulator.snapshot());
+                    if let Some(callback) = shared.frame_published.as_ref() {
+                        callback(frame);
+                    }
                 }
                 Err(_) => {
                     shared.closed.store(true, Ordering::Release);
@@ -211,9 +243,18 @@ fn spawn_reader_thread(
     })
 }
 
-fn publish_frame(shared: &SharedSessionState, frame: TerminalFrame) {
+fn publish_frame(shared: &SharedSessionState, frame: TerminalFrame) -> Arc<TerminalFrame> {
     shared.rows.store(frame.rows, Ordering::Release);
     shared.cols.store(frame.cols, Ordering::Release);
-    *shared.frame.write() = Arc::new(frame);
+    let frame = Arc::new(frame);
+    *shared.frame.write() = Arc::clone(&frame);
     shared.revision.fetch_add(1, Ordering::AcqRel);
+    frame
+}
+
+fn current_unix_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as i64)
+        .unwrap_or(0)
 }
