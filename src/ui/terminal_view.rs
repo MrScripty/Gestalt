@@ -9,7 +9,7 @@ use crate::ui::insert_command_mode::{
 };
 #[cfg(feature = "native-renderer")]
 use crate::ui::native_terminal::{
-    NativeTerminalBody, native_terminal_pilot_active_for_selected_pane,
+    NativeTerminalBody, native_terminal_pilot_active_for_pane,
 };
 use crate::ui::terminal_input::{
     cursor_move_bytes, key_event_to_bytes, map_click_to_terminal_cell, read_clipboard_text,
@@ -72,7 +72,7 @@ pub(crate) fn terminal_shell(
     };
     #[cfg(feature = "native-renderer")]
     let native_terminal_active =
-        native_terminal_pilot_active_for_selected_pane(terminal_is_selected) && !crt_enabled;
+        native_terminal_pilot_active_for_pane(terminal_is_selected) && !crt_enabled;
     #[cfg(not(feature = "native-renderer"))]
     let native_terminal_active = false;
     let body_style = format!(
