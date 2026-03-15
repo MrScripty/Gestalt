@@ -39,7 +39,7 @@ impl TerminalFrame {
 /// Immutable terminal cell publication for a single frame.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TerminalCellPublication {
-    Full(Arc<[TerminalCell]>),
+    Full(Box<[TerminalCell]>),
     Partial(TerminalCellSpanBatch),
 }
 
@@ -160,12 +160,12 @@ pub struct TerminalCellSpanUpdate {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TerminalCellSpanBatch {
-    spans: Arc<[TerminalCellSpanUpdate]>,
-    cells: Arc<[TerminalCell]>,
+    spans: Box<[TerminalCellSpanUpdate]>,
+    cells: Box<[TerminalCell]>,
 }
 
 impl TerminalCellSpanBatch {
-    pub fn new(spans: Arc<[TerminalCellSpanUpdate]>, cells: Arc<[TerminalCell]>) -> Self {
+    pub fn new(spans: Box<[TerminalCellSpanUpdate]>, cells: Box<[TerminalCell]>) -> Self {
         Self { spans, cells }
     }
 

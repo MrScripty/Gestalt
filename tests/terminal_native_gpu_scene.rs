@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use gestalt::terminal_native::{
     TerminalCell, TerminalCellPublication, TerminalCellSpanBatch, TerminalCellSpanUpdate,
     TerminalCursor, TerminalCursorShape, TerminalDamage, TerminalDamageSpan, TerminalFrame,
@@ -95,7 +93,7 @@ fn frame_with_cursor(
         bracketed_paste: false,
         display_offset: 0,
         damage: TerminalDamage::Full,
-        publication: TerminalCellPublication::Full(Arc::<[TerminalCell]>::from(cells)),
+        publication: TerminalCellPublication::Full(cells.into_boxed_slice()),
     }
 }
 
@@ -119,8 +117,8 @@ fn partial_frame(spans: Vec<TerminalCellSpanUpdate>, cells: Vec<TerminalCell>) -
             .into(),
         ),
         publication: TerminalCellPublication::Partial(TerminalCellSpanBatch::new(
-            Arc::<[TerminalCellSpanUpdate]>::from(spans),
-            Arc::<[TerminalCell]>::from(cells),
+            spans.into_boxed_slice(),
+            cells.into_boxed_slice(),
         )),
     }
 }

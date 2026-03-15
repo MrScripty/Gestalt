@@ -218,9 +218,7 @@ fn build_publication(
     damage: &FrameDamage,
 ) -> TerminalCellPublication {
     match damage {
-        FrameDamage::Full => {
-            TerminalCellPublication::Full(Arc::<[TerminalCell]>::from(cells.to_vec()))
-        }
+        FrameDamage::Full => TerminalCellPublication::Full(cells.to_vec().into_boxed_slice()),
         FrameDamage::Partial(spans) => {
             TerminalCellPublication::Partial(collect_changed_spans(cells, size, spans))
         }
@@ -344,7 +342,10 @@ fn collect_changed_spans(
         });
     }
 
-    TerminalCellSpanBatch::new(change_spans.into(), changed_cells.into())
+    TerminalCellSpanBatch::new(
+        change_spans.into_boxed_slice(),
+        changed_cells.into_boxed_slice(),
+    )
 }
 
 fn project_cell(cell: &Cell) -> TerminalCell {
