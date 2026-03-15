@@ -2,6 +2,8 @@ use gestalt::orchestrator;
 use gestalt::persistence;
 use gestalt::state::{AppState, SessionId};
 use gestalt::terminal::{TerminalManager, TerminalSnapshot};
+#[cfg(feature = "terminal-native-spike")]
+use gestalt::terminal_native::{AlacrittyEmulator, AlacrittyEmulatorConfig, TerminalGpuSceneCache};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::hint::black_box;
@@ -9,6 +11,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
+#[cfg(feature = "terminal-native-spike")]
+use vt100::Parser;
 
 const WARMUP_HISTORY_LINES: usize = 12_000;
 const HISTORY_LINE_WIDTH: usize = 96;
@@ -29,11 +33,129 @@ const GIT_WATCHER_POLL_SAMPLES: usize = 12;
 const STARTUP_PROFILE_SAMPLES: usize = 12;
 const STARTUP_PROFILE_EXTRA_GROUPS: usize = 4;
 const STARTUP_PROFILE_ACTIVE_GROUP_EXTRA_SESSIONS: usize = 2;
+#[cfg(feature = "terminal-native-spike")]
+const REPLAY_PROFILE_LINES: usize = 3_000;
+#[cfg(feature = "terminal-native-spike")]
+const REPLAY_PROFILE_ITERATIONS: usize = 24;
+#[cfg(feature = "terminal-native-spike")]
+const REPLAY_PROFILE_CHUNK_BYTES: usize = 512;
+#[cfg(feature = "terminal-native-spike")]
+const REPLAY_PROFILE_TERMINAL_COUNTS: &[usize] = &[1, 2, 4, 8];
+#[cfg(feature = "terminal-native-spike")]
+const REPLAY_PROFILE_ROWS: u16 = 42;
+#[cfg(feature = "terminal-native-spike")]
+const REPLAY_PROFILE_COLS: u16 = 140;
+#[cfg(feature = "terminal-native-spike")]
+const REPLAY_PROFILE_SCROLLBACK: usize = 12_000;
+
+#[cfg_attr(not(feature = "terminal-native-spike"), allow(dead_code))]
+struct ProfileConfig {
+    warmup_history_lines: usize,
+    typing_samples: usize,
+    render_iterations: usize,
+    autosave_iterations: usize,
+    refresh_iterations: usize,
+    git_watcher_poll_samples: usize,
+    startup_samples: usize,
+    replay_profile_lines: usize,
+    replay_profile_iterations: usize,
+    replay_profile_terminal_counts: Vec<usize>,
+}
+
+impl ProfileConfig {
+    fn from_env() -> Self {
+        Self {
+            warmup_history_lines: env_usize(
+                "GESTALT_PROFILE_WARMUP_HISTORY_LINES",
+                WARMUP_HISTORY_LINES,
+            ),
+            typing_samples: env_usize("GESTALT_PROFILE_TYPING_SAMPLES", TYPING_SAMPLES),
+            render_iterations: env_usize("GESTALT_PROFILE_RENDER_ITERATIONS", 180),
+            autosave_iterations: env_usize("GESTALT_PROFILE_AUTOSAVE_ITERATIONS", 36),
+            refresh_iterations: env_usize(
+                "GESTALT_PROFILE_REFRESH_ITERATIONS",
+                REFRESH_PROBE_ITERATIONS,
+            ),
+            git_watcher_poll_samples: env_usize(
+                "GESTALT_PROFILE_GIT_WATCHER_SAMPLES",
+                GIT_WATCHER_POLL_SAMPLES,
+            ),
+            startup_samples: env_usize("GESTALT_PROFILE_STARTUP_SAMPLES", STARTUP_PROFILE_SAMPLES),
+            replay_profile_lines: env_usize(
+                "GESTALT_PROFILE_REPLAY_LINES",
+                replay_profile_lines_default(),
+            ),
+            replay_profile_iterations: env_usize(
+                "GESTALT_PROFILE_REPLAY_ITERATIONS",
+                replay_profile_iterations_default(),
+            ),
+            replay_profile_terminal_counts: env_usize_list(
+                "GESTALT_PROFILE_REPLAY_TERMINAL_COUNTS",
+                replay_profile_terminal_counts_default(),
+            ),
+        }
+    }
+}
 
 fn main() -> Result<(), String> {
     let args = std::env::args().collect::<Vec<_>>();
     let assert_mode = args.iter().any(|arg| arg == "--assert");
     let json_mode = args.iter().any(|arg| arg == "--json");
+    let replay_only = args.iter().any(|arg| arg == "--replay-only");
+    let config = ProfileConfig::from_env();
+
+    if replay_only {
+        let replay_benchmark = profile_terminal_replay_benchmark(&config);
+        print_replay_benchmark(&replay_benchmark);
+        if json_mode {
+            let payload = serde_json::to_string(&ReplayOnlyProfileSummary {
+                replay_profile_lines: config.replay_profile_lines,
+                replay_profile_iterations: config.replay_profile_iterations,
+                replay_legacy_snapshot_build: replay_benchmark
+                    .as_ref()
+                    .map(|benchmark| benchmark.legacy_snapshot_build),
+                replay_legacy_row_render: replay_benchmark
+                    .as_ref()
+                    .map(|benchmark| benchmark.legacy_row_render),
+                replay_legacy_round_bounds: replay_benchmark
+                    .as_ref()
+                    .map(|benchmark| benchmark.legacy_round_bounds),
+                replay_native_snapshot_build: replay_benchmark
+                    .as_ref()
+                    .map(|benchmark| benchmark.native_snapshot_build),
+                replay_native_snapshot_damage_collect: replay_benchmark
+                    .as_ref()
+                    .map(|benchmark| benchmark.native_snapshot_damage_collect),
+                replay_native_snapshot_projection: replay_benchmark
+                    .as_ref()
+                    .map(|benchmark| benchmark.native_snapshot_projection),
+                replay_native_snapshot_publication: replay_benchmark
+                    .as_ref()
+                    .map(|benchmark| benchmark.native_snapshot_publication),
+                replay_native_render_apply_frame: replay_benchmark
+                    .as_ref()
+                    .map(|benchmark| benchmark.native_render_apply_frame),
+                replay_native_render_row_rebuild: replay_benchmark
+                    .as_ref()
+                    .map(|benchmark| benchmark.native_render_row_rebuild),
+                replay_native_render_flatten: replay_benchmark
+                    .as_ref()
+                    .map(|benchmark| benchmark.native_render_flatten),
+                replay_native_render_overlay: replay_benchmark
+                    .as_ref()
+                    .map(|benchmark| benchmark.native_render_overlay),
+                replay_native_raster_update: replay_benchmark
+                    .as_ref()
+                    .map(|benchmark| benchmark.native_raster_update),
+                replay_native_multi_terminal: replay_benchmark
+                    .as_ref()
+                    .map(|benchmark| benchmark.native_multi_terminal.clone()),
+            })
+            .map_err(|error| format!("failed to serialize replay-only summary: {error}"))?;
+            println!("{JSON_PREFIX}{payload}");
+        }
+        return Ok(());
+    }
 
     let app_state = Arc::new(AppState::default());
     let session_ids = app_state
@@ -54,19 +176,25 @@ fn main() -> Result<(), String> {
             .map_err(|error| error.to_string())?;
     }
 
-    seed_terminal_output(&terminal_manager, &session_ids)?;
+    seed_terminal_output(&terminal_manager, &session_ids, config.warmup_history_lines)?;
 
     println!(
         "Profiling keypress latency with {} samples...",
-        TYPING_SAMPLES
+        config.typing_samples
     );
-    println!("Warm terminal history lines: {}", WARMUP_HISTORY_LINES);
+    println!(
+        "Warm terminal history lines: {}",
+        config.warmup_history_lines
+    );
 
-    let render_profile = profile_render_hold(&terminal_manager, &app_state, 180);
-    let autosave_profile = profile_autosave_hold(&terminal_manager, &app_state, 36);
+    let render_profile =
+        profile_render_hold(&terminal_manager, &app_state, config.render_iterations);
+    let autosave_profile =
+        profile_autosave_hold(&terminal_manager, &app_state, config.autosave_iterations);
     let refresh_profile =
-        profile_refresh_loop(&terminal_manager, &app_state, REFRESH_PROBE_ITERATIONS);
-    let git_watcher_poll_profile = profile_git_watcher_poll_cost(&cwd, GIT_WATCHER_POLL_SAMPLES);
+        profile_refresh_loop(&terminal_manager, &app_state, config.refresh_iterations);
+    let git_watcher_poll_profile =
+        profile_git_watcher_poll_cost(&cwd, config.git_watcher_poll_samples);
     let render_hold_stats = stats_from_sorted(&render_profile.hold_times_us);
     let autosave_hold_stats = stats_from_sorted(&autosave_profile.hold_times_us);
     let ui_rows_rendered_stats = stats_from_sorted(&render_profile.ui_rows_rendered);
@@ -86,10 +214,11 @@ fn main() -> Result<(), String> {
     let orchestrator_snapshot_build_stats =
         stats_from_sorted(&refresh_profile.orchestrator_snapshot_build_us);
     let git_watcher_poll_cost_stats = stats_from_sorted(&git_watcher_poll_profile);
-    let startup_profile = profile_startup_restore(STARTUP_PROFILE_SAMPLES)?;
+    let startup_profile = profile_startup_restore(config.startup_samples)?;
     let startup_active_path_group_ready_stats =
         stats_from_sorted(&startup_profile.active_path_group_ready_us);
     let startup_full_restore_stats = stats_from_sorted(&startup_profile.full_restore_us);
+    let replay_benchmark = profile_terminal_replay_benchmark(&config);
 
     println!();
     println!("Mutex hold timings for heavy operations");
@@ -239,8 +368,10 @@ fn main() -> Result<(), String> {
         startup_full_restore_stats.p99_us,
         startup_full_restore_stats.max_us
     );
+    print_replay_benchmark(&replay_benchmark);
 
-    let baseline = profile_typing_latency(&terminal_manager, session_ids[0], TYPING_SAMPLES)?;
+    let baseline =
+        profile_typing_latency(&terminal_manager, session_ids[0], config.typing_samples)?;
     println!();
     println!("Scenario: baseline");
     baseline.print();
@@ -253,7 +384,7 @@ fn main() -> Result<(), String> {
     );
     thread::sleep(Duration::from_millis(250));
     let render_contended =
-        profile_typing_latency(&terminal_manager, session_ids[0], TYPING_SAMPLES)?;
+        profile_typing_latency(&terminal_manager, session_ids[0], config.typing_samples)?;
     render_stop.store(true, Ordering::Relaxed);
     let _ = render_worker.join();
 
@@ -274,7 +405,8 @@ fn main() -> Result<(), String> {
         autosave_stop.clone(),
     );
     thread::sleep(Duration::from_millis(250));
-    let full_contended = profile_typing_latency(&terminal_manager, session_ids[0], TYPING_SAMPLES)?;
+    let full_contended =
+        profile_typing_latency(&terminal_manager, session_ids[0], config.typing_samples)?;
     render_stop.store(true, Ordering::Relaxed);
     autosave_stop.store(true, Ordering::Relaxed);
     let _ = render_worker.join();
@@ -330,8 +462,8 @@ fn main() -> Result<(), String> {
     }
 
     let summary = ProfileSummary {
-        warmup_history_lines: WARMUP_HISTORY_LINES,
-        typing_samples: TYPING_SAMPLES,
+        warmup_history_lines: config.warmup_history_lines,
+        typing_samples: config.typing_samples,
         render_pass: render_hold_stats,
         autosave_pass: autosave_hold_stats,
         ui_rows_rendered_per_refresh: ui_rows_rendered_stats,
@@ -348,6 +480,42 @@ fn main() -> Result<(), String> {
         git_watcher_poll_cost: git_watcher_poll_cost_stats,
         startup_active_path_group_ready: startup_active_path_group_ready_stats,
         startup_full_restore: startup_full_restore_stats,
+        replay_legacy_snapshot_build: replay_benchmark
+            .as_ref()
+            .map(|benchmark| benchmark.legacy_snapshot_build),
+        replay_legacy_row_render: replay_benchmark
+            .as_ref()
+            .map(|benchmark| benchmark.legacy_row_render),
+        replay_legacy_round_bounds: replay_benchmark
+            .as_ref()
+            .map(|benchmark| benchmark.legacy_round_bounds),
+        replay_native_snapshot_build: replay_benchmark
+            .as_ref()
+            .map(|benchmark| benchmark.native_snapshot_build),
+        replay_native_snapshot_damage_collect: replay_benchmark
+            .as_ref()
+            .map(|benchmark| benchmark.native_snapshot_damage_collect),
+        replay_native_snapshot_projection: replay_benchmark
+            .as_ref()
+            .map(|benchmark| benchmark.native_snapshot_projection),
+        replay_native_snapshot_publication: replay_benchmark
+            .as_ref()
+            .map(|benchmark| benchmark.native_snapshot_publication),
+        replay_native_render_apply_frame: replay_benchmark
+            .as_ref()
+            .map(|benchmark| benchmark.native_render_apply_frame),
+        replay_native_render_row_rebuild: replay_benchmark
+            .as_ref()
+            .map(|benchmark| benchmark.native_render_row_rebuild),
+        replay_native_render_flatten: replay_benchmark
+            .as_ref()
+            .map(|benchmark| benchmark.native_render_flatten),
+        replay_native_render_overlay: replay_benchmark
+            .as_ref()
+            .map(|benchmark| benchmark.native_render_overlay),
+        replay_native_raster_update: replay_benchmark
+            .as_ref()
+            .map(|benchmark| benchmark.native_raster_update),
         autosave_snapshot_lines_total: autosave_snapshot_lines_stats,
         baseline_lock_wait: baseline.lock_wait_stats(),
         baseline_total_send: baseline.total_send_stats(),
@@ -371,6 +539,21 @@ fn main() -> Result<(), String> {
         git_watcher_poll_cost_p95_us: git_watcher_poll_cost_stats.p95_us,
         startup_active_path_group_ready_p95_us: startup_active_path_group_ready_stats.p95_us,
         startup_full_restore_p95_us: startup_full_restore_stats.p95_us,
+        replay_legacy_snapshot_build_p95_us: replay_benchmark
+            .as_ref()
+            .map(|benchmark| benchmark.legacy_snapshot_build.p95_us),
+        replay_legacy_row_render_p95_us: replay_benchmark
+            .as_ref()
+            .map(|benchmark| benchmark.legacy_row_render.p95_us),
+        replay_legacy_round_bounds_p95_us: replay_benchmark
+            .as_ref()
+            .map(|benchmark| benchmark.legacy_round_bounds.p95_us),
+        replay_native_snapshot_build_p95_us: replay_benchmark
+            .as_ref()
+            .map(|benchmark| benchmark.native_snapshot_build.p95_us),
+        replay_native_raster_update_p95_us: replay_benchmark
+            .as_ref()
+            .map(|benchmark| benchmark.native_raster_update.p95_us),
         autosave_snapshot_lines_total_p95: autosave_snapshot_lines_stats.p95_us,
         autosave_snapshot_build_p95_us: autosave_hold_stats.p95_us,
         baseline_total_send_p95_us: baseline.total_send_p95(),
@@ -396,10 +579,11 @@ fn main() -> Result<(), String> {
 fn seed_terminal_output(
     terminal_manager: &Arc<TerminalManager>,
     session_ids: &[SessionId],
+    warmup_history_lines: usize,
 ) -> Result<(), String> {
     let fill = "x".repeat(HISTORY_LINE_WIDTH);
-    let completion_marker = format!("{WARMUP_HISTORY_LINES} {fill}");
-    let command = format!("for i in $(seq 1 {WARMUP_HISTORY_LINES}); do echo \"$i {fill}\"; done");
+    let completion_marker = format!("{warmup_history_lines} {fill}");
+    let command = format!("for i in $(seq 1 {warmup_history_lines}); do echo \"$i {fill}\"; done");
 
     for session_id in session_ids {
         terminal_manager
@@ -1134,6 +1318,18 @@ struct ProfileSummary {
     git_watcher_poll_cost: DistributionStats,
     startup_active_path_group_ready: DistributionStats,
     startup_full_restore: DistributionStats,
+    replay_legacy_snapshot_build: Option<DistributionStats>,
+    replay_legacy_row_render: Option<DistributionStats>,
+    replay_legacy_round_bounds: Option<DistributionStats>,
+    replay_native_snapshot_build: Option<DistributionStats>,
+    replay_native_snapshot_damage_collect: Option<DistributionStats>,
+    replay_native_snapshot_projection: Option<DistributionStats>,
+    replay_native_snapshot_publication: Option<DistributionStats>,
+    replay_native_render_apply_frame: Option<DistributionStats>,
+    replay_native_render_row_rebuild: Option<DistributionStats>,
+    replay_native_render_flatten: Option<DistributionStats>,
+    replay_native_render_overlay: Option<DistributionStats>,
+    replay_native_raster_update: Option<DistributionStats>,
     autosave_snapshot_lines_total: DistributionStats,
     baseline_lock_wait: DistributionStats,
     baseline_total_send: DistributionStats,
@@ -1157,6 +1353,11 @@ struct ProfileSummary {
     git_watcher_poll_cost_p95_us: u128,
     startup_active_path_group_ready_p95_us: u128,
     startup_full_restore_p95_us: u128,
+    replay_legacy_snapshot_build_p95_us: Option<u128>,
+    replay_legacy_row_render_p95_us: Option<u128>,
+    replay_legacy_round_bounds_p95_us: Option<u128>,
+    replay_native_snapshot_build_p95_us: Option<u128>,
+    replay_native_raster_update_p95_us: Option<u128>,
     autosave_snapshot_lines_total_p95: u128,
     autosave_snapshot_build_p95_us: u128,
     baseline_total_send_p95_us: u128,
@@ -1164,6 +1365,25 @@ struct ProfileSummary {
     full_total_send_p95_us: u128,
     assert_mode: bool,
     assertions_passed: Option<bool>,
+}
+
+#[derive(Serialize)]
+struct ReplayOnlyProfileSummary {
+    replay_profile_lines: usize,
+    replay_profile_iterations: usize,
+    replay_legacy_snapshot_build: Option<DistributionStats>,
+    replay_legacy_row_render: Option<DistributionStats>,
+    replay_legacy_round_bounds: Option<DistributionStats>,
+    replay_native_snapshot_build: Option<DistributionStats>,
+    replay_native_snapshot_damage_collect: Option<DistributionStats>,
+    replay_native_snapshot_projection: Option<DistributionStats>,
+    replay_native_snapshot_publication: Option<DistributionStats>,
+    replay_native_render_apply_frame: Option<DistributionStats>,
+    replay_native_render_row_rebuild: Option<DistributionStats>,
+    replay_native_render_flatten: Option<DistributionStats>,
+    replay_native_render_overlay: Option<DistributionStats>,
+    replay_native_raster_update: Option<DistributionStats>,
+    replay_native_multi_terminal: Option<Vec<MultiTerminalReplaySummary>>,
 }
 
 struct LatencyProfile {
@@ -1222,6 +1442,492 @@ fn stats_from_sorted(values: &[u128]) -> DistributionStats {
     DistributionStats::from_sorted(values)
 }
 
+#[derive(Clone, Serialize)]
+struct ReplayBenchmarkSummary {
+    legacy_snapshot_build: DistributionStats,
+    legacy_row_render: DistributionStats,
+    legacy_round_bounds: DistributionStats,
+    native_snapshot_build: DistributionStats,
+    native_snapshot_damage_collect: DistributionStats,
+    native_snapshot_projection: DistributionStats,
+    native_snapshot_publication: DistributionStats,
+    native_render_apply_frame: DistributionStats,
+    native_render_row_rebuild: DistributionStats,
+    native_render_flatten: DistributionStats,
+    native_render_overlay: DistributionStats,
+    native_raster_update: DistributionStats,
+    native_multi_terminal: Vec<MultiTerminalReplaySummary>,
+}
+
+#[derive(Clone, Serialize)]
+struct MultiTerminalReplaySummary {
+    terminal_count: usize,
+    native_snapshot_wave: DistributionStats,
+    native_render_wave: DistributionStats,
+    native_total_wave: DistributionStats,
+}
+
+#[cfg(feature = "terminal-native-spike")]
+struct MultiTerminalReplayAccumulator {
+    terminal_count: usize,
+    native_snapshot_wave: Vec<u128>,
+    native_render_wave: Vec<u128>,
+    native_total_wave: Vec<u128>,
+}
+
+#[cfg(feature = "terminal-native-spike")]
+impl MultiTerminalReplayAccumulator {
+    fn new(terminal_count: usize) -> Self {
+        Self {
+            terminal_count,
+            native_snapshot_wave: Vec::new(),
+            native_render_wave: Vec::new(),
+            native_total_wave: Vec::new(),
+        }
+    }
+
+    fn run_iteration(&mut self, chunks: &[Vec<u8>]) {
+        let mut emulators = (0..self.terminal_count)
+            .map(|_| {
+                AlacrittyEmulator::new(AlacrittyEmulatorConfig {
+                    rows: REPLAY_PROFILE_ROWS,
+                    cols: REPLAY_PROFILE_COLS,
+                    scrollback: REPLAY_PROFILE_SCROLLBACK,
+                })
+            })
+            .collect::<Vec<_>>();
+        let mut scene_caches = (0..self.terminal_count)
+            .map(|_| TerminalGpuSceneCache::new())
+            .collect::<Vec<_>>();
+        let mut frames = Vec::with_capacity(self.terminal_count);
+
+        for chunk in chunks {
+            let snapshot_started = Instant::now();
+            frames.clear();
+            for emulator in &mut emulators {
+                emulator.ingest(chunk);
+                frames.push(emulator.snapshot());
+            }
+            let snapshot_elapsed = snapshot_started.elapsed().as_micros();
+
+            let render_started = Instant::now();
+            for (scene_cache, frame) in scene_caches.iter_mut().zip(frames.iter()) {
+                let _ = scene_cache.prepare(
+                    frame,
+                    u32::from(frame.cols).saturating_mul(9),
+                    u32::from(frame.rows).saturating_mul(18),
+                );
+            }
+            let render_elapsed = render_started.elapsed().as_micros();
+
+            self.native_snapshot_wave.push(snapshot_elapsed);
+            self.native_render_wave.push(render_elapsed);
+            self.native_total_wave
+                .push(snapshot_elapsed.saturating_add(render_elapsed));
+        }
+    }
+
+    fn finish(mut self) -> MultiTerminalReplaySummary {
+        self.native_snapshot_wave.sort_unstable();
+        self.native_render_wave.sort_unstable();
+        self.native_total_wave.sort_unstable();
+
+        MultiTerminalReplaySummary {
+            terminal_count: self.terminal_count,
+            native_snapshot_wave: stats_from_sorted(&self.native_snapshot_wave),
+            native_render_wave: stats_from_sorted(&self.native_render_wave),
+            native_total_wave: stats_from_sorted(&self.native_total_wave),
+        }
+    }
+}
+
+#[cfg(feature = "terminal-native-spike")]
+fn profile_terminal_replay_benchmark(config: &ProfileConfig) -> Option<ReplayBenchmarkSummary> {
+    let transcript = build_replay_transcript(config.replay_profile_lines);
+    let chunks = transcript
+        .chunks(REPLAY_PROFILE_CHUNK_BYTES)
+        .map(|chunk| chunk.to_vec())
+        .collect::<Vec<_>>();
+    let mut native_multi_terminal = config
+        .replay_profile_terminal_counts
+        .iter()
+        .copied()
+        .map(|terminal_count| MultiTerminalReplayAccumulator::new(terminal_count))
+        .collect::<Vec<_>>();
+
+    let mut legacy_snapshot_build =
+        Vec::with_capacity(config.replay_profile_iterations * chunks.len());
+    let mut legacy_row_render = Vec::with_capacity(config.replay_profile_iterations * chunks.len());
+    let mut legacy_round_bounds =
+        Vec::with_capacity(config.replay_profile_iterations * chunks.len());
+    let mut native_snapshot_build =
+        Vec::with_capacity(config.replay_profile_iterations * chunks.len());
+    let mut native_snapshot_damage_collect =
+        Vec::with_capacity(config.replay_profile_iterations * chunks.len());
+    let mut native_snapshot_projection =
+        Vec::with_capacity(config.replay_profile_iterations * chunks.len());
+    let mut native_snapshot_publication =
+        Vec::with_capacity(config.replay_profile_iterations * chunks.len());
+    let mut native_render_apply_frame =
+        Vec::with_capacity(config.replay_profile_iterations * chunks.len());
+    let mut native_render_row_rebuild =
+        Vec::with_capacity(config.replay_profile_iterations * chunks.len());
+    let mut native_render_flatten =
+        Vec::with_capacity(config.replay_profile_iterations * chunks.len());
+    let mut native_render_overlay =
+        Vec::with_capacity(config.replay_profile_iterations * chunks.len());
+    let mut native_raster_update =
+        Vec::with_capacity(config.replay_profile_iterations * chunks.len());
+
+    for _ in 0..config.replay_profile_iterations {
+        let mut legacy_parser = Parser::new(
+            REPLAY_PROFILE_ROWS,
+            REPLAY_PROFILE_COLS,
+            REPLAY_PROFILE_SCROLLBACK,
+        );
+        let mut legacy_scrollback = BenchScrollback::default();
+        let mut native_emulator = AlacrittyEmulator::new(AlacrittyEmulatorConfig {
+            rows: REPLAY_PROFILE_ROWS,
+            cols: REPLAY_PROFILE_COLS,
+            scrollback: REPLAY_PROFILE_SCROLLBACK,
+        });
+        let mut scene_cache = TerminalGpuSceneCache::new();
+
+        for chunk in &chunks {
+            legacy_parser.process(chunk);
+            legacy_scrollback.process_bytes(chunk);
+
+            let legacy_started = Instant::now();
+            let legacy_snapshot =
+                benchmark_terminal_snapshot_from_parser(&legacy_parser, &legacy_scrollback.lines);
+            legacy_snapshot_build.push(legacy_started.elapsed().as_micros());
+
+            let legacy_render_started = Instant::now();
+            let _ = emulate_terminal_row_render_work(legacy_snapshot.rows, &legacy_snapshot.lines);
+            legacy_row_render.push(legacy_render_started.elapsed().as_micros());
+
+            let legacy_round_started = Instant::now();
+            let _ = terminal_round_bounds(&legacy_snapshot.lines, legacy_snapshot.cursor_row);
+            legacy_round_bounds.push(legacy_round_started.elapsed().as_micros());
+
+            let native_snapshot_started = Instant::now();
+            native_emulator.ingest(chunk);
+            let (frame, snapshot_profile) = native_emulator.snapshot_profiled();
+            native_snapshot_build.push(native_snapshot_started.elapsed().as_micros());
+            native_snapshot_damage_collect.push(snapshot_profile.damage_collect_us);
+            native_snapshot_projection.push(snapshot_profile.projection_update_us);
+            native_snapshot_publication.push(snapshot_profile.publication_build_us);
+
+            let native_raster_started = Instant::now();
+            let (_, render_profile) = scene_cache.prepare_profiled(
+                &frame,
+                u32::from(frame.cols).saturating_mul(9),
+                u32::from(frame.rows).saturating_mul(18),
+            );
+            native_raster_update.push(native_raster_started.elapsed().as_micros());
+            native_render_apply_frame.push(render_profile.apply_frame_us);
+            native_render_row_rebuild.push(render_profile.row_rebuild_us);
+            native_render_flatten.push(render_profile.flatten_us);
+            native_render_overlay.push(render_profile.overlay_us);
+        }
+
+        for accumulator in &mut native_multi_terminal {
+            accumulator.run_iteration(&chunks);
+        }
+    }
+
+    legacy_snapshot_build.sort_unstable();
+    legacy_row_render.sort_unstable();
+    legacy_round_bounds.sort_unstable();
+    native_snapshot_build.sort_unstable();
+    native_snapshot_damage_collect.sort_unstable();
+    native_snapshot_projection.sort_unstable();
+    native_snapshot_publication.sort_unstable();
+    native_render_apply_frame.sort_unstable();
+    native_render_row_rebuild.sort_unstable();
+    native_render_flatten.sort_unstable();
+    native_render_overlay.sort_unstable();
+    native_raster_update.sort_unstable();
+
+    Some(ReplayBenchmarkSummary {
+        legacy_snapshot_build: stats_from_sorted(&legacy_snapshot_build),
+        legacy_row_render: stats_from_sorted(&legacy_row_render),
+        legacy_round_bounds: stats_from_sorted(&legacy_round_bounds),
+        native_snapshot_build: stats_from_sorted(&native_snapshot_build),
+        native_snapshot_damage_collect: stats_from_sorted(&native_snapshot_damage_collect),
+        native_snapshot_projection: stats_from_sorted(&native_snapshot_projection),
+        native_snapshot_publication: stats_from_sorted(&native_snapshot_publication),
+        native_render_apply_frame: stats_from_sorted(&native_render_apply_frame),
+        native_render_row_rebuild: stats_from_sorted(&native_render_row_rebuild),
+        native_render_flatten: stats_from_sorted(&native_render_flatten),
+        native_render_overlay: stats_from_sorted(&native_render_overlay),
+        native_raster_update: stats_from_sorted(&native_raster_update),
+        native_multi_terminal: native_multi_terminal
+            .into_iter()
+            .map(MultiTerminalReplayAccumulator::finish)
+            .collect(),
+    })
+}
+
+#[cfg(not(feature = "terminal-native-spike"))]
+fn profile_terminal_replay_benchmark(_config: &ProfileConfig) -> Option<ReplayBenchmarkSummary> {
+    None
+}
+
+fn print_replay_benchmark(summary: &Option<ReplayBenchmarkSummary>) {
+    println!();
+    println!("Replay benchmark: legacy vs native terminal path");
+    let Some(summary) = summary else {
+        println!("  skipped: build without terminal-native-spike feature");
+        return;
+    };
+
+    println!(
+        "  legacy snapshot build us: avg={} p50={} p95={} p99={} max={}",
+        summary.legacy_snapshot_build.avg_us,
+        summary.legacy_snapshot_build.p50_us,
+        summary.legacy_snapshot_build.p95_us,
+        summary.legacy_snapshot_build.p99_us,
+        summary.legacy_snapshot_build.max_us
+    );
+    println!(
+        "  legacy row render us: avg={} p50={} p95={} p99={} max={}",
+        summary.legacy_row_render.avg_us,
+        summary.legacy_row_render.p50_us,
+        summary.legacy_row_render.p95_us,
+        summary.legacy_row_render.p99_us,
+        summary.legacy_row_render.max_us
+    );
+    println!(
+        "  legacy round bounds us: avg={} p50={} p95={} p99={} max={}",
+        summary.legacy_round_bounds.avg_us,
+        summary.legacy_round_bounds.p50_us,
+        summary.legacy_round_bounds.p95_us,
+        summary.legacy_round_bounds.p99_us,
+        summary.legacy_round_bounds.max_us
+    );
+    println!(
+        "  native snapshot build us: avg={} p50={} p95={} p99={} max={}",
+        summary.native_snapshot_build.avg_us,
+        summary.native_snapshot_build.p50_us,
+        summary.native_snapshot_build.p95_us,
+        summary.native_snapshot_build.p99_us,
+        summary.native_snapshot_build.max_us
+    );
+    println!(
+        "    damage collect us: avg={} p50={} p95={} p99={} max={}",
+        summary.native_snapshot_damage_collect.avg_us,
+        summary.native_snapshot_damage_collect.p50_us,
+        summary.native_snapshot_damage_collect.p95_us,
+        summary.native_snapshot_damage_collect.p99_us,
+        summary.native_snapshot_damage_collect.max_us
+    );
+    println!(
+        "    projection update us: avg={} p50={} p95={} p99={} max={}",
+        summary.native_snapshot_projection.avg_us,
+        summary.native_snapshot_projection.p50_us,
+        summary.native_snapshot_projection.p95_us,
+        summary.native_snapshot_projection.p99_us,
+        summary.native_snapshot_projection.max_us
+    );
+    println!(
+        "    publication build us: avg={} p50={} p95={} p99={} max={}",
+        summary.native_snapshot_publication.avg_us,
+        summary.native_snapshot_publication.p50_us,
+        summary.native_snapshot_publication.p95_us,
+        summary.native_snapshot_publication.p99_us,
+        summary.native_snapshot_publication.max_us
+    );
+    println!(
+        "  native render prepare us: avg={} p50={} p95={} p99={} max={}",
+        summary.native_raster_update.avg_us,
+        summary.native_raster_update.p50_us,
+        summary.native_raster_update.p95_us,
+        summary.native_raster_update.p99_us,
+        summary.native_raster_update.max_us
+    );
+    println!(
+        "    apply frame us: avg={} p50={} p95={} p99={} max={}",
+        summary.native_render_apply_frame.avg_us,
+        summary.native_render_apply_frame.p50_us,
+        summary.native_render_apply_frame.p95_us,
+        summary.native_render_apply_frame.p99_us,
+        summary.native_render_apply_frame.max_us
+    );
+    println!(
+        "    row rebuild us: avg={} p50={} p95={} p99={} max={}",
+        summary.native_render_row_rebuild.avg_us,
+        summary.native_render_row_rebuild.p50_us,
+        summary.native_render_row_rebuild.p95_us,
+        summary.native_render_row_rebuild.p99_us,
+        summary.native_render_row_rebuild.max_us
+    );
+    println!(
+        "    flatten us: avg={} p50={} p95={} p99={} max={}",
+        summary.native_render_flatten.avg_us,
+        summary.native_render_flatten.p50_us,
+        summary.native_render_flatten.p95_us,
+        summary.native_render_flatten.p99_us,
+        summary.native_render_flatten.max_us
+    );
+    println!(
+        "    overlay us: avg={} p50={} p95={} p99={} max={}",
+        summary.native_render_overlay.avg_us,
+        summary.native_render_overlay.p50_us,
+        summary.native_render_overlay.p95_us,
+        summary.native_render_overlay.p99_us,
+        summary.native_render_overlay.max_us
+    );
+    if !summary.native_multi_terminal.is_empty() {
+        println!("  native multi-terminal replay wave us:");
+        for scaling in &summary.native_multi_terminal {
+            println!(
+                "    terminals={}: snapshot avg={} p95={} | render avg={} p95={} | total avg={} p95={}",
+                scaling.terminal_count,
+                scaling.native_snapshot_wave.avg_us,
+                scaling.native_snapshot_wave.p95_us,
+                scaling.native_render_wave.avg_us,
+                scaling.native_render_wave.p95_us,
+                scaling.native_total_wave.avg_us,
+                scaling.native_total_wave.p95_us
+            );
+        }
+    }
+}
+
+#[cfg(feature = "terminal-native-spike")]
+fn build_replay_transcript(line_count: usize) -> Vec<u8> {
+    let mut transcript = Vec::with_capacity(line_count * (HISTORY_LINE_WIDTH + 48));
+    let payload = "x".repeat(HISTORY_LINE_WIDTH);
+
+    for index in 0..line_count {
+        transcript.extend_from_slice(
+            format!(
+                "\x1b[32mjeremy@gestalt:/repo$ \x1b[0mecho block-{index}\r\n\
+                 \x1b[36m{index:04}\x1b[0m {payload}\r\n"
+            )
+            .as_bytes(),
+        );
+    }
+
+    transcript
+}
+
+#[derive(Default)]
+#[cfg(feature = "terminal-native-spike")]
+struct BenchScrollback {
+    lines: Vec<String>,
+    pending: Vec<u8>,
+    escape_state: BenchEscapeState,
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+#[cfg(feature = "terminal-native-spike")]
+enum BenchEscapeState {
+    #[default]
+    Normal,
+    Esc,
+    Csi,
+    Osc,
+    OscEsc,
+}
+
+#[cfg(feature = "terminal-native-spike")]
+impl BenchScrollback {
+    fn process_bytes(&mut self, bytes: &[u8]) {
+        for &byte in bytes {
+            match self.escape_state {
+                BenchEscapeState::Normal => match byte {
+                    0x1b => self.escape_state = BenchEscapeState::Esc,
+                    b'\n' => {
+                        let line = String::from_utf8_lossy(&self.pending)
+                            .trim_end_matches('\r')
+                            .to_string();
+                        self.pending.clear();
+                        self.lines.push(line);
+                    }
+                    b'\r' => {}
+                    0x08 => {
+                        let _ = self.pending.pop();
+                    }
+                    value if value >= 0x20 || value == b'\t' => self.pending.push(value),
+                    _ => {}
+                },
+                BenchEscapeState::Esc => match byte {
+                    b'[' => self.escape_state = BenchEscapeState::Csi,
+                    b']' => self.escape_state = BenchEscapeState::Osc,
+                    _ => self.escape_state = BenchEscapeState::Normal,
+                },
+                BenchEscapeState::Csi => {
+                    if (0x40..=0x7e).contains(&byte) {
+                        self.escape_state = BenchEscapeState::Normal;
+                    }
+                }
+                BenchEscapeState::Osc => {
+                    if byte == 0x07 {
+                        self.escape_state = BenchEscapeState::Normal;
+                    } else if byte == 0x1b {
+                        self.escape_state = BenchEscapeState::OscEsc;
+                    }
+                }
+                BenchEscapeState::OscEsc => {
+                    self.escape_state = if byte == b'\\' {
+                        BenchEscapeState::Normal
+                    } else {
+                        BenchEscapeState::Osc
+                    };
+                }
+            }
+        }
+    }
+}
+
+#[cfg(feature = "terminal-native-spike")]
+fn benchmark_terminal_snapshot_from_parser(
+    parser: &Parser,
+    scrollback_lines: &[String],
+) -> TerminalSnapshot {
+    let screen = parser.screen();
+    let (rows, cols) = screen.size();
+    let (cursor_row_rel, cursor_col) = screen.cursor_position();
+    let visible_lines = screen.rows(0, cols).collect::<Vec<_>>();
+    let lines = benchmark_merge_scrollback_with_visible(scrollback_lines, &visible_lines);
+    let visible_start = lines.len().saturating_sub(visible_lines.len());
+    let cursor_row = visible_start
+        .saturating_add(usize::from(cursor_row_rel))
+        .min(lines.len().saturating_sub(1));
+
+    TerminalSnapshot {
+        lines,
+        rows,
+        cols,
+        cursor_row: u16::try_from(cursor_row).unwrap_or(u16::MAX),
+        cursor_col,
+        hide_cursor: screen.hide_cursor(),
+        bracketed_paste: screen.bracketed_paste(),
+    }
+}
+
+#[cfg(feature = "terminal-native-spike")]
+fn benchmark_merge_scrollback_with_visible(
+    scrollback: &[String],
+    visible: &[String],
+) -> Vec<String> {
+    let max_overlap = scrollback.len().min(visible.len());
+    let overlap = (0..=max_overlap)
+        .rev()
+        .find(|overlap_len| {
+            scrollback[scrollback.len().saturating_sub(*overlap_len)..] == visible[..*overlap_len]
+        })
+        .unwrap_or(0);
+
+    let keep = scrollback.len().saturating_sub(overlap);
+    let mut lines = Vec::with_capacity(keep + visible.len());
+    lines.extend(scrollback.iter().take(keep).cloned());
+    lines.extend(visible.iter().cloned());
+    lines
+}
+
 fn to_micros_sorted(values: Vec<Duration>) -> Vec<u128> {
     let mut micros = values
         .into_iter()
@@ -1237,6 +1943,58 @@ fn average(sorted_values: &[u128]) -> u128 {
     }
     let sum: u128 = sorted_values.iter().copied().sum();
     sum / (sorted_values.len() as u128)
+}
+
+fn env_usize(key: &str, default: usize) -> usize {
+    std::env::var(key)
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(default)
+}
+
+fn env_usize_list(key: &str, default: &[usize]) -> Vec<usize> {
+    std::env::var(key)
+        .ok()
+        .map(|value| {
+            value
+                .split(',')
+                .filter_map(|item| item.trim().parse::<usize>().ok())
+                .filter(|value| *value > 0)
+                .collect::<Vec<_>>()
+        })
+        .filter(|values| !values.is_empty())
+        .unwrap_or_else(|| default.to_vec())
+}
+
+#[cfg(feature = "terminal-native-spike")]
+fn replay_profile_lines_default() -> usize {
+    REPLAY_PROFILE_LINES
+}
+
+#[cfg(not(feature = "terminal-native-spike"))]
+fn replay_profile_lines_default() -> usize {
+    1
+}
+
+#[cfg(feature = "terminal-native-spike")]
+fn replay_profile_iterations_default() -> usize {
+    REPLAY_PROFILE_ITERATIONS
+}
+
+#[cfg(not(feature = "terminal-native-spike"))]
+fn replay_profile_iterations_default() -> usize {
+    1
+}
+
+#[cfg(feature = "terminal-native-spike")]
+fn replay_profile_terminal_counts_default() -> &'static [usize] {
+    REPLAY_PROFILE_TERMINAL_COUNTS
+}
+
+#[cfg(not(feature = "terminal-native-spike"))]
+fn replay_profile_terminal_counts_default() -> &'static [usize] {
+    &[1]
 }
 
 fn percentile(sorted_values: &[u128], percentile: usize) -> u128 {

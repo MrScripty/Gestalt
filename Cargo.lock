@@ -188,6 +188,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "alacritty_terminal"
+version = "0.25.2-dev"
+dependencies = [
+ "base64 0.22.1",
+ "bitflags 2.11.0",
+ "home",
+ "libc",
+ "log",
+ "miow",
+ "parking_lot",
+ "piper",
+ "polling",
+ "regex-automata",
+ "rustix 1.1.4",
+ "rustix-openpty",
+ "serde",
+ "signal-hook 0.4.3",
+ "unicode-width 0.2.2",
+ "vte 0.15.0",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
 name = "allocator-api2"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2358,7 +2381,7 @@ dependencies = [
  "rustc-hash 2.1.1",
  "serde",
  "serde_json",
- "signal-hook",
+ "signal-hook 0.3.18",
  "slab",
  "subtle",
  "tao",
@@ -3184,6 +3207,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "font8x8"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "875488b8711a968268c7cf5d139578713097ca4635a76044e8fe8eedf831d07e"
+
+[[package]]
 name = "fontconfig-parser"
 version = "0.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3628,6 +3657,7 @@ name = "gestalt"
 version = "0.1.0"
 dependencies = [
  "ab_glyph",
+ "alacritty_terminal",
  "arboard",
  "async-trait",
  "bytemuck",
@@ -3635,6 +3665,7 @@ dependencies = [
  "dioxus-native",
  "emily",
  "emily-membrane",
+ "font8x8",
  "inference",
  "node-engine",
  "notify",
@@ -5634,6 +5665,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "miow"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "536bfad37a309d62069485248eeaba1e8d9853aaf951caaeaed0585a95346f08"
+dependencies = [
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "muda"
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6514,9 +6554,9 @@ checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 
 [[package]]
 name = "orbclient"
-version = "0.3.50"
+version = "0.3.51"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "52ad2c6bae700b7aa5d1cc30c59bdd3a1c180b09dbaea51e2ae2b8e1cf211fdd"
+checksum = "59aed3b33578edcfa1bc96a321d590d31832b6ad55a26f0313362ce687e9abd6"
 dependencies = [
  "libc",
  "libredox",
@@ -8100,6 +8140,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustix-openpty"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1de16c7c59892b870a6336f185dc10943517f1327447096bbb7bb32cd85e2393"
+dependencies = [
+ "errno",
+ "libc",
+ "rustix 1.1.4",
+]
+
+[[package]]
 name = "rustls"
 version = "0.23.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8595,6 +8646,16 @@ name = "signal-hook"
 version = "0.3.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d881a16cf4426aa584979d30bd82cb33429027e42122b169753d6ef1085ed6e2"
+dependencies = [
+ "libc",
+ "signal-hook-registry",
+]
+
+[[package]]
+name = "signal-hook"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3b57709da74f9ff9f4a27dce9526eec25ca8407c45a7887243b031a58935fb8e"
 dependencies = [
  "libc",
  "signal-hook-registry",
@@ -10660,7 +10721,7 @@ dependencies = [
  "itoa",
  "log",
  "unicode-width 0.1.14",
- "vte",
+ "vte 0.11.1",
 ]
 
 [[package]]
@@ -10672,6 +10733,20 @@ dependencies = [
  "arrayvec",
  "utf8parse",
  "vte_generate_state_changes",
+]
+
+[[package]]
+name = "vte"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5924018406ce0063cd67f8e008104968b74b563ee1b85dde3ed1f7cb87d3dbd"
+dependencies = [
+ "arrayvec",
+ "bitflags 2.11.0",
+ "cursor-icon",
+ "log",
+ "memchr",
+ "serde",
 ]
 
 [[package]]

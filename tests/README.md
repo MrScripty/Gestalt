@@ -20,6 +20,7 @@ Integration tests for persistence and resume behavior.
 | `emily_seed_corpus.rs` | Emily seed corpus acceptance coverage through the public runtime facade |
 | `git_panel_ops.rs` | Git panel orchestration action flow tests against temp repos |
 | `git_panel_context_switch.rs` | Repo/non-repo context switching behavior tests |
+| `terminal_native_core.rs` | Feature-gated terminal-native emulator projection coverage for parsing, cursor state, resize, and damage publication |
 
 ## Notes
 - Tests use `GESTALT_WORKSPACE_PATH` to isolate persistence files under `tmp`.
