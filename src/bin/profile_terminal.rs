@@ -116,6 +116,15 @@ fn main() -> Result<(), String> {
                 replay_native_snapshot_build: replay_benchmark
                     .as_ref()
                     .map(|benchmark| benchmark.native_snapshot_build),
+                replay_native_snapshot_damage_collect: replay_benchmark
+                    .as_ref()
+                    .map(|benchmark| benchmark.native_snapshot_damage_collect),
+                replay_native_snapshot_projection: replay_benchmark
+                    .as_ref()
+                    .map(|benchmark| benchmark.native_snapshot_projection),
+                replay_native_snapshot_publication: replay_benchmark
+                    .as_ref()
+                    .map(|benchmark| benchmark.native_snapshot_publication),
                 replay_native_raster_update: replay_benchmark
                     .as_ref()
                     .map(|benchmark| benchmark.native_raster_update),
@@ -461,6 +470,15 @@ fn main() -> Result<(), String> {
         replay_native_snapshot_build: replay_benchmark
             .as_ref()
             .map(|benchmark| benchmark.native_snapshot_build),
+        replay_native_snapshot_damage_collect: replay_benchmark
+            .as_ref()
+            .map(|benchmark| benchmark.native_snapshot_damage_collect),
+        replay_native_snapshot_projection: replay_benchmark
+            .as_ref()
+            .map(|benchmark| benchmark.native_snapshot_projection),
+        replay_native_snapshot_publication: replay_benchmark
+            .as_ref()
+            .map(|benchmark| benchmark.native_snapshot_publication),
         replay_native_raster_update: replay_benchmark
             .as_ref()
             .map(|benchmark| benchmark.native_raster_update),
@@ -1270,6 +1288,9 @@ struct ProfileSummary {
     replay_legacy_row_render: Option<DistributionStats>,
     replay_legacy_round_bounds: Option<DistributionStats>,
     replay_native_snapshot_build: Option<DistributionStats>,
+    replay_native_snapshot_damage_collect: Option<DistributionStats>,
+    replay_native_snapshot_projection: Option<DistributionStats>,
+    replay_native_snapshot_publication: Option<DistributionStats>,
     replay_native_raster_update: Option<DistributionStats>,
     autosave_snapshot_lines_total: DistributionStats,
     baseline_lock_wait: DistributionStats,
@@ -1316,6 +1337,9 @@ struct ReplayOnlyProfileSummary {
     replay_legacy_row_render: Option<DistributionStats>,
     replay_legacy_round_bounds: Option<DistributionStats>,
     replay_native_snapshot_build: Option<DistributionStats>,
+    replay_native_snapshot_damage_collect: Option<DistributionStats>,
+    replay_native_snapshot_projection: Option<DistributionStats>,
+    replay_native_snapshot_publication: Option<DistributionStats>,
     replay_native_raster_update: Option<DistributionStats>,
 }
 
@@ -1381,6 +1405,9 @@ struct ReplayBenchmarkSummary {
     legacy_row_render: DistributionStats,
     legacy_round_bounds: DistributionStats,
     native_snapshot_build: DistributionStats,
+    native_snapshot_damage_collect: DistributionStats,
+    native_snapshot_projection: DistributionStats,
+    native_snapshot_publication: DistributionStats,
     native_raster_update: DistributionStats,
 }
 
@@ -1398,6 +1425,12 @@ fn profile_terminal_replay_benchmark(config: &ProfileConfig) -> Option<ReplayBen
     let mut legacy_round_bounds =
         Vec::with_capacity(config.replay_profile_iterations * chunks.len());
     let mut native_snapshot_build =
+        Vec::with_capacity(config.replay_profile_iterations * chunks.len());
+    let mut native_snapshot_damage_collect =
+        Vec::with_capacity(config.replay_profile_iterations * chunks.len());
+    let mut native_snapshot_projection =
+        Vec::with_capacity(config.replay_profile_iterations * chunks.len());
+    let mut native_snapshot_publication =
         Vec::with_capacity(config.replay_profile_iterations * chunks.len());
     let mut native_raster_update =
         Vec::with_capacity(config.replay_profile_iterations * chunks.len());
@@ -1435,8 +1468,11 @@ fn profile_terminal_replay_benchmark(config: &ProfileConfig) -> Option<ReplayBen
 
             let native_snapshot_started = Instant::now();
             native_emulator.ingest(chunk);
-            let frame = native_emulator.snapshot();
+            let (frame, snapshot_profile) = native_emulator.snapshot_profiled();
             native_snapshot_build.push(native_snapshot_started.elapsed().as_micros());
+            native_snapshot_damage_collect.push(snapshot_profile.damage_collect_us);
+            native_snapshot_projection.push(snapshot_profile.projection_update_us);
+            native_snapshot_publication.push(snapshot_profile.publication_build_us);
 
             let native_raster_started = Instant::now();
             let _ = scene_cache.prepare(
@@ -1452,6 +1488,9 @@ fn profile_terminal_replay_benchmark(config: &ProfileConfig) -> Option<ReplayBen
     legacy_row_render.sort_unstable();
     legacy_round_bounds.sort_unstable();
     native_snapshot_build.sort_unstable();
+    native_snapshot_damage_collect.sort_unstable();
+    native_snapshot_projection.sort_unstable();
+    native_snapshot_publication.sort_unstable();
     native_raster_update.sort_unstable();
 
     Some(ReplayBenchmarkSummary {
@@ -1459,6 +1498,9 @@ fn profile_terminal_replay_benchmark(config: &ProfileConfig) -> Option<ReplayBen
         legacy_row_render: stats_from_sorted(&legacy_row_render),
         legacy_round_bounds: stats_from_sorted(&legacy_round_bounds),
         native_snapshot_build: stats_from_sorted(&native_snapshot_build),
+        native_snapshot_damage_collect: stats_from_sorted(&native_snapshot_damage_collect),
+        native_snapshot_projection: stats_from_sorted(&native_snapshot_projection),
+        native_snapshot_publication: stats_from_sorted(&native_snapshot_publication),
         native_raster_update: stats_from_sorted(&native_raster_update),
     })
 }
@@ -1507,6 +1549,30 @@ fn print_replay_benchmark(summary: &Option<ReplayBenchmarkSummary>) {
         summary.native_snapshot_build.p95_us,
         summary.native_snapshot_build.p99_us,
         summary.native_snapshot_build.max_us
+    );
+    println!(
+        "    damage collect us: avg={} p50={} p95={} p99={} max={}",
+        summary.native_snapshot_damage_collect.avg_us,
+        summary.native_snapshot_damage_collect.p50_us,
+        summary.native_snapshot_damage_collect.p95_us,
+        summary.native_snapshot_damage_collect.p99_us,
+        summary.native_snapshot_damage_collect.max_us
+    );
+    println!(
+        "    projection update us: avg={} p50={} p95={} p99={} max={}",
+        summary.native_snapshot_projection.avg_us,
+        summary.native_snapshot_projection.p50_us,
+        summary.native_snapshot_projection.p95_us,
+        summary.native_snapshot_projection.p99_us,
+        summary.native_snapshot_projection.max_us
+    );
+    println!(
+        "    publication build us: avg={} p50={} p95={} p99={} max={}",
+        summary.native_snapshot_publication.avg_us,
+        summary.native_snapshot_publication.p50_us,
+        summary.native_snapshot_publication.p95_us,
+        summary.native_snapshot_publication.p99_us,
+        summary.native_snapshot_publication.max_us
     );
     println!(
         "  native render prepare us: avg={} p50={} p95={} p99={} max={}",

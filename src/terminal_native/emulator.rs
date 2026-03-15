@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Instant;
 
 use alacritty_terminal::event::VoidListener;
 use alacritty_terminal::grid::{Dimensions, Grid};
@@ -47,6 +48,14 @@ pub struct AlacrittyEmulator {
     last_display_offset: usize,
 }
 
+/// Fine-grained timing for one native terminal snapshot build.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct EmulatorSnapshotProfile {
+    pub damage_collect_us: u128,
+    pub projection_update_us: u128,
+    pub publication_build_us: u128,
+}
+
 impl AlacrittyEmulator {
     pub fn new(config: AlacrittyEmulatorConfig) -> Self {
         let size = ViewportSize::new(config.rows, config.cols);
@@ -84,6 +93,11 @@ impl AlacrittyEmulator {
     }
 
     pub fn snapshot(&mut self) -> TerminalFrame {
+        self.snapshot_profiled().0
+    }
+
+    pub fn snapshot_profiled(&mut self) -> (TerminalFrame, EmulatorSnapshotProfile) {
+        let damage_collect_started = Instant::now();
         let mut damage = collect_damage(&mut self.term);
         let (cursor, display_offset) = {
             let content = self.term.renderable_content();
@@ -95,6 +109,9 @@ impl AlacrittyEmulator {
         if self.last_display_offset != display_offset {
             damage = FrameDamage::Full;
         }
+        let damage_collect_us = damage_collect_started.elapsed().as_micros();
+
+        let projection_update_started = Instant::now();
         project_damage_into(
             &mut self.projected_cells,
             self.term.grid(),
@@ -102,21 +119,32 @@ impl AlacrittyEmulator {
             display_offset,
             &damage,
         );
+        let projection_update_us = projection_update_started.elapsed().as_micros();
         let bracketed_paste = self.term.mode().contains(TermMode::BRACKETED_PASTE);
+
+        let publication_build_started = Instant::now();
         let publication = build_publication(&self.projected_cells, self.size, &damage);
+        let publication_build_us = publication_build_started.elapsed().as_micros();
         self.last_display_offset = display_offset;
 
         self.term.reset_damage();
 
-        TerminalFrame {
-            rows: self.size.rows,
-            cols: self.size.cols,
-            cursor,
-            bracketed_paste,
-            display_offset,
-            damage,
-            publication,
-        }
+        (
+            TerminalFrame {
+                rows: self.size.rows,
+                cols: self.size.cols,
+                cursor,
+                bracketed_paste,
+                display_offset,
+                damage,
+                publication,
+            },
+            EmulatorSnapshotProfile {
+                damage_collect_us,
+                projection_update_us,
+                publication_build_us,
+            },
+        )
     }
 }
 
