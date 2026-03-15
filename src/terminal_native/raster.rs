@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use font8x8::{BASIC_FONTS, UnicodeFonts};
 
@@ -10,6 +11,7 @@ use super::{
 const DEFAULT_BACKGROUND: [u8; 4] = [8, 12, 16, 255];
 const DEFAULT_FOREGROUND: [u8; 4] = [222, 226, 230, 255];
 const CURSOR_COLOR: [u8; 4] = [255, 244, 163, 255];
+const MAX_SCROLL_REUSE_ROWS: u16 = 4;
 
 pub struct TerminalRaster {
     width: u32,
@@ -20,6 +22,7 @@ pub struct TerminalRaster {
     cols: u16,
     pixels: Vec<u8>,
     last_cursor: Option<TerminalCursor>,
+    last_cells: Option<Arc<[TerminalCell]>>,
     tile_cache: HashMap<TileCacheKey, Vec<u8>>,
 }
 
@@ -44,6 +47,7 @@ impl TerminalRaster {
             cols: 0,
             pixels: Vec::new(),
             last_cursor: None,
+            last_cells: None,
             tile_cache: HashMap::new(),
         }
     }
@@ -71,17 +75,24 @@ impl TerminalRaster {
         self.cell_height = cell_extent(height, frame.rows);
         if geometry_changed {
             self.tile_cache.clear();
+            self.last_cells = None;
         }
 
         if geometry_changed || matches!(frame.damage, TerminalDamage::Full) {
             self.clear(DEFAULT_BACKGROUND);
             self.redraw_full(frame);
             self.last_cursor = Some(frame.cursor);
+            self.last_cells = Some(frame.cells.clone());
             return;
         }
 
-        self.redraw_partial(frame);
+        if let Some(scroll_rows) = self.detect_scroll_reuse_rows(frame) {
+            self.redraw_scrolled(frame, scroll_rows);
+        } else {
+            self.redraw_partial(frame);
+        }
         self.last_cursor = Some(frame.cursor);
+        self.last_cells = Some(frame.cells.clone());
     }
 
     pub fn pixels(&self) -> &[u8] {
@@ -131,6 +142,22 @@ impl TerminalRaster {
         }
     }
 
+    fn redraw_scrolled(&mut self, frame: &TerminalFrame, scroll_rows: i16) {
+        self.shift_pixels(scroll_rows);
+        self.redraw_exposed_rows(frame, scroll_rows);
+
+        if let Some(previous) = self.last_cursor
+            && previous.col < frame.cols
+            && let Some(row) = shifted_row(previous.row, scroll_rows, frame.rows)
+        {
+            self.redraw_cell(frame, row, previous.col);
+        }
+
+        if frame.cursor.row < frame.rows && frame.cursor.col < frame.cols {
+            self.redraw_cell(frame, frame.cursor.row, frame.cursor.col);
+        }
+    }
+
     fn redraw_cell(&mut self, frame: &TerminalFrame, row: u16, col: u16) {
         let Some(cell) = frame.cell(row, col) else {
             return;
@@ -176,6 +203,89 @@ impl TerminalRaster {
 
         if cursor_here {
             self.draw_cursor(frame.cursor, row, col, fg);
+        }
+    }
+
+    fn detect_scroll_reuse_rows(&self, frame: &TerminalFrame) -> Option<i16> {
+        if !damage_covers_full_rows(&frame.damage, frame.rows, frame.cols) {
+            return None;
+        }
+
+        let previous = self.last_cells.as_deref()?;
+        if previous.len() != frame.cells.len() || frame.rows <= 1 {
+            return None;
+        }
+
+        let max_shift = MAX_SCROLL_REUSE_ROWS.min(frame.rows.saturating_sub(1));
+        for delta in 1..=max_shift {
+            if rows_match_upward_shift(
+                previous,
+                frame.cells.as_ref(),
+                frame.rows,
+                frame.cols,
+                delta,
+            ) {
+                return Some(delta as i16);
+            }
+            if rows_match_downward_shift(
+                previous,
+                frame.cells.as_ref(),
+                frame.rows,
+                frame.cols,
+                delta,
+            ) {
+                return Some(-(delta as i16));
+            }
+        }
+
+        None
+    }
+
+    fn shift_pixels(&mut self, scroll_rows: i16) {
+        let row_stride = self.terminal_row_stride();
+        let shift = row_stride * usize::from(scroll_rows.unsigned_abs());
+        if shift == 0 || shift >= self.pixels.len() {
+            self.clear(DEFAULT_BACKGROUND);
+            return;
+        }
+
+        if scroll_rows > 0 {
+            self.pixels.copy_within(shift.., 0);
+            self.clear_pixel_range(self.pixels.len() - shift..self.pixels.len());
+        } else {
+            let retain_len = self.pixels.len() - shift;
+            self.pixels.copy_within(..retain_len, shift);
+            self.clear_pixel_range(0..shift);
+        }
+    }
+
+    fn redraw_exposed_rows(&mut self, frame: &TerminalFrame, scroll_rows: i16) {
+        let exposed = scroll_rows.unsigned_abs();
+        if scroll_rows > 0 {
+            let start = frame.rows.saturating_sub(exposed);
+            for row in start..frame.rows {
+                self.redraw_row(frame, row);
+            }
+        } else {
+            for row in 0..exposed.min(frame.rows) {
+                self.redraw_row(frame, row);
+            }
+        }
+    }
+
+    fn redraw_row(&mut self, frame: &TerminalFrame, row: u16) {
+        for col in 0..frame.cols {
+            self.redraw_cell(frame, row, col);
+        }
+    }
+
+    fn terminal_row_stride(&self) -> usize {
+        (self.width as usize) * (self.cell_height as usize) * 4
+    }
+
+    fn clear_pixel_range(&mut self, range: std::ops::Range<usize>) {
+        for pixel in self.pixels[range].chunks_exact_mut(4) {
+            pixel.copy_from_slice(&DEFAULT_BACKGROUND);
         }
     }
 
@@ -285,6 +395,80 @@ fn blit_tile(
     }
 }
 
+fn damage_covers_full_rows(damage: &TerminalDamage, rows: u16, cols: u16) -> bool {
+    let TerminalDamage::Partial(lines) = damage else {
+        return false;
+    };
+    if rows == 0 || cols == 0 {
+        return false;
+    }
+
+    let mut covered = vec![false; usize::from(rows)];
+    for span in lines.iter() {
+        if span.row >= rows || span.left != 0 {
+            continue;
+        }
+
+        let right = span.right.min(cols.saturating_sub(1));
+        if right + 1 == cols {
+            covered[usize::from(span.row)] = true;
+        }
+    }
+
+    covered.into_iter().all(|row| row)
+}
+
+fn rows_match_upward_shift(
+    previous: &[TerminalCell],
+    current: &[TerminalCell],
+    rows: u16,
+    cols: u16,
+    delta: u16,
+) -> bool {
+    let width = usize::from(cols);
+    for row in 0..rows.saturating_sub(delta) {
+        let current_start = usize::from(row) * width;
+        let previous_start = usize::from(row + delta) * width;
+        if current[current_start..current_start + width]
+            != previous[previous_start..previous_start + width]
+        {
+            return false;
+        }
+    }
+
+    true
+}
+
+fn rows_match_downward_shift(
+    previous: &[TerminalCell],
+    current: &[TerminalCell],
+    rows: u16,
+    cols: u16,
+    delta: u16,
+) -> bool {
+    let width = usize::from(cols);
+    for row in delta..rows {
+        let current_start = usize::from(row) * width;
+        let previous_start = usize::from(row - delta) * width;
+        if current[current_start..current_start + width]
+            != previous[previous_start..previous_start + width]
+        {
+            return false;
+        }
+    }
+
+    true
+}
+
+fn shifted_row(row: u16, scroll_rows: i16, total_rows: u16) -> Option<u16> {
+    if scroll_rows > 0 {
+        row.checked_sub(scroll_rows as u16)
+    } else {
+        let shifted = row.checked_add(scroll_rows.unsigned_abs())?;
+        (shifted < total_rows).then_some(shifted)
+    }
+}
+
 fn build_tile(cell_width: u32, cell_height: u32, key: TileCacheKey) -> Vec<u8> {
     let mut tile = vec![0; (cell_width as usize) * (cell_height as usize) * 4];
     fill_tile(&mut tile, cell_width, cell_height, key.bg);
@@ -344,12 +528,7 @@ fn draw_tile_glyph(
     }
 }
 
-fn draw_tile_missing_glyph(
-    tile: &mut [u8],
-    cell_width: u32,
-    cell_height: u32,
-    color: [u8; 4],
-) {
+fn draw_tile_missing_glyph(tile: &mut [u8], cell_width: u32, cell_height: u32, color: [u8; 4]) {
     let inset_x = cell_width.saturating_div(4).max(1);
     let inset_y = cell_height.saturating_div(4).max(1);
     let start_x = inset_x;
