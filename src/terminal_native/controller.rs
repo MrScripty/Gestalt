@@ -1,7 +1,10 @@
 use std::env;
 use std::sync::Arc;
 
-use super::constants::{DEFAULT_SCROLLBACK, DEFAULT_SESSION_COLS, DEFAULT_SESSION_ROWS};
+use super::constants::{
+    CELL_HEIGHT_PX, CELL_WIDTH_PX, DEFAULT_SCROLLBACK, DEFAULT_SESSION_COLS,
+    DEFAULT_SESSION_ROWS, MIN_TERMINAL_COLS, MIN_TERMINAL_ROWS,
+};
 use super::{NativeTerminalSession, NativeTerminalSessionConfig, TerminalFrame};
 
 #[derive(Clone)]
@@ -47,5 +50,11 @@ impl NativeTerminalController {
 
     pub fn resize_cells(&self, rows: u16, cols: u16) {
         let _ = self.session.resize(rows, cols);
+    }
+
+    pub fn resize_for_surface(&self, width: u32, height: u32) {
+        let rows = ((height / CELL_HEIGHT_PX).max(u32::from(MIN_TERMINAL_ROWS))) as u16;
+        let cols = ((width / CELL_WIDTH_PX).max(u32::from(MIN_TERMINAL_COLS))) as u16;
+        self.resize_cells(rows, cols);
     }
 }
