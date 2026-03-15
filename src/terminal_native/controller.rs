@@ -2,8 +2,8 @@ use std::env;
 use std::sync::Arc;
 
 use super::constants::{
-    CELL_HEIGHT_PX, CELL_WIDTH_PX, DEFAULT_SCROLLBACK, DEFAULT_SESSION_COLS,
-    DEFAULT_SESSION_ROWS, MIN_TERMINAL_COLS, MIN_TERMINAL_ROWS,
+    CELL_HEIGHT_PX, CELL_WIDTH_PX, DEFAULT_SCROLLBACK, DEFAULT_SESSION_COLS, DEFAULT_SESSION_ROWS,
+    MIN_TERMINAL_COLS, MIN_TERMINAL_ROWS,
 };
 use super::{NativeTerminalSession, NativeTerminalSessionConfig, TerminalFrame};
 
@@ -11,6 +11,14 @@ use super::{NativeTerminalSession, NativeTerminalSessionConfig, TerminalFrame};
 pub struct NativeTerminalController {
     session: Arc<NativeTerminalSession>,
 }
+
+impl PartialEq for NativeTerminalController {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.session, &other.session)
+    }
+}
+
+impl Eq for NativeTerminalController {}
 
 impl NativeTerminalController {
     pub fn spawn_for_current_dir() -> Self {

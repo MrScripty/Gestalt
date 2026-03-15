@@ -1,23 +1,20 @@
-use dioxus::prelude::*;
 use super::controller::NativeTerminalController;
 use super::input::special_key_event_to_bytes;
 use super::paint::NativeTerminalPaintSource;
 use super::{
-    APP_ROOT_STYLE, CANVAS_STYLE, INPUT_OVERLAY_STYLE, STATUS_BAR_STYLE, STATUS_HINT_STYLE,
+    APP_ROOT_STYLE, CANVAS_STYLE, INPUT_OVERLAY_STYLE, PANE_CARD_STYLE, PANE_GRID_STYLE,
+    PANE_HEADER_STYLE, PANE_META_STYLE, PANE_TITLE_STYLE, STATUS_BAR_STYLE, STATUS_HINT_STYLE,
     STATUS_HINT_TEXT, STATUS_TITLE_STYLE, STATUS_TITLE_TEXT, TERMINAL_SURFACE_STYLE,
 };
+use dioxus::prelude::*;
 use dioxus_native::use_wgpu;
 
 #[component]
-pub fn TerminalNativeDemo() -> Element {
-    let controller = use_context::<NativeTerminalController>();
-    let mut input_buffer = use_signal(String::new);
-    let paint_controller = controller.clone();
-    let key_controller = controller.clone();
-    let input_controller = controller.clone();
-    let paint_source_id =
-        use_wgpu(move || NativeTerminalPaintSource::new(paint_controller.clone()));
-    let input_buffer_value = input_buffer.read().clone();
+pub fn TerminalNativeDemo(
+    left: NativeTerminalController,
+    right: NativeTerminalController,
+) -> Element {
+    let status = format!("left:{}  right:{}", status_line(&left), status_line(&right));
 
     rsx! {
         div {
@@ -29,12 +26,42 @@ pub fn TerminalNativeDemo() -> Element {
                     "{STATUS_TITLE_TEXT}"
                 }
                 div {
-                    "{status_line(&controller)}"
+                    "{status}"
                 }
                 div {
                     style: STATUS_HINT_STYLE,
                     "{STATUS_HINT_TEXT}"
                 }
+            }
+            div { style: PANE_GRID_STYLE,
+                TerminalNativePane {
+                    title: "pane-1",
+                    controller: left,
+                }
+                TerminalNativePane {
+                    title: "pane-2",
+                    controller: right,
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn TerminalNativePane(title: &'static str, controller: NativeTerminalController) -> Element {
+    let mut input_buffer = use_signal(String::new);
+    let paint_controller = controller.clone();
+    let key_controller = controller.clone();
+    let input_controller = controller.clone();
+    let paint_source_id =
+        use_wgpu(move || NativeTerminalPaintSource::new(paint_controller.clone()));
+    let input_buffer_value = input_buffer.read().clone();
+
+    rsx! {
+        div { style: PANE_CARD_STYLE,
+            div { style: PANE_HEADER_STYLE,
+                div { style: PANE_TITLE_STYLE, "{title}" }
+                div { style: PANE_META_STYLE, "{status_line(&controller)}" }
             }
             div {
                 style: TERMINAL_SURFACE_STYLE,

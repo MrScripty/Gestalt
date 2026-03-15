@@ -25,10 +25,17 @@ pub fn launch_terminal_native_spike() {
 
 #[component]
 fn TerminalNativeSpikeApp() -> Element {
-    let controller = use_hook(NativeTerminalController::spawn_for_current_dir);
-    use_context_provider(|| controller.clone());
+    let controllers = use_hook(|| {
+        [
+            NativeTerminalController::spawn_for_current_dir(),
+            NativeTerminalController::spawn_for_current_dir(),
+        ]
+    });
 
     rsx! {
-        TerminalNativeDemo {}
+        TerminalNativeDemo {
+            left: controllers[0].clone(),
+            right: controllers[1].clone(),
+        }
     }
 }
