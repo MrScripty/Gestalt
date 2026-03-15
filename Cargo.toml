@@ -50,6 +50,9 @@ uuid = { version = "1", features = ["v4"] }
 rusqlite = { version = "0.32.1", features = ["bundled"] }
 pulldown-cmark = "0.12"
 
+[patch.crates-io]
+wgpu_context = { path = "vendor/wgpu_context" }
+
 [[bin]]
 name = "terminal_native_spike"
 path = "src/bin/terminal_native_spike.rs"
