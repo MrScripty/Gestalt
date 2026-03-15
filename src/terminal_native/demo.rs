@@ -1,45 +1,28 @@
-use std::env;
-use std::sync::Arc;
-
 use dioxus::events::KeyboardEvent;
 use dioxus::prelude::*;
-use dioxus_native::{
-    Config, CustomPaintCtx, CustomPaintSource, DeviceHandle, TextureHandle, use_wgpu,
-};
+use dioxus_native::{CustomPaintCtx, CustomPaintSource, DeviceHandle, TextureHandle, use_wgpu};
 use wgpu::{
     Device, Extent3d, Origin3d, Queue, TexelCopyBufferLayout, TexelCopyTextureInfo, Texture,
     TextureAspect, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
 };
 
+use super::controller::NativeTerminalController;
 use super::raster::TerminalRaster;
-use super::{NativeTerminalSession, NativeTerminalSessionConfig};
 
 const CELL_WIDTH_PX: u32 = 9;
 const CELL_HEIGHT_PX: u32 = 18;
 const MIN_ROWS: u16 = 8;
 const MIN_COLS: u16 = 20;
 
-pub fn launch_terminal_native_spike() {
-    let attributes = dioxus_native::WindowAttributes::default()
-        .with_title("Gestalt Native Terminal Spike")
-        .with_inner_size(dioxus_native::LogicalSize::new(1360.0, 900.0));
-
-    dioxus_native::launch_cfg(
-        TerminalNativeDemoApp,
-        Vec::new(),
-        vec![
-            Box::new(Config::new().with_window_attributes(attributes.clone())),
-            Box::new(attributes),
-        ],
-    );
-}
-
 #[component]
-fn TerminalNativeDemoApp() -> Element {
-    let session = use_signal(spawn_session);
+pub fn TerminalNativeDemo() -> Element {
+    let controller = use_context::<NativeTerminalController>();
     let mut input_buffer = use_signal(String::new);
-    let session_handle = session.read().clone();
-    let paint_source_id = use_wgpu(move || NativeTerminalPaintSource::new(session_handle.clone()));
+    let paint_controller = controller.clone();
+    let key_controller = controller.clone();
+    let input_controller = controller.clone();
+    let paint_source_id =
+        use_wgpu(move || NativeTerminalPaintSource::new(paint_controller.clone()));
     let input_buffer_value = input_buffer.read().clone();
 
     rsx! {
@@ -52,7 +35,7 @@ fn TerminalNativeDemoApp() -> Element {
                     "terminal_native_spike"
                 }
                 div {
-                    "{status_line(&session.read())}"
+                    "{status_line(&controller)}"
                 }
                 div {
                     style: "margin-left: auto; color: #90a4b8;",
@@ -75,13 +58,13 @@ fn TerminalNativeDemoApp() -> Element {
                     onkeydown: move |event| {
                         if let Some(bytes) = special_key_event_to_bytes(&event) {
                             event.prevent_default();
-                            let _ = session.read().send_input(&bytes);
+                            key_controller.send_input(&bytes);
                         }
                     },
                     oninput: move |event| {
                         let value = event.value();
                         if !value.is_empty() {
-                            let _ = session.read().send_input(value.as_bytes());
+                            input_controller.send_input(value.as_bytes());
                         }
                         input_buffer.set(String::new());
                     },
@@ -91,36 +74,19 @@ fn TerminalNativeDemoApp() -> Element {
     }
 }
 
-fn spawn_session() -> Arc<NativeTerminalSession> {
-    let cwd = env::current_dir()
-        .ok()
-        .and_then(|path| path.to_str().map(str::to_owned))
-        .unwrap_or_else(|| ".".to_string());
-
-    Arc::new(
-        NativeTerminalSession::spawn(NativeTerminalSessionConfig {
-            cwd,
-            rows: 42,
-            cols: 140,
-            scrollback: 20_000,
-        })
-        .expect("native terminal spike session should spawn"),
-    )
-}
-
-fn status_line(session: &NativeTerminalSession) -> String {
-    let frame = session.current_frame();
+fn status_line(controller: &NativeTerminalController) -> String {
+    let frame = controller.frame();
     format!(
         "{}x{}  revision={}  closed={}",
         frame.cols,
         frame.rows,
-        session.revision(),
-        session.is_closed()
+        controller.revision(),
+        controller.is_closed()
     )
 }
 
 struct NativeTerminalPaintSource {
-    session: Arc<NativeTerminalSession>,
+    controller: NativeTerminalController,
     state: RendererState,
 }
 
@@ -145,9 +111,9 @@ struct ActiveNativeTerminalRenderer {
 }
 
 impl NativeTerminalPaintSource {
-    fn new(session: Arc<NativeTerminalSession>) -> Self {
+    fn new(controller: NativeTerminalController) -> Self {
         Self {
-            session,
+            controller,
             state: RendererState::Suspended,
         }
     }
@@ -185,9 +151,9 @@ impl CustomPaintSource for NativeTerminalPaintSource {
             return None;
         }
 
-        ensure_session_size(&self.session, width, height);
-        let revision = self.session.revision();
-        let frame = self.session.current_frame();
+        ensure_session_size(&self.controller, width, height);
+        let revision = self.controller.revision();
+        let frame = self.controller.frame();
         let needs_full_upload = state.last_size != (width, height)
             || state.raster.dimensions_changed(width, height)
             || revision != state.last_revision;
@@ -275,10 +241,10 @@ fn create_texture(
     TextureAndHandle { texture, handle }
 }
 
-fn ensure_session_size(session: &NativeTerminalSession, width: u32, height: u32) {
+fn ensure_session_size(controller: &NativeTerminalController, width: u32, height: u32) {
     let rows = ((height / CELL_HEIGHT_PX).max(u32::from(MIN_ROWS))) as u16;
     let cols = ((width / CELL_WIDTH_PX).max(u32::from(MIN_COLS))) as u16;
-    let _ = session.resize(rows, cols);
+    controller.resize_cells(rows, cols);
 }
 
 fn special_key_event_to_bytes(event: &KeyboardEvent) -> Option<Vec<u8>> {
