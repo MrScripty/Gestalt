@@ -348,35 +348,26 @@ fn rebuild_row_cells(
         let col = col as u16;
 
         let cursor_here = cursor.row == row && cursor.col == col;
-        if is_plain_blank_cell(cell, cursor_here) {
-            x += cell_width;
-            continue;
-        }
-
         let rect = [x, row_y, cell_width, cell_height];
-        if is_default_visible_cell(cell, cursor_here) {
-            let tile = atlas.ensure_glyph(cell.codepoint);
-            if !tile.empty {
-                glyphs.push(QuadInstance::glyph(
-                    rect,
-                    DEFAULT_FOREGROUND_F32,
-                    tile.uv_rect,
-                ));
+        if !cursor_here && cell.flags == TerminalCellFlags::NONE {
+            if matches!(cell.bg, TerminalColor::DefaultBackground) {
+                if cell.codepoint.is_whitespace() {
+                    x += cell_width;
+                    continue;
+                }
+
+                let tile = atlas.ensure_glyph(cell.codepoint);
+                if !tile.empty {
+                    let color = if matches!(cell.fg, TerminalColor::DefaultForeground) {
+                        DEFAULT_FOREGROUND_F32
+                    } else {
+                        resolve_color_f32(cell.fg)
+                    };
+                    glyphs.push(QuadInstance::glyph(rect, color, tile.uv_rect));
+                }
+                x += cell_width;
+                continue;
             }
-            x += cell_width;
-            continue;
-        }
-        if is_simple_foreground_cell(cell, cursor_here) {
-            let tile = atlas.ensure_glyph(cell.codepoint);
-            if !tile.empty {
-                glyphs.push(QuadInstance::glyph(
-                    rect,
-                    resolve_color_f32(cell.fg),
-                    tile.uv_rect,
-                ));
-            }
-            x += cell_width;
-            continue;
         }
 
         let (bg, fg) = resolved_colors(cell, cursor_here);
@@ -469,30 +460,6 @@ fn extend_cursor_instances(
         }
         TerminalCursorShape::Hidden => {}
     }
-}
-
-fn is_plain_blank_cell(cell: &TerminalCell, cursor_here: bool) -> bool {
-    !cursor_here
-        && cell.codepoint.is_whitespace()
-        && matches!(cell.bg, TerminalColor::DefaultBackground)
-        && matches!(cell.fg, TerminalColor::DefaultForeground)
-        && cell.flags == TerminalCellFlags::NONE
-}
-
-fn is_default_visible_cell(cell: &TerminalCell, cursor_here: bool) -> bool {
-    !cursor_here
-        && !cell.codepoint.is_whitespace()
-        && matches!(cell.bg, TerminalColor::DefaultBackground)
-        && matches!(cell.fg, TerminalColor::DefaultForeground)
-        && cell.flags == TerminalCellFlags::NONE
-}
-
-fn is_simple_foreground_cell(cell: &TerminalCell, cursor_here: bool) -> bool {
-    !cursor_here
-        && !cell.codepoint.is_whitespace()
-        && matches!(cell.bg, TerminalColor::DefaultBackground)
-        && !matches!(cell.fg, TerminalColor::DefaultForeground)
-        && cell.flags == TerminalCellFlags::NONE
 }
 
 fn cell_count(rows: u16, cols: u16) -> usize {
