@@ -340,6 +340,20 @@ fn collect_changed_spans(
 }
 
 fn project_cell(cell: &Cell) -> TerminalCell {
+    if cell.flags.is_empty()
+        && cell.zerowidth().is_none()
+        && is_default_foreground(cell.fg)
+        && is_default_background(cell.bg)
+    {
+        return TerminalCell {
+            codepoint: cell.c,
+            zerowidth: None,
+            fg: TerminalColor::DefaultForeground,
+            bg: TerminalColor::DefaultBackground,
+            flags: TerminalCellFlags::NONE,
+        };
+    }
+
     let zerowidth = cell
         .zerowidth()
         .map(|value| Arc::<[char]>::from(value.to_vec()));
@@ -351,6 +365,20 @@ fn project_cell(cell: &Cell) -> TerminalCell {
         bg: map_color(cell.bg),
         flags: map_flags(cell.flags),
     }
+}
+
+fn is_default_foreground(color: Color) -> bool {
+    matches!(
+        color,
+        Color::Named(NamedColor::Foreground) | Color::Named(NamedColor::BrightForeground)
+    )
+}
+
+fn is_default_background(color: Color) -> bool {
+    matches!(
+        color,
+        Color::Named(NamedColor::Background) | Color::Named(NamedColor::DimForeground)
+    )
 }
 
 fn map_cursor_shape(shape: CursorShape) -> TerminalCursorShape {
