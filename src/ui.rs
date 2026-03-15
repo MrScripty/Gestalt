@@ -37,7 +37,7 @@ use crate::state::{SessionId, SessionStatus, clamp_ui_scale};
 use crate::terminal::{PersistedTerminalState, TerminalManager, TerminalMemorySink};
 use crate::ui::git_refresh::use_git_refresh_coordinator;
 use crate::ui::tab_rail::TabRail;
-use crate::ui::terminal_input::measure_terminal_viewport;
+use crate::ui::terminal_input::{key_event_to_bytes, measure_terminal_viewport};
 use crate::ui::workspace::WorkspaceMain;
 use dioxus::document;
 use dioxus::prelude::*;
@@ -625,6 +625,16 @@ pub fn App() -> Element {
                     let current_scale = app_state.read().ui_scale();
                     let next_scale = next_gui_scale(current_scale, direction);
                     app_state.write().set_ui_scale(next_scale);
+                    return;
+                }
+                if !*embedding_settings_open.read()
+                    && renaming_tab.read().is_none()
+                    && let Some(session_id) = ui_state.read().focused_terminal
+                    && let Some(input) = key_event_to_bytes(&event)
+                {
+                    event.prevent_default();
+                    event.stop_propagation();
+                    let _ = terminal_manager.read().send_input(session_id, &input);
                 }
             },
             onmousemove: move |event| {

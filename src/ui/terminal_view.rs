@@ -8,9 +8,7 @@ use crate::ui::insert_command_mode::{
     command_matches, mode_after_blur, mode_after_focus, route_terminal_key, selected_command_id,
 };
 #[cfg(feature = "native-renderer")]
-use crate::ui::native_terminal::{
-    NativeTerminalBody, native_terminal_pilot_active_for_pane,
-};
+use crate::ui::native_terminal::{NativeTerminalBody, native_terminal_pilot_active_for_pane};
 use crate::ui::terminal_input::{
     cursor_move_bytes, key_event_to_bytes, map_click_to_terminal_cell, read_clipboard_text,
     read_terminal_selection, scroll_terminal_to_bottom, select_terminal_round,
@@ -51,11 +49,12 @@ pub(crate) fn terminal_shell(
     emily_bridge: Arc<EmilyBridge>,
     interaction: TerminalInteractionSignals,
 ) -> Element {
-    let mut app_state = interaction.app_state;
+    let app_state = interaction.app_state;
     let mut ui_state = interaction.ui_state;
     let mut terminal_body_mounts = interaction.terminal_body_mounts;
     let mut terminal_body_stick_bottom = interaction.terminal_body_stick_bottom;
-    let mut snippet_hotkey_state = interaction.snippet_hotkey_state;
+    let snippet_hotkey_state = interaction.snippet_hotkey_state;
+    let mut shell_mount = use_signal(|| None::<Rc<MountedData>>);
     #[cfg(not(feature = "native-renderer"))]
     let _ = terminal_is_selected;
     let crt_enabled = app_state.read().crt_enabled();
@@ -65,16 +64,18 @@ pub(crate) fn terminal_shell(
         (false, true) => "terminal-shell crt-enabled",
         (false, false) => "terminal-shell",
     };
-    let body_class = if crt_enabled {
-        "terminal-body crt-enabled"
-    } else {
-        "terminal-body"
-    };
     #[cfg(feature = "native-renderer")]
     let native_terminal_active =
         native_terminal_pilot_active_for_pane(terminal_is_selected) && !crt_enabled;
     #[cfg(not(feature = "native-renderer"))]
     let native_terminal_active = false;
+    let body_class = if crt_enabled {
+        "terminal-body crt-enabled"
+    } else if native_terminal_active {
+        "terminal-body native-terminal-active"
+    } else {
+        "terminal-body"
+    };
     let body_style = format!(
         "--term-rows: {}; --term-cols: {};",
         terminal.rows, terminal.cols
@@ -177,6 +178,10 @@ pub(crate) fn terminal_shell(
     } else {
         None
     };
+    #[cfg(feature = "native-renderer")]
+    let mut native_input_buffer = use_signal(String::new);
+    #[cfg(feature = "native-renderer")]
+    let native_input_value = native_input_buffer.read().clone();
 
     {
         let body_mount = body_mount.clone();
@@ -194,6 +199,29 @@ pub(crate) fn terminal_shell(
         });
     }
 
+    let shell_terminal_manager_for_keydown = terminal_manager_for_keydown.clone();
+    let native_terminal_manager_for_keydown = shell_terminal_manager_for_keydown.clone();
+    let native_terminal_manager_for_input = native_terminal_manager_for_keydown.clone();
+    let shell_terminal_manager_for_paste_shortcut = terminal_manager_for_paste_shortcut.clone();
+    let native_terminal_manager_for_paste_shortcut =
+        shell_terminal_manager_for_paste_shortcut.clone();
+    let shell_terminal_manager_for_paste_event = terminal_manager_for_paste_event.clone();
+    let native_terminal_manager_for_paste_event = shell_terminal_manager_for_paste_event.clone();
+    let shell_emily_bridge_for_snippet = emily_bridge_for_snippet.clone();
+    let native_emily_bridge_for_snippet = shell_emily_bridge_for_snippet.clone();
+    let shell_terminal_snapshot = terminal.clone();
+    let native_terminal_snapshot = shell_terminal_snapshot.clone();
+    let shell_source_cwd = source_cwd.clone();
+    let native_source_cwd = shell_source_cwd.clone();
+    let shell_body_id_for_snippet_capture = body_id_for_snippet_capture.clone();
+    let native_body_id_for_snippet_capture = shell_body_id_for_snippet_capture.clone();
+    let shell_body_id_for_round_select = body_id_for_round_select.clone();
+    let native_body_id_for_round_select = shell_body_id_for_round_select.clone();
+    let shell_body_id_for_copy = body_id_for_copy.clone();
+    let native_body_id_for_copy = shell_body_id_for_copy.clone();
+    let shell_terminal_manager_for_click = terminal_manager_for_click.clone();
+    let body_terminal_manager_for_click = terminal_manager_for_click.clone();
+    let shell_click_mount = shell_mount;
     #[cfg(feature = "native-renderer")]
     let native_terminal_body = rsx! {
         NativeTerminalBody {
@@ -201,6 +229,82 @@ pub(crate) fn terminal_shell(
             terminal: terminal.clone(),
             native_frame: native_frame.clone(),
             show_caret: show_caret,
+            input_value: native_input_value.clone(),
+            onclick: move |event| {
+                handle_terminal_click(
+                    event,
+                    session_id,
+                    app_state,
+                    ui_state,
+                    terminal_body_mounts,
+                    &body_terminal_manager_for_click,
+                    ui_scale,
+                    click_rows,
+                    click_cols,
+                    click_window_start,
+                    click_cursor_row_local,
+                    click_cursor_row,
+                    click_cursor_col,
+                );
+            },
+            onfocus: move |_| {
+                focus_terminal_session(ui_state, session_id);
+            },
+            onblur: move |_| {
+                blur_terminal_session(ui_state, session_id);
+            },
+            onkeydown: move |event: KeyboardEvent| {
+                handle_terminal_keydown(
+                    event,
+                    session_id,
+                    app_state,
+                    ui_state,
+                    snippet_hotkey_state,
+                    &native_terminal_manager_for_keydown,
+                    &native_terminal_manager_for_paste_shortcut,
+                    &native_emily_bridge_for_snippet,
+                    &native_terminal_snapshot,
+                    &native_source_cwd,
+                    &native_body_id_for_snippet_capture,
+                    &native_body_id_for_round_select,
+                    &native_body_id_for_copy,
+                    round_anchor_row_global,
+                    bracketed_paste,
+                );
+            },
+            oninput: move |event: FormEvent| {
+                let value = event.value();
+                if value.is_empty() {
+                    return;
+                }
+                let mode_snapshot = ui_state.read().insert_mode_state.clone();
+                if let Some(mode) = mode_snapshot
+                    && mode.session_id == session_id
+                {
+                    let mut next_mode = mode;
+                    next_mode.query.push_str(&value);
+                    next_mode.highlighted_index = 0;
+                    ui_state.write().insert_mode_state = Some(next_mode);
+                } else {
+                    send_input_to_session(
+                        &native_terminal_manager_for_input,
+                        app_state,
+                        session_id,
+                        value.as_bytes(),
+                    );
+                }
+                native_input_buffer.set(String::new());
+            },
+            onpaste: move |event| {
+                handle_terminal_paste(
+                    event,
+                    session_id,
+                    app_state,
+                    ui_state,
+                    &native_terminal_manager_for_paste_event,
+                    bracketed_paste,
+                );
+            },
         }
     };
     #[cfg(not(feature = "native-renderer"))]
@@ -211,312 +315,70 @@ pub(crate) fn terminal_shell(
             class: "{shell_class}",
             id: "{terminal_shell_id}",
             tabindex: "0",
+            onmounted: move |event| shell_mount.set(Some(event.data())),
             onfocus: move |_| {
-                let mode_snapshot = ui_state.read().insert_mode_state.clone();
-                let mut state = ui_state.write();
-                state.focused_terminal = Some(session_id);
-                state.insert_mode_state = mode_after_focus(mode_snapshot, session_id);
+                if native_terminal_active {
+                    return;
+                }
+                focus_terminal_session(ui_state, session_id);
             },
             onblur: move |_| {
-                let mode_snapshot = ui_state.read().insert_mode_state.clone();
-                let mut state = ui_state.write();
-                if state.focused_terminal == Some(session_id) {
-                    state.focused_terminal = None;
+                if native_terminal_active {
+                    return;
                 }
-                state.insert_mode_state = mode_after_blur(mode_snapshot, session_id);
+                blur_terminal_session(ui_state, session_id);
             },
             onclick: move |event| {
-                ui_state.write().focused_terminal = Some(session_id);
-                let click_position = event.data().client_coordinates();
-                let click_x = click_position.x;
-                let click_y = click_position.y;
-                let body_mount = terminal_body_mounts.read().get(&session_id).cloned();
-                let terminal_manager = terminal_manager_for_click.clone();
-                let ui_scale = ui_scale;
-                spawn(async move {
-                    let Some(body_mount) = body_mount else {
-                        return;
-                    };
-                    let Some((target_row, target_col)) = map_click_to_terminal_cell(
-                        body_mount,
-                        click_x,
-                        click_y,
-                        click_rows,
-                        click_cols,
-                        ui_scale,
-                    )
-                    .await
-                    else {
-                        return;
-                    };
-
-                    let target_row_global = click_window_start.saturating_add(usize::from(target_row));
-                    let target_row_global = u16::try_from(target_row_global).unwrap_or(u16::MAX);
-
-                    ui_state.write().round_anchor = Some((session_id, target_row_global));
-                    if usize::from(target_row) != click_cursor_row_local {
-                        return;
-                    }
-
-                    let movement = cursor_move_bytes(
-                        click_cursor_row,
-                        click_cursor_col,
-                        target_row_global,
-                        target_col,
-                    );
-
-                    if !movement.is_empty() {
-                        send_input_to_session(&terminal_manager, app_state, session_id, &movement);
-                    }
-                });
+                if native_terminal_active {
+                    return;
+                }
+                handle_terminal_click(
+                    event,
+                    session_id,
+                    app_state,
+                    ui_state,
+                    terminal_body_mounts,
+                    &shell_terminal_manager_for_click,
+                    ui_scale,
+                    click_rows,
+                    click_cols,
+                    click_window_start,
+                    click_cursor_row_local,
+                    click_cursor_row,
+                    click_cursor_col,
+                );
+                if let Some(shell_mount) = shell_click_mount.read().clone() {
+                    spawn(async move {
+                        let _ = shell_mount.set_focus(true).await;
+                    });
+                }
             },
             onkeydown: move |event| {
-                let data = event.data();
-                let key = data.key();
-                let modifiers = data.modifiers();
-                let ctrl = modifiers.ctrl();
-                let alt = modifiers.alt();
-                let shift = modifiers.shift();
-                let meta = modifiers.meta();
-
-                if crt_toggle_requested(&key, ctrl, alt, shift, meta) {
-                    event.prevent_default();
-                    event.stop_propagation();
-                    let enabled = app_state.read().crt_enabled();
-                    app_state.write().set_crt_enabled(!enabled);
-                    return;
-                }
-
-                let active_insert_mode = ui_state
-                    .read()
-                    .insert_mode_state
-                    .as_ref()
-                    .filter(|mode| mode.session_id == session_id)
-                    .cloned();
-                let command_matches = active_insert_mode
-                    .as_ref()
-                    .map(|mode| command_matches(app_state.read().commands(), &mode.query))
-                    .unwrap_or_default();
-                let selected_id = active_insert_mode
-                    .as_ref()
-                    .and_then(|mode| selected_command_id(&command_matches, mode.highlighted_index));
-
-                if active_insert_mode.is_none() {
-                    let chord_state = *snippet_hotkey_state.read();
-                    if let Some(chord) = chord_state
-                        && chord.session_id == session_id
-                    {
-                        if unix_now_ms().saturating_sub(chord.armed_at_unix_ms)
-                            > i64::try_from(INSERT_CHORD_TIMEOUT_MS).unwrap_or(i64::MAX)
-                        {
-                            snippet_hotkey_state.set(None);
-                        } else if !ctrl && !alt && !shift && !meta {
-                            match &key {
-                                Key::Character(text) if text.eq_ignore_ascii_case("s") => {
-                                    event.prevent_default();
-                                    event.stop_propagation();
-                                    snippet_hotkey_state.set(None);
-                                    let body_id = body_id_for_snippet_capture.clone();
-                                    let terminal_lines = terminal.lines.clone();
-                                    let source_cwd = source_cwd.clone();
-                                    let emily_bridge = emily_bridge_for_snippet.clone();
-                                    spawn(async move {
-                                        save_selection_as_snippet(
-                                            app_state,
-                                            emily_bridge,
-                                            session_id,
-                                            source_cwd,
-                                            body_id,
-                                            terminal_lines,
-                                        )
-                                        .await;
-                                    });
-                                    return;
-                                }
-                                Key::Character(text) if text.eq_ignore_ascii_case("c") => {
-                                    event.prevent_default();
-                                    event.stop_propagation();
-                                    snippet_hotkey_state.set(None);
-                                    ui_state.write().insert_mode_state = Some(InsertModeState {
-                                        session_id,
-                                        query: String::new(),
-                                        highlighted_index: 0,
-                                    });
-                                    return;
-                                }
-                                Key::Escape | Key::Insert => {
-                                    event.prevent_default();
-                                    event.stop_propagation();
-                                    snippet_hotkey_state.set(None);
-                                    return;
-                                }
-                                _ => {
-                                    snippet_hotkey_state.set(None);
-                                }
-                            }
-                        } else {
-                            snippet_hotkey_state.set(None);
-                        }
-                    }
-
-                    if is_snippet_hotkey_trigger(&key, ctrl, alt, shift, meta) {
-                        event.prevent_default();
-                        event.stop_propagation();
-                        let armed = SnippetHotkeyState {
-                            session_id,
-                            armed_at_unix_ms: unix_now_ms(),
-                        };
-                        snippet_hotkey_state.set(Some(armed));
-                        spawn(async move {
-                            tokio::time::sleep(Duration::from_millis(INSERT_CHORD_TIMEOUT_MS))
-                                .await;
-                            if snippet_hotkey_state.read().as_ref() == Some(&armed) {
-                                snippet_hotkey_state.set(None);
-                            }
-                        });
-                        return;
-                    }
-                }
-
-                match route_terminal_key(
-                    active_insert_mode.as_ref(),
-                    &key,
-                    KeyModifiers {
-                        ctrl,
-                        alt,
-                        shift,
-                        meta,
-                    },
-                    InsertModeSelection {
-                        selected_command_id: selected_id,
-                        match_count: command_matches.len(),
-                    },
-                ) {
-                    TerminalKeyRoute::OpenMode => {
-                        event.prevent_default();
-                        event.stop_propagation();
-                        ui_state.write().insert_mode_state = Some(InsertModeState {
-                            session_id,
-                            query: String::new(),
-                            highlighted_index: 0,
-                        });
-                        return;
-                    }
-                    TerminalKeyRoute::HandleMode(outcome) => {
-                        event.prevent_default();
-                        event.stop_propagation();
-                        match outcome {
-                            InsertModeOutcome::Keep(next_mode) => {
-                                ui_state.write().insert_mode_state = Some(next_mode);
-                            }
-                            InsertModeOutcome::Close => {
-                                ui_state.write().insert_mode_state = None;
-                            }
-                            InsertModeOutcome::Submit(command_id) => {
-                                submit_insert_command(
-                                    command_id,
-                                    &terminal_manager_for_keydown,
-                                    app_state,
-                                    session_id,
-                                );
-                                ui_state.write().insert_mode_state = None;
-                            }
-                            InsertModeOutcome::Ignore => {}
-                        }
-                        return;
-                    }
-                    TerminalKeyRoute::Passthrough => {}
-                }
-
-                if is_paste_shortcut(
-                    &key,
-                    ctrl,
-                    alt,
-                    shift,
-                    meta,
-                ) {
-                    event.prevent_default();
-                    event.stop_propagation();
-                    if let Some(mode) = ui_state.read().insert_mode_state.clone()
-                        && mode.session_id == session_id
-                    {
-                        return;
-                    }
-                    let terminal_manager = terminal_manager_for_paste_shortcut.clone();
-                    paste_clipboard_into_terminal(
-                        terminal_manager,
-                        app_state,
-                        session_id,
-                        bracketed_paste,
-                    );
-                    return;
-                }
-
-                if ctrl && !alt && let Key::Character(text) = &key {
-                    if text.eq_ignore_ascii_case("a") {
-                        event.prevent_default();
-                        event.stop_propagation();
-                        if let Some((start_row, end_row)) =
-                            terminal_round_bounds(&terminal.lines, round_anchor_row_global)
-                        {
-                            let body_id = body_id_for_round_select.clone();
-                            spawn(async move {
-                                let _ = select_terminal_round(body_id, start_row, end_row).await;
-                            });
-                        }
-                        return;
-                    }
-
-                    if text.eq_ignore_ascii_case("c") {
-                        event.prevent_default();
-                        event.stop_propagation();
-                        let terminal_manager = terminal_manager_for_keydown.clone();
-                        let body_id = body_id_for_copy.clone();
-                        spawn(async move {
-                            let copied = if let Some(selection) =
-                                read_terminal_selection(body_id).await
-                            {
-                                write_clipboard_text(selection.text).await
-                            } else {
-                                false
-                            };
-                            if !copied {
-                                send_input_to_session(
-                                    &terminal_manager,
-                                    app_state,
-                                    session_id,
-                                    &[0x03],
-                                );
-                            }
-                        });
-                        return;
-                    }
-                }
-
-                if let Some(input) = key_event_to_bytes(&event) {
-                    event.prevent_default();
-                    event.stop_propagation();
-                    send_input_to_session(
-                        &terminal_manager_for_keydown,
-                        app_state,
-                        session_id,
-                        &input,
-                    );
-                }
+                handle_terminal_keydown(
+                    event,
+                    session_id,
+                    app_state,
+                    ui_state,
+                    snippet_hotkey_state,
+                    &shell_terminal_manager_for_keydown,
+                    &shell_terminal_manager_for_paste_shortcut,
+                    &shell_emily_bridge_for_snippet,
+                    &shell_terminal_snapshot,
+                    &shell_source_cwd,
+                    &shell_body_id_for_snippet_capture,
+                    &shell_body_id_for_round_select,
+                    &shell_body_id_for_copy,
+                    round_anchor_row_global,
+                    bracketed_paste,
+                );
             },
             onpaste: move |event| {
-                event.prevent_default();
-                event.stop_propagation();
-                if let Some(mode) = ui_state.read().insert_mode_state.clone()
-                    && mode.session_id == session_id
-                {
-                    return;
-                }
-                let terminal_manager = terminal_manager_for_paste_event.clone();
-                paste_clipboard_into_terminal(
-                    terminal_manager,
-                    app_state,
+                handle_terminal_paste(
+                    event,
                     session_id,
+                    app_state,
+                    ui_state,
+                    &shell_terminal_manager_for_paste_event,
                     bracketed_paste,
                 );
             },
@@ -836,6 +698,327 @@ fn is_paste_shortcut(key: &Key, ctrl: bool, alt: bool, shift: bool, meta: bool) 
 
 fn is_snippet_hotkey_trigger(key: &Key, ctrl: bool, alt: bool, shift: bool, meta: bool) -> bool {
     matches!(key, Key::Insert) && alt && !ctrl && !shift && !meta
+}
+
+#[allow(clippy::too_many_arguments)]
+fn handle_terminal_click(
+    event: MouseEvent,
+    session_id: SessionId,
+    app_state: Signal<AppState>,
+    mut ui_state: Signal<UiState>,
+    terminal_body_mounts: Signal<HashMap<SessionId, Rc<MountedData>>>,
+    terminal_manager: &Arc<TerminalManager>,
+    ui_scale: f64,
+    click_rows: u16,
+    click_cols: u16,
+    click_window_start: usize,
+    click_cursor_row_local: usize,
+    click_cursor_row: u16,
+    click_cursor_col: u16,
+) {
+    ui_state.write().focused_terminal = Some(session_id);
+    let click_position = event.data().client_coordinates();
+    let click_x = click_position.x;
+    let click_y = click_position.y;
+    let body_mount = terminal_body_mounts.read().get(&session_id).cloned();
+    let terminal_manager = terminal_manager.clone();
+    spawn(async move {
+        let Some(body_mount) = body_mount else {
+            return;
+        };
+        let Some((target_row, target_col)) = map_click_to_terminal_cell(
+            body_mount, click_x, click_y, click_rows, click_cols, ui_scale,
+        )
+        .await
+        else {
+            return;
+        };
+
+        let target_row_global = click_window_start.saturating_add(usize::from(target_row));
+        let target_row_global = u16::try_from(target_row_global).unwrap_or(u16::MAX);
+
+        ui_state.write().round_anchor = Some((session_id, target_row_global));
+        if usize::from(target_row) != click_cursor_row_local {
+            return;
+        }
+
+        let movement = cursor_move_bytes(
+            click_cursor_row,
+            click_cursor_col,
+            target_row_global,
+            target_col,
+        );
+
+        if !movement.is_empty() {
+            send_input_to_session(&terminal_manager, app_state, session_id, &movement);
+        }
+    });
+}
+
+fn focus_terminal_session(mut ui_state: Signal<UiState>, session_id: SessionId) {
+    let mode_snapshot = ui_state.read().insert_mode_state.clone();
+    let mut state = ui_state.write();
+    state.focused_terminal = Some(session_id);
+    state.insert_mode_state = mode_after_focus(mode_snapshot, session_id);
+}
+
+fn blur_terminal_session(mut ui_state: Signal<UiState>, session_id: SessionId) {
+    let mode_snapshot = ui_state.read().insert_mode_state.clone();
+    let mut state = ui_state.write();
+    if state.focused_terminal == Some(session_id) {
+        state.focused_terminal = None;
+    }
+    state.insert_mode_state = mode_after_blur(mode_snapshot, session_id);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn handle_terminal_keydown(
+    event: KeyboardEvent,
+    session_id: SessionId,
+    mut app_state: Signal<AppState>,
+    mut ui_state: Signal<UiState>,
+    mut snippet_hotkey_state: Signal<Option<SnippetHotkeyState>>,
+    terminal_manager_for_keydown: &Arc<TerminalManager>,
+    terminal_manager_for_paste_shortcut: &Arc<TerminalManager>,
+    emily_bridge_for_snippet: &Arc<EmilyBridge>,
+    terminal: &Arc<TerminalSnapshot>,
+    source_cwd: &str,
+    body_id_for_snippet_capture: &str,
+    body_id_for_round_select: &str,
+    body_id_for_copy: &str,
+    round_anchor_row_global: u16,
+    bracketed_paste: bool,
+) {
+    let data = event.data();
+    let key = data.key();
+    let modifiers = data.modifiers();
+    let ctrl = modifiers.ctrl();
+    let alt = modifiers.alt();
+    let shift = modifiers.shift();
+    let meta = modifiers.meta();
+
+    if crt_toggle_requested(&key, ctrl, alt, shift, meta) {
+        event.prevent_default();
+        event.stop_propagation();
+        let enabled = app_state.read().crt_enabled();
+        app_state.write().set_crt_enabled(!enabled);
+        return;
+    }
+
+    let active_insert_mode = ui_state
+        .read()
+        .insert_mode_state
+        .as_ref()
+        .filter(|mode| mode.session_id == session_id)
+        .cloned();
+    let command_matches = active_insert_mode
+        .as_ref()
+        .map(|mode| command_matches(app_state.read().commands(), &mode.query))
+        .unwrap_or_default();
+    let selected_id = active_insert_mode
+        .as_ref()
+        .and_then(|mode| selected_command_id(&command_matches, mode.highlighted_index));
+
+    if active_insert_mode.is_none() {
+        let chord_state = *snippet_hotkey_state.read();
+        if let Some(chord) = chord_state
+            && chord.session_id == session_id
+        {
+            if unix_now_ms().saturating_sub(chord.armed_at_unix_ms)
+                > i64::try_from(INSERT_CHORD_TIMEOUT_MS).unwrap_or(i64::MAX)
+            {
+                snippet_hotkey_state.set(None);
+            } else if !ctrl && !alt && !shift && !meta {
+                match &key {
+                    Key::Character(text) if text.eq_ignore_ascii_case("s") => {
+                        event.prevent_default();
+                        event.stop_propagation();
+                        snippet_hotkey_state.set(None);
+                        let body_id = body_id_for_snippet_capture.to_string();
+                        let terminal_lines = terminal.lines.clone();
+                        let source_cwd = source_cwd.to_string();
+                        let emily_bridge = emily_bridge_for_snippet.clone();
+                        spawn(async move {
+                            save_selection_as_snippet(
+                                app_state,
+                                emily_bridge,
+                                session_id,
+                                source_cwd,
+                                body_id,
+                                terminal_lines,
+                            )
+                            .await;
+                        });
+                        return;
+                    }
+                    Key::Character(text) if text.eq_ignore_ascii_case("c") => {
+                        event.prevent_default();
+                        event.stop_propagation();
+                        snippet_hotkey_state.set(None);
+                        ui_state.write().insert_mode_state = Some(InsertModeState {
+                            session_id,
+                            query: String::new(),
+                            highlighted_index: 0,
+                        });
+                        return;
+                    }
+                    Key::Escape | Key::Insert => {
+                        event.prevent_default();
+                        event.stop_propagation();
+                        snippet_hotkey_state.set(None);
+                        return;
+                    }
+                    _ => {
+                        snippet_hotkey_state.set(None);
+                    }
+                }
+            } else {
+                snippet_hotkey_state.set(None);
+            }
+        }
+
+        if is_snippet_hotkey_trigger(&key, ctrl, alt, shift, meta) {
+            event.prevent_default();
+            event.stop_propagation();
+            let armed = SnippetHotkeyState {
+                session_id,
+                armed_at_unix_ms: unix_now_ms(),
+            };
+            snippet_hotkey_state.set(Some(armed));
+            spawn(async move {
+                tokio::time::sleep(Duration::from_millis(INSERT_CHORD_TIMEOUT_MS)).await;
+                if snippet_hotkey_state.read().as_ref() == Some(&armed) {
+                    snippet_hotkey_state.set(None);
+                }
+            });
+            return;
+        }
+    }
+
+    match route_terminal_key(
+        active_insert_mode.as_ref(),
+        &key,
+        KeyModifiers {
+            ctrl,
+            alt,
+            shift,
+            meta,
+        },
+        InsertModeSelection {
+            selected_command_id: selected_id,
+            match_count: command_matches.len(),
+        },
+    ) {
+        TerminalKeyRoute::OpenMode => {
+            event.prevent_default();
+            event.stop_propagation();
+            ui_state.write().insert_mode_state = Some(InsertModeState {
+                session_id,
+                query: String::new(),
+                highlighted_index: 0,
+            });
+            return;
+        }
+        TerminalKeyRoute::HandleMode(outcome) => {
+            event.prevent_default();
+            event.stop_propagation();
+            match outcome {
+                InsertModeOutcome::Keep(next_mode) => {
+                    ui_state.write().insert_mode_state = Some(next_mode);
+                }
+                InsertModeOutcome::Close => {
+                    ui_state.write().insert_mode_state = None;
+                }
+                InsertModeOutcome::Submit(command_id) => {
+                    submit_insert_command(
+                        command_id,
+                        terminal_manager_for_keydown,
+                        app_state,
+                        session_id,
+                    );
+                    ui_state.write().insert_mode_state = None;
+                }
+                InsertModeOutcome::Ignore => {}
+            }
+            return;
+        }
+        TerminalKeyRoute::Passthrough => {}
+    }
+
+    if is_paste_shortcut(&key, ctrl, alt, shift, meta) {
+        event.prevent_default();
+        event.stop_propagation();
+        if let Some(mode) = ui_state.read().insert_mode_state.clone()
+            && mode.session_id == session_id
+        {
+            return;
+        }
+        let terminal_manager = terminal_manager_for_paste_shortcut.clone();
+        paste_clipboard_into_terminal(terminal_manager, app_state, session_id, bracketed_paste);
+        return;
+    }
+
+    if ctrl
+        && !alt
+        && let Key::Character(text) = &key
+    {
+        if text.eq_ignore_ascii_case("a") {
+            event.prevent_default();
+            event.stop_propagation();
+            if let Some((start_row, end_row)) =
+                terminal_round_bounds(&terminal.lines, round_anchor_row_global)
+            {
+                let body_id = body_id_for_round_select.to_string();
+                spawn(async move {
+                    let _ = select_terminal_round(body_id, start_row, end_row).await;
+                });
+            }
+            return;
+        }
+
+        if text.eq_ignore_ascii_case("c") {
+            event.prevent_default();
+            event.stop_propagation();
+            let terminal_manager = terminal_manager_for_keydown.clone();
+            let body_id = body_id_for_copy.to_string();
+            spawn(async move {
+                let copied = if let Some(selection) = read_terminal_selection(body_id).await {
+                    write_clipboard_text(selection.text).await
+                } else {
+                    false
+                };
+                if !copied {
+                    send_input_to_session(&terminal_manager, app_state, session_id, &[0x03]);
+                }
+            });
+            return;
+        }
+    }
+
+    if let Some(input) = key_event_to_bytes(&event) {
+        event.prevent_default();
+        event.stop_propagation();
+        send_input_to_session(terminal_manager_for_keydown, app_state, session_id, &input);
+    }
+}
+
+fn handle_terminal_paste(
+    event: ClipboardEvent,
+    session_id: SessionId,
+    app_state: Signal<AppState>,
+    ui_state: Signal<UiState>,
+    terminal_manager_for_paste_event: &Arc<TerminalManager>,
+    bracketed_paste: bool,
+) {
+    event.prevent_default();
+    event.stop_propagation();
+    if let Some(mode) = ui_state.read().insert_mode_state.clone()
+        && mode.session_id == session_id
+    {
+        return;
+    }
+    let terminal_manager = terminal_manager_for_paste_event.clone();
+    paste_clipboard_into_terminal(terminal_manager, app_state, session_id, bracketed_paste);
 }
 
 fn paste_clipboard_into_terminal(

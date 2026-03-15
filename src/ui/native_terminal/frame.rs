@@ -3,9 +3,6 @@ use crate::terminal_native::{
     TerminalCell, TerminalCellFlags, TerminalCellPublication, TerminalCursorShape, TerminalFrame,
 };
 
-#[cfg(test)]
-use std::sync::Arc;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct NativeTerminalFrame {
     pub rows: u16,
@@ -32,6 +29,10 @@ pub(crate) struct NativeTerminalCursor {
 }
 
 impl NativeTerminalFrame {
+    pub(crate) fn is_visibly_blank(&self) -> bool {
+        self.cells.iter().all(|cell| cell.codepoint == ' ')
+    }
+
     pub(crate) fn from_snapshot(snapshot: &TerminalSnapshot, show_cursor: bool) -> Self {
         let rows = snapshot.rows.max(1);
         let cols = snapshot.cols.max(1);
@@ -103,6 +104,18 @@ impl NativeTerminalFrame {
             cursor,
         }
     }
+
+    pub(crate) fn from_native_or_snapshot(
+        frame: &TerminalFrame,
+        snapshot: &TerminalSnapshot,
+        show_cursor: bool,
+    ) -> Self {
+        let native = Self::from_native_frame(frame, show_cursor);
+        if native.is_visibly_blank() && snapshot.lines.iter().any(|line| !line.is_empty()) {
+            return Self::from_snapshot(snapshot, show_cursor);
+        }
+        native
+    }
 }
 
 fn visible_window(snapshot: &TerminalSnapshot, rows: u16) -> &[String] {
@@ -139,6 +152,7 @@ mod tests {
         TerminalCell, TerminalCellFlags, TerminalCellPublication, TerminalCursor,
         TerminalCursorShape, TerminalDamage, TerminalFrame,
     };
+    use std::sync::Arc;
 
     #[test]
     fn frame_uses_last_visible_rows() {
