@@ -40,6 +40,8 @@ const REPLAY_PROFILE_ITERATIONS: usize = 24;
 #[cfg(feature = "terminal-native-spike")]
 const REPLAY_PROFILE_CHUNK_BYTES: usize = 512;
 #[cfg(feature = "terminal-native-spike")]
+const REPLAY_PROFILE_TERMINAL_COUNTS: &[usize] = &[1, 2, 4, 8];
+#[cfg(feature = "terminal-native-spike")]
 const REPLAY_PROFILE_ROWS: u16 = 42;
 #[cfg(feature = "terminal-native-spike")]
 const REPLAY_PROFILE_COLS: u16 = 140;
@@ -57,6 +59,7 @@ struct ProfileConfig {
     startup_samples: usize,
     replay_profile_lines: usize,
     replay_profile_iterations: usize,
+    replay_profile_terminal_counts: Vec<usize>,
 }
 
 impl ProfileConfig {
@@ -85,6 +88,10 @@ impl ProfileConfig {
             replay_profile_iterations: env_usize(
                 "GESTALT_PROFILE_REPLAY_ITERATIONS",
                 replay_profile_iterations_default(),
+            ),
+            replay_profile_terminal_counts: env_usize_list(
+                "GESTALT_PROFILE_REPLAY_TERMINAL_COUNTS",
+                replay_profile_terminal_counts_default(),
             ),
         }
     }
@@ -140,6 +147,9 @@ fn main() -> Result<(), String> {
                 replay_native_raster_update: replay_benchmark
                     .as_ref()
                     .map(|benchmark| benchmark.native_raster_update),
+                replay_native_multi_terminal: replay_benchmark
+                    .as_ref()
+                    .map(|benchmark| benchmark.native_multi_terminal.clone()),
             })
             .map_err(|error| format!("failed to serialize replay-only summary: {error}"))?;
             println!("{JSON_PREFIX}{payload}");
@@ -1373,6 +1383,7 @@ struct ReplayOnlyProfileSummary {
     replay_native_render_flatten: Option<DistributionStats>,
     replay_native_render_overlay: Option<DistributionStats>,
     replay_native_raster_update: Option<DistributionStats>,
+    replay_native_multi_terminal: Option<Vec<MultiTerminalReplaySummary>>,
 }
 
 struct LatencyProfile {
@@ -1431,7 +1442,7 @@ fn stats_from_sorted(values: &[u128]) -> DistributionStats {
     DistributionStats::from_sorted(values)
 }
 
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Serialize)]
 struct ReplayBenchmarkSummary {
     legacy_snapshot_build: DistributionStats,
     legacy_row_render: DistributionStats,
@@ -1445,6 +1456,89 @@ struct ReplayBenchmarkSummary {
     native_render_flatten: DistributionStats,
     native_render_overlay: DistributionStats,
     native_raster_update: DistributionStats,
+    native_multi_terminal: Vec<MultiTerminalReplaySummary>,
+}
+
+#[derive(Clone, Serialize)]
+struct MultiTerminalReplaySummary {
+    terminal_count: usize,
+    native_snapshot_wave: DistributionStats,
+    native_render_wave: DistributionStats,
+    native_total_wave: DistributionStats,
+}
+
+#[cfg(feature = "terminal-native-spike")]
+struct MultiTerminalReplayAccumulator {
+    terminal_count: usize,
+    native_snapshot_wave: Vec<u128>,
+    native_render_wave: Vec<u128>,
+    native_total_wave: Vec<u128>,
+}
+
+#[cfg(feature = "terminal-native-spike")]
+impl MultiTerminalReplayAccumulator {
+    fn new(terminal_count: usize) -> Self {
+        Self {
+            terminal_count,
+            native_snapshot_wave: Vec::new(),
+            native_render_wave: Vec::new(),
+            native_total_wave: Vec::new(),
+        }
+    }
+
+    fn run_iteration(&mut self, chunks: &[Vec<u8>]) {
+        let mut emulators = (0..self.terminal_count)
+            .map(|_| {
+                AlacrittyEmulator::new(AlacrittyEmulatorConfig {
+                    rows: REPLAY_PROFILE_ROWS,
+                    cols: REPLAY_PROFILE_COLS,
+                    scrollback: REPLAY_PROFILE_SCROLLBACK,
+                })
+            })
+            .collect::<Vec<_>>();
+        let mut scene_caches = (0..self.terminal_count)
+            .map(|_| TerminalGpuSceneCache::new())
+            .collect::<Vec<_>>();
+        let mut frames = Vec::with_capacity(self.terminal_count);
+
+        for chunk in chunks {
+            let snapshot_started = Instant::now();
+            frames.clear();
+            for emulator in &mut emulators {
+                emulator.ingest(chunk);
+                frames.push(emulator.snapshot());
+            }
+            let snapshot_elapsed = snapshot_started.elapsed().as_micros();
+
+            let render_started = Instant::now();
+            for (scene_cache, frame) in scene_caches.iter_mut().zip(frames.iter()) {
+                let _ = scene_cache.prepare(
+                    frame,
+                    u32::from(frame.cols).saturating_mul(9),
+                    u32::from(frame.rows).saturating_mul(18),
+                );
+            }
+            let render_elapsed = render_started.elapsed().as_micros();
+
+            self.native_snapshot_wave.push(snapshot_elapsed);
+            self.native_render_wave.push(render_elapsed);
+            self.native_total_wave
+                .push(snapshot_elapsed.saturating_add(render_elapsed));
+        }
+    }
+
+    fn finish(mut self) -> MultiTerminalReplaySummary {
+        self.native_snapshot_wave.sort_unstable();
+        self.native_render_wave.sort_unstable();
+        self.native_total_wave.sort_unstable();
+
+        MultiTerminalReplaySummary {
+            terminal_count: self.terminal_count,
+            native_snapshot_wave: stats_from_sorted(&self.native_snapshot_wave),
+            native_render_wave: stats_from_sorted(&self.native_render_wave),
+            native_total_wave: stats_from_sorted(&self.native_total_wave),
+        }
+    }
 }
 
 #[cfg(feature = "terminal-native-spike")]
@@ -1453,6 +1547,12 @@ fn profile_terminal_replay_benchmark(config: &ProfileConfig) -> Option<ReplayBen
     let chunks = transcript
         .chunks(REPLAY_PROFILE_CHUNK_BYTES)
         .map(|chunk| chunk.to_vec())
+        .collect::<Vec<_>>();
+    let mut native_multi_terminal = config
+        .replay_profile_terminal_counts
+        .iter()
+        .copied()
+        .map(|terminal_count| MultiTerminalReplayAccumulator::new(terminal_count))
         .collect::<Vec<_>>();
 
     let mut legacy_snapshot_build =
@@ -1530,6 +1630,10 @@ fn profile_terminal_replay_benchmark(config: &ProfileConfig) -> Option<ReplayBen
             native_render_flatten.push(render_profile.flatten_us);
             native_render_overlay.push(render_profile.overlay_us);
         }
+
+        for accumulator in &mut native_multi_terminal {
+            accumulator.run_iteration(&chunks);
+        }
     }
 
     legacy_snapshot_build.sort_unstable();
@@ -1558,6 +1662,10 @@ fn profile_terminal_replay_benchmark(config: &ProfileConfig) -> Option<ReplayBen
         native_render_flatten: stats_from_sorted(&native_render_flatten),
         native_render_overlay: stats_from_sorted(&native_render_overlay),
         native_raster_update: stats_from_sorted(&native_raster_update),
+        native_multi_terminal: native_multi_terminal
+            .into_iter()
+            .map(MultiTerminalReplayAccumulator::finish)
+            .collect(),
     })
 }
 
@@ -1670,6 +1778,21 @@ fn print_replay_benchmark(summary: &Option<ReplayBenchmarkSummary>) {
         summary.native_render_overlay.p99_us,
         summary.native_render_overlay.max_us
     );
+    if !summary.native_multi_terminal.is_empty() {
+        println!("  native multi-terminal replay wave us:");
+        for scaling in &summary.native_multi_terminal {
+            println!(
+                "    terminals={}: snapshot avg={} p95={} | render avg={} p95={} | total avg={} p95={}",
+                scaling.terminal_count,
+                scaling.native_snapshot_wave.avg_us,
+                scaling.native_snapshot_wave.p95_us,
+                scaling.native_render_wave.avg_us,
+                scaling.native_render_wave.p95_us,
+                scaling.native_total_wave.avg_us,
+                scaling.native_total_wave.p95_us
+            );
+        }
+    }
 }
 
 #[cfg(feature = "terminal-native-spike")]
@@ -1830,6 +1953,20 @@ fn env_usize(key: &str, default: usize) -> usize {
         .unwrap_or(default)
 }
 
+fn env_usize_list(key: &str, default: &[usize]) -> Vec<usize> {
+    std::env::var(key)
+        .ok()
+        .map(|value| {
+            value
+                .split(',')
+                .filter_map(|item| item.trim().parse::<usize>().ok())
+                .filter(|value| *value > 0)
+                .collect::<Vec<_>>()
+        })
+        .filter(|values| !values.is_empty())
+        .unwrap_or_else(|| default.to_vec())
+}
+
 #[cfg(feature = "terminal-native-spike")]
 fn replay_profile_lines_default() -> usize {
     REPLAY_PROFILE_LINES
@@ -1848,6 +1985,16 @@ fn replay_profile_iterations_default() -> usize {
 #[cfg(not(feature = "terminal-native-spike"))]
 fn replay_profile_iterations_default() -> usize {
     1
+}
+
+#[cfg(feature = "terminal-native-spike")]
+fn replay_profile_terminal_counts_default() -> &'static [usize] {
+    REPLAY_PROFILE_TERMINAL_COUNTS
+}
+
+#[cfg(not(feature = "terminal-native-spike"))]
+fn replay_profile_terminal_counts_default() -> &'static [usize] {
+    &[1]
 }
 
 fn percentile(sorted_values: &[u128], percentile: usize) -> u128 {

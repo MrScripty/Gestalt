@@ -44,6 +44,7 @@ None.
 ```bash
 cargo run --bin profile_terminal
 cargo run --bin profile_terminal --features terminal-native-spike -- --replay-only --json
+GESTALT_PROFILE_REPLAY_TERMINAL_COUNTS=1,2,4,8 cargo run --bin profile_terminal --features terminal-native-spike -- --replay-only --json
 cargo run --bin emily_seed -- --reset
 cargo run --bin emily_inspect -- --dataset synthetic-agent-round --reseed --reset --query "provider registry"
 cargo run --bin emily_pantograph_embedding_probe
