@@ -132,6 +132,12 @@ fn main() -> Result<(), String> {
                 replay_native_snapshot_publication: replay_benchmark
                     .as_ref()
                     .map(|benchmark| benchmark.native_snapshot_publication),
+                replay_native_snapshot_spans_published: replay_benchmark
+                    .as_ref()
+                    .map(|benchmark| benchmark.native_snapshot_spans_published),
+                replay_native_snapshot_cells_published: replay_benchmark
+                    .as_ref()
+                    .map(|benchmark| benchmark.native_snapshot_cells_published),
                 replay_native_render_apply_frame: replay_benchmark
                     .as_ref()
                     .map(|benchmark| benchmark.native_render_apply_frame),
@@ -517,6 +523,12 @@ fn main() -> Result<(), String> {
         replay_native_snapshot_publication: replay_benchmark
             .as_ref()
             .map(|benchmark| benchmark.native_snapshot_publication),
+        replay_native_snapshot_spans_published: replay_benchmark
+            .as_ref()
+            .map(|benchmark| benchmark.native_snapshot_spans_published),
+        replay_native_snapshot_cells_published: replay_benchmark
+            .as_ref()
+            .map(|benchmark| benchmark.native_snapshot_cells_published),
         replay_native_render_apply_frame: replay_benchmark
             .as_ref()
             .map(|benchmark| benchmark.native_render_apply_frame),
@@ -1368,6 +1380,8 @@ struct ProfileSummary {
     replay_native_snapshot_damage_collect: Option<DistributionStats>,
     replay_native_snapshot_projection: Option<DistributionStats>,
     replay_native_snapshot_publication: Option<DistributionStats>,
+    replay_native_snapshot_spans_published: Option<CountStats>,
+    replay_native_snapshot_cells_published: Option<CountStats>,
     replay_native_render_apply_frame: Option<DistributionStats>,
     replay_native_render_row_rebuild: Option<DistributionStats>,
     replay_native_render_rows_rebuilt: Option<CountStats>,
@@ -1423,6 +1437,8 @@ struct ReplayOnlyProfileSummary {
     replay_native_snapshot_damage_collect: Option<DistributionStats>,
     replay_native_snapshot_projection: Option<DistributionStats>,
     replay_native_snapshot_publication: Option<DistributionStats>,
+    replay_native_snapshot_spans_published: Option<CountStats>,
+    replay_native_snapshot_cells_published: Option<CountStats>,
     replay_native_render_apply_frame: Option<DistributionStats>,
     replay_native_render_row_rebuild: Option<DistributionStats>,
     replay_native_render_rows_rebuilt: Option<CountStats>,
@@ -1498,6 +1514,8 @@ struct ReplayBenchmarkSummary {
     native_snapshot_damage_collect: DistributionStats,
     native_snapshot_projection: DistributionStats,
     native_snapshot_publication: DistributionStats,
+    native_snapshot_spans_published: CountStats,
+    native_snapshot_cells_published: CountStats,
     native_render_apply_frame: DistributionStats,
     native_render_row_rebuild: DistributionStats,
     native_render_rows_rebuilt: CountStats,
@@ -1617,6 +1635,10 @@ fn profile_terminal_replay_benchmark(config: &ProfileConfig) -> Option<ReplayBen
         Vec::with_capacity(config.replay_profile_iterations * chunks.len());
     let mut native_snapshot_publication =
         Vec::with_capacity(config.replay_profile_iterations * chunks.len());
+    let mut native_snapshot_spans_published =
+        Vec::with_capacity(config.replay_profile_iterations * chunks.len());
+    let mut native_snapshot_cells_published =
+        Vec::with_capacity(config.replay_profile_iterations * chunks.len());
     let mut native_render_apply_frame =
         Vec::with_capacity(config.replay_profile_iterations * chunks.len());
     let mut native_render_row_rebuild =
@@ -1670,6 +1692,13 @@ fn profile_terminal_replay_benchmark(config: &ProfileConfig) -> Option<ReplayBen
             native_snapshot_damage_collect.push(snapshot_profile.damage_collect_us);
             native_snapshot_projection.push(snapshot_profile.projection_update_us);
             native_snapshot_publication.push(snapshot_profile.publication_build_us);
+            if let Some(cells) = frame.full_cells() {
+                native_snapshot_spans_published.push(1);
+                native_snapshot_cells_published.push(cells.len() as u128);
+            } else if let Some(changes) = frame.changed_spans() {
+                native_snapshot_spans_published.push(changes.span_count() as u128);
+                native_snapshot_cells_published.push(changes.cell_count() as u128);
+            }
 
             let native_raster_started = Instant::now();
             let (_, render_profile) = scene_cache.prepare_profiled(
@@ -1698,6 +1727,8 @@ fn profile_terminal_replay_benchmark(config: &ProfileConfig) -> Option<ReplayBen
     native_snapshot_damage_collect.sort_unstable();
     native_snapshot_projection.sort_unstable();
     native_snapshot_publication.sort_unstable();
+    native_snapshot_spans_published.sort_unstable();
+    native_snapshot_cells_published.sort_unstable();
     native_render_apply_frame.sort_unstable();
     native_render_row_rebuild.sort_unstable();
     native_render_rows_rebuilt.sort_unstable();
@@ -1714,6 +1745,8 @@ fn profile_terminal_replay_benchmark(config: &ProfileConfig) -> Option<ReplayBen
         native_snapshot_damage_collect: stats_from_sorted(&native_snapshot_damage_collect),
         native_snapshot_projection: stats_from_sorted(&native_snapshot_projection),
         native_snapshot_publication: stats_from_sorted(&native_snapshot_publication),
+        native_snapshot_spans_published: CountStats::from_sorted(&native_snapshot_spans_published),
+        native_snapshot_cells_published: CountStats::from_sorted(&native_snapshot_cells_published),
         native_render_apply_frame: stats_from_sorted(&native_render_apply_frame),
         native_render_row_rebuild: stats_from_sorted(&native_render_row_rebuild),
         native_render_rows_rebuilt: CountStats::from_sorted(&native_render_rows_rebuilt),
@@ -1796,6 +1829,22 @@ fn print_replay_benchmark(summary: &Option<ReplayBenchmarkSummary>) {
         summary.native_snapshot_publication.p95_us,
         summary.native_snapshot_publication.p99_us,
         summary.native_snapshot_publication.max_us
+    );
+    println!(
+        "    spans published/frame: avg={} p50={} p95={} p99={} max={}",
+        summary.native_snapshot_spans_published.avg,
+        summary.native_snapshot_spans_published.p50,
+        summary.native_snapshot_spans_published.p95,
+        summary.native_snapshot_spans_published.p99,
+        summary.native_snapshot_spans_published.max
+    );
+    println!(
+        "    cells published/frame: avg={} p50={} p95={} p99={} max={}",
+        summary.native_snapshot_cells_published.avg,
+        summary.native_snapshot_cells_published.p50,
+        summary.native_snapshot_cells_published.p95,
+        summary.native_snapshot_cells_published.p99,
+        summary.native_snapshot_cells_published.max
     );
     println!(
         "  native render prepare us: avg={} p50={} p95={} p99={} max={}",

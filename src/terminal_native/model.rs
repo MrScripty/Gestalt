@@ -173,6 +173,14 @@ impl TerminalCellSpanBatch {
         self.spans.as_ref()
     }
 
+    pub fn span_count(&self) -> usize {
+        self.spans.len()
+    }
+
+    pub fn cell_count(&self) -> usize {
+        self.cells.len()
+    }
+
     pub fn cells_for_span(&self, span: &TerminalCellSpanUpdate) -> &[TerminalCell] {
         let start = span.cells_start as usize;
         let end = start + usize::from(span.len);
