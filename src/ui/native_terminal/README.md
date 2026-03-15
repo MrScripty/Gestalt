@@ -36,6 +36,9 @@ and terminal runtime ownership remain unchanged.
   immutable terminal snapshots otherwise.
 - Native pane text entry is captured through a transparent input overlay above the canvas so
   keyboard ownership stays in `terminal_view` instead of moving into the renderer path.
+- `glyph_atlas.rs` owns glyph baseline preservation by rasterizing outlined glyphs at their pixel
+  bounds inside each tile; `scene.rs` should keep treating glyph quads as full-cell consumers of
+  those atlas tiles instead of layering extra vertical offsets on top.
 
 ## Usage Examples
 ```bash
