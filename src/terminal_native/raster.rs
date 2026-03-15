@@ -300,7 +300,7 @@ impl TerminalRaster {
         if let Some(changes) = frame.changed_spans() {
             for change in changes.spans() {
                 let start =
-                    usize::from(change.row) * usize::from(frame.cols) + usize::from(change.left);
+                    usize::from(change.row) * usize::from(self.cols) + usize::from(change.left);
                 let source = changes.cells_for_span(change);
                 let end = start + source.len();
                 if let Some(target) = self.cells.get_mut(start..end) {

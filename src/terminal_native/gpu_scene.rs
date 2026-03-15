@@ -170,10 +170,8 @@ impl TerminalGpuSceneCache {
 
         if let Some(changes) = frame.changed_spans() {
             for change in changes.spans() {
-                let start = match cell_index(self.cols, change.row, change.left) {
-                    Some(index) => index,
-                    None => continue,
-                };
+                let start =
+                    usize::from(change.row) * usize::from(self.cols) + usize::from(change.left);
                 let source = changes.cells_for_span(change);
                 let end = start + source.len();
                 if let Some(target) = self.cells.get_mut(start..end) {
@@ -401,12 +399,6 @@ fn is_simple_foreground_cell(cell: &TerminalCell, cursor_here: bool) -> bool {
 
 fn cell_count(rows: u16, cols: u16) -> usize {
     usize::from(rows) * usize::from(cols)
-}
-
-fn cell_index(cols: u16, row: u16, col: u16) -> Option<usize> {
-    usize::from(row)
-        .checked_mul(usize::from(cols))?
-        .checked_add(usize::from(col))
 }
 
 fn cell_extent(size: u32, cells: u16) -> u32 {
