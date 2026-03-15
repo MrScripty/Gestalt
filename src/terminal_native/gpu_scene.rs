@@ -1,7 +1,10 @@
 use bytemuck::{Pod, Zeroable};
 
 use super::glyph_atlas::GlyphAtlas;
-use super::{TerminalCell, TerminalCellFlags, TerminalColor, TerminalCursorShape, TerminalFrame};
+use super::{
+    TerminalCell, TerminalCellFlags, TerminalColor, TerminalCursor, TerminalCursorShape,
+    TerminalFrame,
+};
 
 const DEFAULT_BACKGROUND: [u8; 4] = [8, 12, 16, 255];
 const DEFAULT_FOREGROUND: [u8; 4] = [222, 226, 230, 255];
@@ -27,6 +30,11 @@ pub struct TerminalGpuSceneCache {
     cells: Vec<TerminalCell>,
     rows: u16,
     cols: u16,
+    background_rows: Vec<Vec<QuadInstance>>,
+    glyph_rows: Vec<Vec<QuadInstance>>,
+    last_cursor: Option<TerminalCursor>,
+    cell_width: u32,
+    cell_height: u32,
 }
 
 impl TerminalGpuSceneCache {
@@ -36,6 +44,11 @@ impl TerminalGpuSceneCache {
             cells: Vec::new(),
             rows: 0,
             cols: 0,
+            background_rows: Vec::new(),
+            glyph_rows: Vec::new(),
+            last_cursor: None,
+            cell_width: 1,
+            cell_height: 1,
         }
     }
 
@@ -43,42 +56,41 @@ impl TerminalGpuSceneCache {
         self.apply_frame(frame);
         let cell_width = cell_extent(width, frame.cols);
         let cell_height = cell_extent(height, frame.rows);
+        let geometry_changed = self.cell_width != cell_width || self.cell_height != cell_height;
+        self.cell_width = cell_width;
+        self.cell_height = cell_height;
         self.atlas.set_cell_size(cell_width, cell_height);
+        self.ensure_row_cache();
 
-        let total_cells = usize::from(frame.rows) * usize::from(frame.cols);
-        let mut backgrounds = Vec::with_capacity(total_cells / 4);
-        let mut glyphs = Vec::with_capacity(total_cells);
+        if geometry_changed || matches!(frame.damage, super::TerminalDamage::Full) {
+            self.rebuild_all_rows(frame);
+        } else {
+            self.rebuild_dirty_rows(frame);
+        }
+
+        let background_count = self
+            .background_rows
+            .iter()
+            .map(std::vec::Vec::len)
+            .sum::<usize>();
+        let glyph_count = self
+            .glyph_rows
+            .iter()
+            .map(std::vec::Vec::len)
+            .sum::<usize>();
+        let mut backgrounds = Vec::with_capacity(background_count);
+        let mut glyphs = Vec::with_capacity(glyph_count);
         let mut overlays = Vec::with_capacity(8);
 
-        for row in 0..frame.rows {
-            for col in 0..frame.cols {
-                let Some(cell) = self.cell(row, col) else {
-                    continue;
-                };
-
-                let cursor_here = frame.cursor.row == row && frame.cursor.col == col;
-                let (bg, fg) = resolved_colors(cell, cursor_here);
-                let rect = cell_rect(row, col, cell_width, cell_height);
-
-                if bg != DEFAULT_BACKGROUND {
-                    backgrounds.push(QuadInstance::solid(rect, rgba(bg)));
-                }
-
-                if cell.flags.contains(TerminalCellFlags::HIDDEN)
-                    || cell.flags.contains(TerminalCellFlags::WIDE_CHAR_SPACER)
-                    || cell.codepoint.is_whitespace()
-                {
-                    continue;
-                }
-
-                let tile = self.atlas.ensure_glyph(cell.codepoint);
-                if !tile.empty {
-                    glyphs.push(QuadInstance::glyph(rect, rgba(fg), tile.uv_rect));
-                }
-            }
+        for row in &self.background_rows {
+            backgrounds.extend_from_slice(row);
+        }
+        for row in &self.glyph_rows {
+            glyphs.extend_from_slice(row);
         }
 
         extend_cursor_instances(&mut overlays, frame, cell_width as f32, cell_height as f32);
+        self.last_cursor = Some(frame.cursor);
 
         TerminalGpuScene {
             background_instances: backgrounds,
@@ -105,6 +117,10 @@ impl TerminalGpuSceneCache {
             self.cols = frame.cols;
             self.cells
                 .resize(cell_count(frame.rows, frame.cols), TerminalCell::default());
+            self.background_rows
+                .resize_with(usize::from(frame.rows), std::vec::Vec::new);
+            self.glyph_rows
+                .resize_with(usize::from(frame.rows), std::vec::Vec::new);
         }
 
         if let Some(cells) = frame.full_cells() {
@@ -128,6 +144,84 @@ impl TerminalGpuSceneCache {
     fn cell(&self, row: u16, col: u16) -> Option<&TerminalCell> {
         let index = cell_index(self.cols, row, col)?;
         self.cells.get(index)
+    }
+
+    fn ensure_row_cache(&mut self) {
+        let row_count = usize::from(self.rows);
+        self.background_rows
+            .resize_with(row_count, std::vec::Vec::new);
+        self.glyph_rows.resize_with(row_count, std::vec::Vec::new);
+    }
+
+    fn rebuild_all_rows(&mut self, frame: &TerminalFrame) {
+        for row in 0..self.rows {
+            self.rebuild_row(row, frame.cursor);
+        }
+    }
+
+    fn rebuild_dirty_rows(&mut self, frame: &TerminalFrame) {
+        let mut dirty_rows = vec![false; usize::from(self.rows)];
+
+        if let super::TerminalDamage::Partial(spans) = &frame.damage {
+            for span in spans.iter() {
+                if let Some(dirty) = dirty_rows.get_mut(usize::from(span.row)) {
+                    *dirty = true;
+                }
+            }
+        }
+
+        if let Some(previous_cursor) = self.last_cursor {
+            if previous_cursor.row < self.rows {
+                dirty_rows[usize::from(previous_cursor.row)] = true;
+            }
+        }
+        if frame.cursor.row < self.rows {
+            dirty_rows[usize::from(frame.cursor.row)] = true;
+        }
+
+        for (row, dirty) in dirty_rows.into_iter().enumerate() {
+            if dirty {
+                self.rebuild_row(row as u16, frame.cursor);
+            }
+        }
+    }
+
+    fn rebuild_row(&mut self, row: u16, cursor: TerminalCursor) {
+        let mut backgrounds = Vec::new();
+        let mut glyphs = Vec::new();
+
+        for col in 0..self.cols {
+            let Some(cell) = self.cell(row, col) else {
+                continue;
+            };
+
+            let cursor_here = cursor.row == row && cursor.col == col;
+            let (bg, fg) = resolved_colors(cell, cursor_here);
+            let rect = cell_rect(row, col, self.cell_width, self.cell_height);
+
+            if bg != DEFAULT_BACKGROUND {
+                backgrounds.push(QuadInstance::solid(rect, rgba(bg)));
+            }
+
+            if cell.flags.contains(TerminalCellFlags::HIDDEN)
+                || cell.flags.contains(TerminalCellFlags::WIDE_CHAR_SPACER)
+                || cell.codepoint.is_whitespace()
+            {
+                continue;
+            }
+
+            let tile = self.atlas.ensure_glyph(cell.codepoint);
+            if !tile.empty {
+                glyphs.push(QuadInstance::glyph(rect, rgba(fg), tile.uv_rect));
+            }
+        }
+
+        if let Some(cached_backgrounds) = self.background_rows.get_mut(usize::from(row)) {
+            *cached_backgrounds = backgrounds;
+        }
+        if let Some(cached_glyphs) = self.glyph_rows.get_mut(usize::from(row)) {
+            *cached_glyphs = glyphs;
+        }
     }
 }
 

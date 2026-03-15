@@ -45,7 +45,32 @@ fn gpu_scene_applies_partial_updates_over_cached_cells() {
     assert_eq!(cache.cached_glyph_count(), 3);
 }
 
+#[test]
+fn gpu_scene_rebuilds_cursor_rows_without_cell_damage() {
+    let initial = frame_with_cursor(['a', ' ', ' ', ' ', ' ', ' '], 0, 0);
+    let moved = frame_with_cursor(['a', ' ', ' ', ' ', ' ', ' '], 0, 1);
+    let mut cache = TerminalGpuSceneCache::new();
+
+    let first = cache.prepare(&initial, TEST_WIDTH, TEST_HEIGHT);
+    let second = cache.prepare(&moved, TEST_WIDTH, TEST_HEIGHT);
+
+    assert_eq!(first.glyph_instances.len(), 1);
+    assert_eq!(second.glyph_instances.len(), 1);
+    assert_ne!(
+        first.glyph_instances[0].color,
+        second.glyph_instances[0].color
+    );
+}
+
 fn full_frame(chars: [char; (TEST_ROWS as usize) * (TEST_COLS as usize)]) -> TerminalFrame {
+    frame_with_cursor(chars, 0, 0)
+}
+
+fn frame_with_cursor(
+    chars: [char; (TEST_ROWS as usize) * (TEST_COLS as usize)],
+    cursor_row: u16,
+    cursor_col: u16,
+) -> TerminalFrame {
     let cells = chars
         .into_iter()
         .map(|codepoint| TerminalCell {
@@ -58,9 +83,9 @@ fn full_frame(chars: [char; (TEST_ROWS as usize) * (TEST_COLS as usize)]) -> Ter
         rows: TEST_ROWS,
         cols: TEST_COLS,
         cursor: TerminalCursor {
-            row: 0,
-            col: 0,
-            shape: TerminalCursorShape::Hidden,
+            row: cursor_row,
+            col: cursor_col,
+            shape: TerminalCursorShape::Block,
         },
         bracketed_paste: false,
         display_offset: 0,
