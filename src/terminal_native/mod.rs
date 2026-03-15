@@ -24,6 +24,7 @@ pub(crate) use constants::{
     STATUS_TITLE_TEXT, TERMINAL_SURFACE_STYLE,
 };
 pub use emulator::{AlacrittyEmulator, AlacrittyEmulatorConfig, EmulatorSnapshotProfile};
+pub use glyph_atlas::SharedGlyphAtlas;
 pub use gpu_scene::{TerminalGpuSceneCache, TerminalGpuSceneProfile};
 pub use model::{
     TerminalCell, TerminalCellFlags, TerminalCellPublication, TerminalCellSpanBatch,

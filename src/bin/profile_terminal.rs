@@ -3,7 +3,9 @@ use gestalt::persistence;
 use gestalt::state::{AppState, SessionId};
 use gestalt::terminal::{TerminalManager, TerminalSnapshot};
 #[cfg(feature = "terminal-native-spike")]
-use gestalt::terminal_native::{AlacrittyEmulator, AlacrittyEmulatorConfig, TerminalGpuSceneCache};
+use gestalt::terminal_native::{
+    AlacrittyEmulator, AlacrittyEmulatorConfig, SharedGlyphAtlas, TerminalGpuSceneCache,
+};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::hint::black_box;
@@ -1554,6 +1556,7 @@ impl MultiTerminalReplayAccumulator {
     }
 
     fn run_iteration(&mut self, chunks: &[Vec<u8>]) {
+        let shared_atlas = SharedGlyphAtlas::new();
         let mut emulators = (0..self.terminal_count)
             .map(|_| {
                 AlacrittyEmulator::new(AlacrittyEmulatorConfig {
@@ -1564,7 +1567,7 @@ impl MultiTerminalReplayAccumulator {
             })
             .collect::<Vec<_>>();
         let mut scene_caches = (0..self.terminal_count)
-            .map(|_| TerminalGpuSceneCache::new())
+            .map(|_| TerminalGpuSceneCache::with_shared_atlas(shared_atlas.clone()))
             .collect::<Vec<_>>();
         let mut frames = Vec::with_capacity(self.terminal_count);
 
