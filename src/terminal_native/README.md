@@ -87,7 +87,10 @@ cargo run --features terminal-native-spike --bin terminal_native_spike
   because direct terminal-surface focus handling in `dioxus-native` is not yet
   reliable enough for this spike.
 - Binary build verification is complete, focused GPU-scene tests pass, and the
-  replay benchmark now measures GPU scene preparation instead of CPU raster
-  updates.
+  replay benchmark now breaks native snapshot cost into damage collection,
+  projection update, and publication build in addition to GPU scene
+  preparation.
+- Current profiling shows projection update remains the dominant native hot
+  path after the latest publication and allocation reductions.
 - A true interactive visual/manual validation run still needs a local desktop
   session.
