@@ -20,6 +20,8 @@ use super::model::{
 const DEFAULT_ROWS: u16 = 42;
 const DEFAULT_COLS: u16 = 140;
 const DEFAULT_SCROLLBACK: usize = 10_000;
+const FULL_PUBLICATION_COVERAGE_NUMERATOR: usize = 3;
+const FULL_PUBLICATION_COVERAGE_DENOMINATOR: usize = 4;
 
 /// Construction parameters for the feature-gated Alacritty-backed emulator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -162,11 +164,17 @@ impl AlacrittyEmulator {
     fn build_publication(&mut self, damage: &FrameDamage) -> TerminalCellPublication {
         match damage {
             FrameDamage::Full => self.build_full_publication(),
-            FrameDamage::Partial(spans) => TerminalCellPublication::Partial(collect_changed_spans(
-                &self.projected_cells,
-                self.size,
-                spans,
-            )),
+            FrameDamage::Partial(spans) => {
+                if should_promote_partial_to_full(self.size, spans) {
+                    self.build_full_publication()
+                } else {
+                    TerminalCellPublication::Partial(collect_changed_spans(
+                        &self.projected_cells,
+                        self.size,
+                        spans,
+                    ))
+                }
+            }
         }
     }
 
@@ -260,6 +268,21 @@ fn coalesce_damage_spans(spans: &mut Vec<TerminalDamageSpan>) {
         spans[write_index] = current;
     }
     spans.truncate(write_index + 1);
+}
+
+fn should_promote_partial_to_full(size: ViewportSize, spans: &[TerminalDamageSpan]) -> bool {
+    let changed_cells = spans
+        .iter()
+        .filter(|span| span.row < size.rows && span.left <= span.right && span.left < size.cols)
+        .map(|span| {
+            let right = span.right.min(size.cols.saturating_sub(1));
+            usize::from(right - span.left) + 1
+        })
+        .sum::<usize>();
+    changed_cells.saturating_mul(FULL_PUBLICATION_COVERAGE_DENOMINATOR)
+        >= size
+            .cell_count()
+            .saturating_mul(FULL_PUBLICATION_COVERAGE_NUMERATOR)
 }
 
 fn project_damage_into(
@@ -627,6 +650,38 @@ mod tests {
         assert!(change_at(&changes, 0, 1).is_none());
         assert_eq!(change_at(&changes, 0, 2).unwrap().codepoint, '!');
         assert!(matches!(frame.damage, FrameDamage::Partial(_)));
+    }
+
+    #[test]
+    fn wide_partial_damage_promotes_to_full_publication() {
+        let size = ViewportSize::new(4, 8);
+        let spans = [
+            TerminalDamageSpan {
+                row: 0,
+                left: 0,
+                right: 7,
+            },
+            TerminalDamageSpan {
+                row: 1,
+                left: 0,
+                right: 7,
+            },
+            TerminalDamageSpan {
+                row: 2,
+                left: 0,
+                right: 7,
+            },
+        ];
+
+        assert!(should_promote_partial_to_full(size, &spans));
+        assert!(!should_promote_partial_to_full(
+            size,
+            &[TerminalDamageSpan {
+                row: 0,
+                left: 0,
+                right: 3,
+            }]
+        ));
     }
 
     fn changed_cells(frame: &TerminalFrame) -> Vec<(u16, u16, TerminalCell)> {
