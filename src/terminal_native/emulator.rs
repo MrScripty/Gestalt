@@ -185,16 +185,37 @@ fn collect_damage(term: &mut Term<VoidListener>) -> FrameDamage {
     match term.damage() {
         TermDamage::Full => FrameDamage::Full,
         TermDamage::Partial(lines) => {
-            let spans: Vec<_> = lines
+            let mut spans: Vec<_> = lines
                 .map(|line| TerminalDamageSpan {
                     row: line.line as u16,
                     left: line.left as u16,
                     right: line.right as u16,
                 })
                 .collect();
+            coalesce_damage_spans(&mut spans);
             FrameDamage::Partial(spans.into())
         }
     }
+}
+
+fn coalesce_damage_spans(spans: &mut Vec<TerminalDamageSpan>) {
+    if spans.len() <= 1 {
+        return;
+    }
+
+    let mut write_index = 0;
+    for read_index in 1..spans.len() {
+        let current = spans[read_index];
+        let last = &mut spans[write_index];
+        if last.row == current.row && current.left <= last.right.saturating_add(1) {
+            last.right = last.right.max(current.right);
+            continue;
+        }
+
+        write_index += 1;
+        spans[write_index] = current;
+    }
+    spans.truncate(write_index + 1);
 }
 
 fn project_damage_into(
