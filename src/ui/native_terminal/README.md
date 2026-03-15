@@ -34,6 +34,8 @@ and terminal runtime ownership remain unchanged.
   snapshots for legacy consumers.
 - Native terminal components prefer immutable native frames when available and fall back to
   immutable terminal snapshots otherwise.
+- Native pane text entry is captured through a transparent input overlay above the canvas so
+  keyboard ownership stays in `terminal_view` instead of moving into the renderer path.
 
 ## Usage Examples
 ```bash
