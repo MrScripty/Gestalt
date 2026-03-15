@@ -5,6 +5,9 @@ mod constants;
 mod controller;
 mod demo;
 mod emulator;
+mod glyph_atlas;
+mod gpu_renderer;
+mod gpu_scene;
 mod input;
 mod model;
 mod paint;
@@ -17,6 +20,7 @@ pub(crate) use constants::{
     STATUS_HINT_TEXT, STATUS_TITLE_STYLE, STATUS_TITLE_TEXT, TERMINAL_SURFACE_STYLE,
 };
 pub use emulator::{AlacrittyEmulator, AlacrittyEmulatorConfig};
+pub use gpu_scene::TerminalGpuSceneCache;
 pub use model::{
     TerminalCell, TerminalCellFlags, TerminalColor, TerminalCursor, TerminalCursorShape,
     TerminalDamage, TerminalDamageSpan, TerminalFrame,

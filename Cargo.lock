@@ -3653,8 +3653,10 @@ dependencies = [
 name = "gestalt"
 version = "0.1.0"
 dependencies = [
+ "ab_glyph",
  "alacritty_terminal",
  "async-trait",
+ "bytemuck",
  "dioxus",
  "dioxus-native",
  "emily",

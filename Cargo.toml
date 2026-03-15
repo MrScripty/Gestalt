@@ -8,6 +8,8 @@ description = "Desktop workspace for coordinating large terminal fleets"
 default = []
 terminal-native-spike = [
     "dep:alacritty_terminal",
+    "dep:ab_glyph",
+    "dep:bytemuck",
     "dep:dioxus-native",
     "dep:font8x8",
     "dep:wgpu",
@@ -16,6 +18,8 @@ terminal-native-spike = [
 [dependencies]
 dioxus = { version = "0.7.3", features = ["desktop"] }
 alacritty_terminal = { path = "../alacritty/alacritty_terminal", optional = true }
+ab_glyph = { version = "0.2.32", optional = true }
+bytemuck = { version = "1.24", features = ["derive"], optional = true }
 dioxus-native = { version = "0.7.3", optional = true, features = ["autofocus"] }
 font8x8 = { version = "0.3", optional = true }
 wgpu = { version = "26.0", optional = true }
