@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use bytemuck::{Pod, Zeroable};
 
 use super::glyph_atlas::GlyphAtlas;
@@ -23,6 +25,14 @@ pub struct TerminalGpuScene {
     pub background_instances: Vec<QuadInstance>,
     pub glyph_instances: Vec<QuadInstance>,
     pub overlay_instances: Vec<QuadInstance>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TerminalGpuSceneProfile {
+    pub apply_frame_us: u128,
+    pub row_rebuild_us: u128,
+    pub flatten_us: u128,
+    pub overlay_us: u128,
 }
 
 pub struct TerminalGpuSceneCache {
@@ -55,7 +65,19 @@ impl TerminalGpuSceneCache {
     }
 
     pub fn prepare(&mut self, frame: &TerminalFrame, width: u32, height: u32) -> TerminalGpuScene {
+        self.prepare_profiled(frame, width, height).0
+    }
+
+    pub fn prepare_profiled(
+        &mut self,
+        frame: &TerminalFrame,
+        width: u32,
+        height: u32,
+    ) -> (TerminalGpuScene, TerminalGpuSceneProfile) {
+        let apply_frame_started = Instant::now();
         self.apply_frame(frame);
+        let apply_frame_us = apply_frame_started.elapsed().as_micros();
+
         let cell_width = cell_extent(width, frame.cols);
         let cell_height = cell_extent(height, frame.rows);
         let geometry_changed = self.cell_width != cell_width || self.cell_height != cell_height;
@@ -64,12 +86,15 @@ impl TerminalGpuSceneCache {
         self.atlas.set_cell_size(cell_width, cell_height);
         self.ensure_row_cache();
 
+        let row_rebuild_started = Instant::now();
         if geometry_changed || matches!(frame.damage, super::TerminalDamage::Full) {
             self.rebuild_all_rows(frame);
         } else {
             self.rebuild_dirty_rows(frame);
         }
+        let row_rebuild_us = row_rebuild_started.elapsed().as_micros();
 
+        let flatten_started = Instant::now();
         let background_count = self
             .background_rows
             .iter()
@@ -90,15 +115,26 @@ impl TerminalGpuSceneCache {
         for row in &self.glyph_rows {
             glyphs.extend_from_slice(row);
         }
+        let flatten_us = flatten_started.elapsed().as_micros();
 
+        let overlay_started = Instant::now();
         extend_cursor_instances(&mut overlays, frame, cell_width as f32, cell_height as f32);
+        let overlay_us = overlay_started.elapsed().as_micros();
         self.last_cursor = Some(frame.cursor);
 
-        TerminalGpuScene {
-            background_instances: backgrounds,
-            glyph_instances: glyphs,
-            overlay_instances: overlays,
-        }
+        (
+            TerminalGpuScene {
+                background_instances: backgrounds,
+                glyph_instances: glyphs,
+                overlay_instances: overlays,
+            },
+            TerminalGpuSceneProfile {
+                apply_frame_us,
+                row_rebuild_us,
+                flatten_us,
+                overlay_us,
+            },
+        )
     }
 
     pub fn atlas(&self) -> &GlyphAtlas {

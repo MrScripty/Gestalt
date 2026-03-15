@@ -125,6 +125,18 @@ fn main() -> Result<(), String> {
                 replay_native_snapshot_publication: replay_benchmark
                     .as_ref()
                     .map(|benchmark| benchmark.native_snapshot_publication),
+                replay_native_render_apply_frame: replay_benchmark
+                    .as_ref()
+                    .map(|benchmark| benchmark.native_render_apply_frame),
+                replay_native_render_row_rebuild: replay_benchmark
+                    .as_ref()
+                    .map(|benchmark| benchmark.native_render_row_rebuild),
+                replay_native_render_flatten: replay_benchmark
+                    .as_ref()
+                    .map(|benchmark| benchmark.native_render_flatten),
+                replay_native_render_overlay: replay_benchmark
+                    .as_ref()
+                    .map(|benchmark| benchmark.native_render_overlay),
                 replay_native_raster_update: replay_benchmark
                     .as_ref()
                     .map(|benchmark| benchmark.native_raster_update),
@@ -479,6 +491,18 @@ fn main() -> Result<(), String> {
         replay_native_snapshot_publication: replay_benchmark
             .as_ref()
             .map(|benchmark| benchmark.native_snapshot_publication),
+        replay_native_render_apply_frame: replay_benchmark
+            .as_ref()
+            .map(|benchmark| benchmark.native_render_apply_frame),
+        replay_native_render_row_rebuild: replay_benchmark
+            .as_ref()
+            .map(|benchmark| benchmark.native_render_row_rebuild),
+        replay_native_render_flatten: replay_benchmark
+            .as_ref()
+            .map(|benchmark| benchmark.native_render_flatten),
+        replay_native_render_overlay: replay_benchmark
+            .as_ref()
+            .map(|benchmark| benchmark.native_render_overlay),
         replay_native_raster_update: replay_benchmark
             .as_ref()
             .map(|benchmark| benchmark.native_raster_update),
@@ -1291,6 +1315,10 @@ struct ProfileSummary {
     replay_native_snapshot_damage_collect: Option<DistributionStats>,
     replay_native_snapshot_projection: Option<DistributionStats>,
     replay_native_snapshot_publication: Option<DistributionStats>,
+    replay_native_render_apply_frame: Option<DistributionStats>,
+    replay_native_render_row_rebuild: Option<DistributionStats>,
+    replay_native_render_flatten: Option<DistributionStats>,
+    replay_native_render_overlay: Option<DistributionStats>,
     replay_native_raster_update: Option<DistributionStats>,
     autosave_snapshot_lines_total: DistributionStats,
     baseline_lock_wait: DistributionStats,
@@ -1340,6 +1368,10 @@ struct ReplayOnlyProfileSummary {
     replay_native_snapshot_damage_collect: Option<DistributionStats>,
     replay_native_snapshot_projection: Option<DistributionStats>,
     replay_native_snapshot_publication: Option<DistributionStats>,
+    replay_native_render_apply_frame: Option<DistributionStats>,
+    replay_native_render_row_rebuild: Option<DistributionStats>,
+    replay_native_render_flatten: Option<DistributionStats>,
+    replay_native_render_overlay: Option<DistributionStats>,
     replay_native_raster_update: Option<DistributionStats>,
 }
 
@@ -1408,6 +1440,10 @@ struct ReplayBenchmarkSummary {
     native_snapshot_damage_collect: DistributionStats,
     native_snapshot_projection: DistributionStats,
     native_snapshot_publication: DistributionStats,
+    native_render_apply_frame: DistributionStats,
+    native_render_row_rebuild: DistributionStats,
+    native_render_flatten: DistributionStats,
+    native_render_overlay: DistributionStats,
     native_raster_update: DistributionStats,
 }
 
@@ -1431,6 +1467,14 @@ fn profile_terminal_replay_benchmark(config: &ProfileConfig) -> Option<ReplayBen
     let mut native_snapshot_projection =
         Vec::with_capacity(config.replay_profile_iterations * chunks.len());
     let mut native_snapshot_publication =
+        Vec::with_capacity(config.replay_profile_iterations * chunks.len());
+    let mut native_render_apply_frame =
+        Vec::with_capacity(config.replay_profile_iterations * chunks.len());
+    let mut native_render_row_rebuild =
+        Vec::with_capacity(config.replay_profile_iterations * chunks.len());
+    let mut native_render_flatten =
+        Vec::with_capacity(config.replay_profile_iterations * chunks.len());
+    let mut native_render_overlay =
         Vec::with_capacity(config.replay_profile_iterations * chunks.len());
     let mut native_raster_update =
         Vec::with_capacity(config.replay_profile_iterations * chunks.len());
@@ -1475,12 +1519,16 @@ fn profile_terminal_replay_benchmark(config: &ProfileConfig) -> Option<ReplayBen
             native_snapshot_publication.push(snapshot_profile.publication_build_us);
 
             let native_raster_started = Instant::now();
-            let _ = scene_cache.prepare(
+            let (_, render_profile) = scene_cache.prepare_profiled(
                 &frame,
                 u32::from(frame.cols).saturating_mul(9),
                 u32::from(frame.rows).saturating_mul(18),
             );
             native_raster_update.push(native_raster_started.elapsed().as_micros());
+            native_render_apply_frame.push(render_profile.apply_frame_us);
+            native_render_row_rebuild.push(render_profile.row_rebuild_us);
+            native_render_flatten.push(render_profile.flatten_us);
+            native_render_overlay.push(render_profile.overlay_us);
         }
     }
 
@@ -1491,6 +1539,10 @@ fn profile_terminal_replay_benchmark(config: &ProfileConfig) -> Option<ReplayBen
     native_snapshot_damage_collect.sort_unstable();
     native_snapshot_projection.sort_unstable();
     native_snapshot_publication.sort_unstable();
+    native_render_apply_frame.sort_unstable();
+    native_render_row_rebuild.sort_unstable();
+    native_render_flatten.sort_unstable();
+    native_render_overlay.sort_unstable();
     native_raster_update.sort_unstable();
 
     Some(ReplayBenchmarkSummary {
@@ -1501,6 +1553,10 @@ fn profile_terminal_replay_benchmark(config: &ProfileConfig) -> Option<ReplayBen
         native_snapshot_damage_collect: stats_from_sorted(&native_snapshot_damage_collect),
         native_snapshot_projection: stats_from_sorted(&native_snapshot_projection),
         native_snapshot_publication: stats_from_sorted(&native_snapshot_publication),
+        native_render_apply_frame: stats_from_sorted(&native_render_apply_frame),
+        native_render_row_rebuild: stats_from_sorted(&native_render_row_rebuild),
+        native_render_flatten: stats_from_sorted(&native_render_flatten),
+        native_render_overlay: stats_from_sorted(&native_render_overlay),
         native_raster_update: stats_from_sorted(&native_raster_update),
     })
 }
@@ -1581,6 +1637,38 @@ fn print_replay_benchmark(summary: &Option<ReplayBenchmarkSummary>) {
         summary.native_raster_update.p95_us,
         summary.native_raster_update.p99_us,
         summary.native_raster_update.max_us
+    );
+    println!(
+        "    apply frame us: avg={} p50={} p95={} p99={} max={}",
+        summary.native_render_apply_frame.avg_us,
+        summary.native_render_apply_frame.p50_us,
+        summary.native_render_apply_frame.p95_us,
+        summary.native_render_apply_frame.p99_us,
+        summary.native_render_apply_frame.max_us
+    );
+    println!(
+        "    row rebuild us: avg={} p50={} p95={} p99={} max={}",
+        summary.native_render_row_rebuild.avg_us,
+        summary.native_render_row_rebuild.p50_us,
+        summary.native_render_row_rebuild.p95_us,
+        summary.native_render_row_rebuild.p99_us,
+        summary.native_render_row_rebuild.max_us
+    );
+    println!(
+        "    flatten us: avg={} p50={} p95={} p99={} max={}",
+        summary.native_render_flatten.avg_us,
+        summary.native_render_flatten.p50_us,
+        summary.native_render_flatten.p95_us,
+        summary.native_render_flatten.p99_us,
+        summary.native_render_flatten.max_us
+    );
+    println!(
+        "    overlay us: avg={} p50={} p95={} p99={} max={}",
+        summary.native_render_overlay.avg_us,
+        summary.native_render_overlay.p50_us,
+        summary.native_render_overlay.p95_us,
+        summary.native_render_overlay.p99_us,
+        summary.native_render_overlay.max_us
     );
 }
 

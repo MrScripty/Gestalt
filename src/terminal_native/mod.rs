@@ -20,7 +20,7 @@ pub(crate) use constants::{
     STATUS_HINT_TEXT, STATUS_TITLE_STYLE, STATUS_TITLE_TEXT, TERMINAL_SURFACE_STYLE,
 };
 pub use emulator::{AlacrittyEmulator, AlacrittyEmulatorConfig, EmulatorSnapshotProfile};
-pub use gpu_scene::TerminalGpuSceneCache;
+pub use gpu_scene::{TerminalGpuSceneCache, TerminalGpuSceneProfile};
 pub use model::{
     TerminalCell, TerminalCellFlags, TerminalCellPublication, TerminalCellUpdate, TerminalColor,
     TerminalCursor, TerminalCursorShape, TerminalDamage, TerminalDamageSpan, TerminalFrame,
