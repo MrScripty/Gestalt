@@ -6,6 +6,7 @@ use super::constants::ATLAS_TEXTURE_SIZE_PX;
 
 const FONT_BYTES: &[u8] = include_bytes!("../../assets/terminal-native/DejaVuSansMono.ttf");
 const GLYPH_SCALE_HEIGHT_RATIO: f32 = 0.82;
+const ASCII_CACHE_LEN: usize = 128;
 
 #[derive(Clone, Copy, Debug)]
 pub struct GlyphTile {
@@ -17,6 +18,7 @@ pub struct GlyphAtlas {
     font: FontArc,
     atlas_size: u32,
     pixels: Vec<u8>,
+    ascii_entries: [Option<GlyphTile>; ASCII_CACHE_LEN],
     entries: HashMap<char, GlyphTile>,
     cell_width: u32,
     cell_height: u32,
@@ -33,6 +35,7 @@ impl GlyphAtlas {
                 .expect("bundled DejaVu Sans Mono font should parse"),
             atlas_size,
             pixels: vec![0; (atlas_size as usize) * (atlas_size as usize)],
+            ascii_entries: [None; ASCII_CACHE_LEN],
             entries: HashMap::new(),
             cell_width: 1,
             cell_height: 1,
@@ -59,7 +62,7 @@ impl GlyphAtlas {
     }
 
     pub fn cached_glyph_count(&self) -> usize {
-        self.entries.len()
+        self.ascii_entries.iter().flatten().count() + self.entries.len()
     }
 
     pub fn set_cell_size(&mut self, cell_width: u32, cell_height: u32) {
@@ -72,6 +75,7 @@ impl GlyphAtlas {
         self.cell_width = cell_width;
         self.cell_height = cell_height;
         self.columns_per_row = (self.atlas_size / self.cell_width).max(1);
+        self.ascii_entries = [None; ASCII_CACHE_LEN];
         self.entries.clear();
         self.next_index = 0;
         self.pixels.fill(0);
@@ -79,6 +83,17 @@ impl GlyphAtlas {
     }
 
     pub fn ensure_glyph(&mut self, codepoint: char) -> GlyphTile {
+        if codepoint.is_ascii() {
+            let index = codepoint as usize;
+            if let Some(tile) = self.ascii_entries[index] {
+                return tile;
+            }
+
+            let tile = self.insert_glyph(codepoint);
+            self.ascii_entries[index] = Some(tile);
+            return tile;
+        }
+
         if let Some(tile) = self.entries.get(&codepoint).copied() {
             return tile;
         }
