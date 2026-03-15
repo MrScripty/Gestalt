@@ -360,7 +360,7 @@ fn update_projected_row(
     let source_cells = &grid[line][Column(usize::from(left))..Column(usize::from(right) + 1)];
 
     for (target, source) in target_cells.iter_mut().zip(source_cells.iter()) {
-        *target = project_cell(source);
+        project_cell_into(target, source);
     }
 }
 
@@ -411,32 +411,27 @@ fn collect_changed_spans(
     )
 }
 
-fn project_cell(cell: &Cell) -> TerminalCell {
+fn project_cell_into(target: &mut TerminalCell, cell: &Cell) {
     if cell.flags.is_empty()
         && cell.zerowidth().is_none()
         && is_default_foreground(cell.fg)
         && is_default_background(cell.bg)
     {
-        return TerminalCell {
-            codepoint: cell.c,
-            zerowidth: None,
-            fg: TerminalColor::DefaultForeground,
-            bg: TerminalColor::DefaultBackground,
-            flags: TerminalCellFlags::NONE,
-        };
+        target.codepoint = cell.c;
+        target.zerowidth = None;
+        target.fg = TerminalColor::DefaultForeground;
+        target.bg = TerminalColor::DefaultBackground;
+        target.flags = TerminalCellFlags::NONE;
+        return;
     }
 
-    let zerowidth = cell
+    target.codepoint = cell.c;
+    target.zerowidth = cell
         .zerowidth()
         .map(|value| Arc::<[char]>::from(value.to_vec()));
-
-    TerminalCell {
-        codepoint: cell.c,
-        zerowidth,
-        fg: map_color(cell.fg),
-        bg: map_color(cell.bg),
-        flags: map_flags(cell.flags),
-    }
+    target.fg = map_color(cell.fg);
+    target.bg = map_color(cell.bg);
+    target.flags = map_flags(cell.flags);
 }
 
 fn is_default_foreground(color: Color) -> bool {
