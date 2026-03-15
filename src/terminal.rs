@@ -928,20 +928,30 @@ fn compatibility_snapshot_from_native_frame(
 #[cfg(feature = "terminal-native-spike")]
 fn frame_visible_lines(frame: &TerminalFrame) -> Vec<String> {
     let mut lines = Vec::with_capacity(usize::from(frame.rows));
-    let cells = frame.full_cells();
+    let width = usize::from(frame.cols);
+    let Some(cells) = frame.full_cells() else {
+        lines.resize_with(usize::from(frame.rows), String::new);
+        return lines;
+    };
 
-    for row in 0..frame.rows {
-        let mut line = String::with_capacity(usize::from(frame.cols));
-        for col in 0..frame.cols {
-            let codepoint = cells
-                .and_then(|cells| {
-                    cells.get(usize::from(row) * usize::from(frame.cols) + usize::from(col))
-                })
-                .map(project_native_snapshot_char)
-                .unwrap_or(' ');
-            line.push(codepoint);
+    for row in 0..usize::from(frame.rows) {
+        let start = row * width;
+        let end = start + width;
+        let Some(row_cells) = cells.get(start..end) else {
+            lines.push(String::new());
+            continue;
+        };
+
+        let trimmed_len = row_cells
+            .iter()
+            .rposition(|cell| project_native_snapshot_char(cell) != ' ')
+            .map(|index| index + 1)
+            .unwrap_or(0);
+        let mut line = String::with_capacity(trimmed_len);
+        for cell in &row_cells[..trimmed_len] {
+            line.push(project_native_snapshot_char(cell));
         }
-        lines.push(line.trim_end_matches(' ').to_string());
+        lines.push(line);
     }
 
     lines
@@ -1317,5 +1327,49 @@ mod tests {
         let materialized = materialize_native_frame(previous.as_ref(), Arc::clone(&next));
 
         assert!(Arc::ptr_eq(&materialized, &next));
+    }
+
+    #[cfg(feature = "terminal-native-spike")]
+    #[test]
+    fn frame_visible_lines_trims_trailing_blank_cells_without_reallocating_rows() {
+        let frame = TerminalFrame {
+            rows: 2,
+            cols: 4,
+            cursor: TerminalCursor {
+                row: 0,
+                col: 0,
+                shape: TerminalCursorShape::Hidden,
+            },
+            bracketed_paste: false,
+            display_offset: 0,
+            damage: TerminalDamage::Full,
+            publication: TerminalCellPublication::Full(
+                vec![
+                    TerminalCell {
+                        codepoint: 'a',
+                        ..TerminalCell::default()
+                    },
+                    TerminalCell {
+                        codepoint: 'b',
+                        ..TerminalCell::default()
+                    },
+                    TerminalCell::default(),
+                    TerminalCell::default(),
+                    TerminalCell {
+                        codepoint: 'x',
+                        flags: TerminalCellFlags::HIDDEN,
+                        ..TerminalCell::default()
+                    },
+                    TerminalCell::default(),
+                    TerminalCell::default(),
+                    TerminalCell::default(),
+                ]
+                .into_boxed_slice(),
+            ),
+        };
+
+        let lines = frame_visible_lines(&frame);
+
+        assert_eq!(lines, vec!["ab".to_string(), String::new()]);
     }
 }
