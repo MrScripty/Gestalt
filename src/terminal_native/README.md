@@ -8,9 +8,14 @@ the Alacritty semantics + native GPU rendering spike.
 | File/Folder | Description |
 | ----------- | ----------- |
 | `mod.rs` | Public module exports for the native terminal spike |
-| `demo.rs` | Standalone Dioxus Native GPU-presented demo surface and input loop |
+| `demo.rs` | Presentation-layer terminal demo component for the standalone spike |
+| `app.rs` | Composition root that assembles the session, controller, and presentation |
+| `controller.rs` | Runtime-owned command surface for PTY input, resize, and frame access |
+| `constants.rs` | Spike-local UI, session, and render constants grouped by concern |
 | `model.rs` | Renderer-facing terminal frame, cursor, cell, and damage types |
-| `raster.rs` | Damage-aware CPU rasterization that uploads terminal pixels into the GPU texture |
+| `input.rs` | Keyboard and text-input translation into PTY byte sequences |
+| `paint.rs` | Native GPU custom paint source and texture lifecycle management |
+| `raster.rs` | Damage-aware CPU rasterization used by the GPU paint source |
 | `emulator.rs` | Alacritty-backed terminal emulator adapter that projects frames into the local model |
 | `session.rs` | Single-session PTY runtime that feeds emulator frames for the spike renderer |
 
@@ -29,6 +34,13 @@ Keep the spike behind a dedicated `terminal-native-spike` feature and project
 Alacritty terminal state into a narrow local frame model suitable for a native
 renderer.
 
+## Layering
+- `app.rs` is the composition root for the spike path.
+- `controller.rs` is the application/controller seam and owns runtime commands.
+- `demo.rs` is presentation only and forwards user events to the controller.
+- `paint.rs` and `session.rs` are infrastructure concerns.
+- `model.rs` is the renderer-facing contract between layers.
+
 ## Alternatives Rejected
 - Replacing the production `terminal` module in-place: rejected because the
   spike needs a contained risk boundary.
@@ -36,9 +48,10 @@ renderer.
   rejected to keep the renderer seam locally owned.
 
 ## Invariants
-- The PTY runtime owns process lifecycle and writer access.
+- The composition root assembles long-lived runtime resources near the binary entrypoint.
+- The controller owns PTY lifecycle, resize, and input dispatch.
 - The emulator owns terminal semantics and damage tracking.
-- The raster stage owns pixel generation for the GPU-presented texture.
+- The raster and paint stages own pixel generation and GPU texture lifecycle.
 - The published frame is immutable to consumers and replaced atomically.
 
 ## Revisit Triggers
