@@ -49,6 +49,10 @@ const REPLAY_PROFILE_ROWS: u16 = 42;
 const REPLAY_PROFILE_COLS: u16 = 140;
 #[cfg(feature = "terminal-native-spike")]
 const REPLAY_PROFILE_SCROLLBACK: usize = 12_000;
+#[cfg(feature = "terminal-native-spike")]
+const NATIVE_PROFILE_CELL_WIDTH_PX: u32 = 9;
+#[cfg(feature = "terminal-native-spike")]
+const NATIVE_PROFILE_CELL_HEIGHT_PX: u32 = 18;
 
 #[cfg_attr(not(feature = "terminal-native-spike"), allow(dead_code))]
 struct ProfileConfig {
@@ -205,6 +209,9 @@ fn main() -> Result<(), String> {
     println!("Profiling render hold...");
     let render_profile =
         profile_render_hold(&terminal_manager, &app_state, config.render_iterations);
+    #[cfg(feature = "terminal-native-spike")]
+    let native_visible_render_profile =
+        profile_native_visible_render_hold(&terminal_manager, &app_state, config.render_iterations);
     println!("Profiling autosave hold...");
     let autosave_profile =
         profile_autosave_hold(&terminal_manager, &app_state, config.autosave_iterations);
@@ -221,6 +228,42 @@ fn main() -> Result<(), String> {
     let round_bounds_extract_stats = stats_from_sorted(&render_profile.round_bounds_extract_us);
     let orchestrator_round_extract_stats =
         stats_from_sorted(&render_profile.orchestrator_round_extract_us);
+    #[cfg(feature = "terminal-native-spike")]
+    let (
+        native_visible_render_hold_stats,
+        native_visible_panes_stats,
+        native_visible_apply_frame_stats,
+        native_visible_row_rebuild_stats,
+        native_visible_flatten_stats,
+        native_visible_overlay_stats,
+        native_visible_rows_rebuilt_stats,
+        native_visible_cells_rebuilt_stats,
+    ) = native_visible_render_profile
+        .as_ref()
+        .map(|profile| {
+            (
+                Some(stats_from_sorted(&profile.hold_times_us)),
+                Some(CountStats::from_sorted(&profile.visible_panes)),
+                Some(stats_from_sorted(&profile.apply_frame_us)),
+                Some(stats_from_sorted(&profile.row_rebuild_us)),
+                Some(stats_from_sorted(&profile.flatten_us)),
+                Some(stats_from_sorted(&profile.overlay_us)),
+                Some(CountStats::from_sorted(&profile.rows_rebuilt)),
+                Some(CountStats::from_sorted(&profile.cells_rebuilt)),
+            )
+        })
+        .unwrap_or((None, None, None, None, None, None, None, None));
+    #[cfg(not(feature = "terminal-native-spike"))]
+    let (
+        native_visible_render_hold_stats,
+        native_visible_panes_stats,
+        native_visible_apply_frame_stats,
+        native_visible_row_rebuild_stats,
+        native_visible_flatten_stats,
+        native_visible_overlay_stats,
+        native_visible_rows_rebuilt_stats,
+        native_visible_cells_rebuilt_stats,
+    ) = (None, None, None, None, None, None, None, None);
     let autosave_snapshot_lines_stats = stats_from_sorted(&autosave_profile.snapshot_lines_total);
     let autosave_fingerprint_stats = stats_from_sorted(&autosave_profile.fingerprint_us);
     let refresh_loop_tick_stats = stats_from_sorted(&refresh_profile.tick_us);
@@ -293,6 +336,62 @@ fn main() -> Result<(), String> {
         orchestrator_round_extract_stats.p99_us,
         orchestrator_round_extract_stats.max_us
     );
+    #[cfg(feature = "terminal-native-spike")]
+    if let Some(stats) = &native_visible_render_hold_stats {
+        println!(
+            "  native visible render pass us: avg={} p50={} p95={} p99={} max={}",
+            stats.avg_us, stats.p50_us, stats.p95_us, stats.p99_us, stats.max_us
+        );
+    }
+    #[cfg(feature = "terminal-native-spike")]
+    if let Some(stats) = &native_visible_panes_stats {
+        println!(
+            "  native visible panes rendered: avg={} p50={} p95={} p99={} max={}",
+            stats.avg, stats.p50, stats.p95, stats.p99, stats.max
+        );
+    }
+    #[cfg(feature = "terminal-native-spike")]
+    if let Some(stats) = &native_visible_apply_frame_stats {
+        println!(
+            "  native visible apply-frame us: avg={} p50={} p95={} p99={} max={}",
+            stats.avg_us, stats.p50_us, stats.p95_us, stats.p99_us, stats.max_us
+        );
+    }
+    #[cfg(feature = "terminal-native-spike")]
+    if let Some(stats) = &native_visible_row_rebuild_stats {
+        println!(
+            "  native visible row rebuild us: avg={} p50={} p95={} p99={} max={}",
+            stats.avg_us, stats.p50_us, stats.p95_us, stats.p99_us, stats.max_us
+        );
+    }
+    #[cfg(feature = "terminal-native-spike")]
+    if let Some(stats) = &native_visible_flatten_stats {
+        println!(
+            "  native visible flatten us: avg={} p50={} p95={} p99={} max={}",
+            stats.avg_us, stats.p50_us, stats.p95_us, stats.p99_us, stats.max_us
+        );
+    }
+    #[cfg(feature = "terminal-native-spike")]
+    if let Some(stats) = &native_visible_overlay_stats {
+        println!(
+            "  native visible overlay us: avg={} p50={} p95={} p99={} max={}",
+            stats.avg_us, stats.p50_us, stats.p95_us, stats.p99_us, stats.max_us
+        );
+    }
+    #[cfg(feature = "terminal-native-spike")]
+    if let Some(stats) = &native_visible_rows_rebuilt_stats {
+        println!(
+            "  native visible rows rebuilt: avg={} p50={} p95={} p99={} max={}",
+            stats.avg, stats.p50, stats.p95, stats.p99, stats.max
+        );
+    }
+    #[cfg(feature = "terminal-native-spike")]
+    if let Some(stats) = &native_visible_cells_rebuilt_stats {
+        println!(
+            "  native visible cells rebuilt: avg={} p50={} p95={} p99={} max={}",
+            stats.avg, stats.p50, stats.p95, stats.p99, stats.max
+        );
+    }
     println!(
         "  autosave snapshot lines total: avg={} p50={} p95={} p99={} max={}",
         autosave_snapshot_lines_stats.avg_us,
@@ -504,6 +603,14 @@ fn main() -> Result<(), String> {
         git_watcher_poll_cost: git_watcher_poll_cost_stats,
         startup_active_path_group_ready: startup_active_path_group_ready_stats,
         startup_full_restore: startup_full_restore_stats,
+        native_visible_render_pass: native_visible_render_hold_stats,
+        native_visible_panes_rendered: native_visible_panes_stats,
+        native_visible_apply_frame: native_visible_apply_frame_stats,
+        native_visible_row_rebuild: native_visible_row_rebuild_stats,
+        native_visible_flatten: native_visible_flatten_stats,
+        native_visible_overlay: native_visible_overlay_stats,
+        native_visible_rows_rebuilt: native_visible_rows_rebuilt_stats,
+        native_visible_cells_rebuilt: native_visible_cells_rebuilt_stats,
         replay_legacy_snapshot_build: replay_benchmark
             .as_ref()
             .map(|benchmark| benchmark.legacy_snapshot_build),
@@ -575,6 +682,9 @@ fn main() -> Result<(), String> {
         git_watcher_poll_cost_p95_us: git_watcher_poll_cost_stats.p95_us,
         startup_active_path_group_ready_p95_us: startup_active_path_group_ready_stats.p95_us,
         startup_full_restore_p95_us: startup_full_restore_stats.p95_us,
+        native_visible_render_pass_p95_us: native_visible_render_hold_stats
+            .as_ref()
+            .map(|stats| stats.p95_us),
         replay_legacy_snapshot_build_p95_us: replay_benchmark
             .as_ref()
             .map(|benchmark| benchmark.legacy_snapshot_build.p95_us),
@@ -732,6 +842,31 @@ struct RefreshLoopProfile {
     orchestrator_snapshot_build_us: Vec<u128>,
 }
 
+#[cfg(feature = "terminal-native-spike")]
+#[derive(Default)]
+struct NativeVisibleRenderProbe {
+    visible_panes: u128,
+    apply_frame_us: u128,
+    row_rebuild_us: u128,
+    flatten_us: u128,
+    overlay_us: u128,
+    rows_rebuilt: u128,
+    cells_rebuilt: u128,
+}
+
+#[cfg(feature = "terminal-native-spike")]
+#[derive(Default)]
+struct NativeVisibleRenderProfile {
+    hold_times_us: Vec<u128>,
+    visible_panes: Vec<u128>,
+    apply_frame_us: Vec<u128>,
+    row_rebuild_us: Vec<u128>,
+    flatten_us: Vec<u128>,
+    overlay_us: Vec<u128>,
+    rows_rebuilt: Vec<u128>,
+    cells_rebuilt: Vec<u128>,
+}
+
 fn simulate_render_pass(app_state: &AppState, runtime: &TerminalManager) -> RenderPassProbe {
     let mut probe = RenderPassProbe::default();
     let Some(group_id) = app_state.active_group_id() else {
@@ -863,6 +998,124 @@ fn profile_render_hold(
     profile.round_bounds_extract_us.sort_unstable();
     profile.orchestrator_round_extract_us.sort_unstable();
     profile
+}
+
+#[cfg(feature = "terminal-native-spike")]
+fn simulate_native_visible_render_pass(
+    app_state: &AppState,
+    runtime: &TerminalManager,
+    scene_caches: &mut HashMap<SessionId, TerminalGpuSceneCache>,
+) -> NativeVisibleRenderProbe {
+    let mut probe = NativeVisibleRenderProbe::default();
+    let Some(group_id) = app_state.active_group_id() else {
+        return probe;
+    };
+
+    let session_ids = app_state.workspace_session_ids_for_group(group_id);
+    let active_session_set = session_ids
+        .iter()
+        .copied()
+        .collect::<std::collections::HashSet<_>>();
+    scene_caches.retain(|session_id, _| active_session_set.contains(session_id));
+
+    for session_id in session_ids {
+        let Some(frame) = runtime.native_frame_shared(session_id) else {
+            continue;
+        };
+
+        let cache = scene_caches
+            .entry(session_id)
+            .or_insert_with(TerminalGpuSceneCache::new);
+        let width = u32::from(frame.cols)
+            .saturating_mul(NATIVE_PROFILE_CELL_WIDTH_PX)
+            .max(1);
+        let height = u32::from(frame.rows)
+            .saturating_mul(NATIVE_PROFILE_CELL_HEIGHT_PX)
+            .max(1);
+        let (_, scene_profile) = cache.prepare_profiled(frame.as_ref(), width, height);
+        probe.visible_panes = probe.visible_panes.saturating_add(1);
+        probe.apply_frame_us = probe
+            .apply_frame_us
+            .saturating_add(scene_profile.apply_frame_us);
+        probe.row_rebuild_us = probe
+            .row_rebuild_us
+            .saturating_add(scene_profile.row_rebuild_us);
+        probe.flatten_us = probe.flatten_us.saturating_add(scene_profile.flatten_us);
+        probe.overlay_us = probe.overlay_us.saturating_add(scene_profile.overlay_us);
+        probe.rows_rebuilt = probe
+            .rows_rebuilt
+            .saturating_add(u128::from(scene_profile.rows_rebuilt));
+        probe.cells_rebuilt = probe
+            .cells_rebuilt
+            .saturating_add(u128::from(scene_profile.cells_rebuilt));
+    }
+
+    probe
+}
+
+#[cfg(feature = "terminal-native-spike")]
+fn profile_native_visible_render_hold(
+    terminal_manager: &Arc<TerminalManager>,
+    app_state: &AppState,
+    iterations: usize,
+) -> Option<NativeVisibleRenderProfile> {
+    let Some(group_id) = app_state.active_group_id() else {
+        return None;
+    };
+
+    let session_ids = app_state.workspace_session_ids_for_group(group_id);
+    if !session_ids
+        .iter()
+        .any(|session_id| terminal_manager.native_frame_shared(*session_id).is_some())
+    {
+        return None;
+    }
+
+    let mut profile = NativeVisibleRenderProfile {
+        hold_times_us: Vec::with_capacity(iterations),
+        visible_panes: Vec::with_capacity(iterations),
+        apply_frame_us: Vec::with_capacity(iterations),
+        row_rebuild_us: Vec::with_capacity(iterations),
+        flatten_us: Vec::with_capacity(iterations),
+        overlay_us: Vec::with_capacity(iterations),
+        rows_rebuilt: Vec::with_capacity(iterations),
+        cells_rebuilt: Vec::with_capacity(iterations),
+    };
+    let shared_atlas = SharedGlyphAtlas::new();
+    let mut scene_caches = session_ids
+        .into_iter()
+        .map(|session_id| {
+            (
+                session_id,
+                TerminalGpuSceneCache::with_shared_atlas(shared_atlas.clone()),
+            )
+        })
+        .collect::<HashMap<_, _>>();
+
+    for _ in 0..iterations {
+        let started = Instant::now();
+        let probe =
+            simulate_native_visible_render_pass(app_state, terminal_manager, &mut scene_caches);
+        profile.hold_times_us.push(started.elapsed().as_micros());
+        profile.visible_panes.push(probe.visible_panes);
+        profile.apply_frame_us.push(probe.apply_frame_us);
+        profile.row_rebuild_us.push(probe.row_rebuild_us);
+        profile.flatten_us.push(probe.flatten_us);
+        profile.overlay_us.push(probe.overlay_us);
+        profile.rows_rebuilt.push(probe.rows_rebuilt);
+        profile.cells_rebuilt.push(probe.cells_rebuilt);
+    }
+
+    profile.hold_times_us.sort_unstable();
+    profile.visible_panes.sort_unstable();
+    profile.apply_frame_us.sort_unstable();
+    profile.row_rebuild_us.sort_unstable();
+    profile.flatten_us.sort_unstable();
+    profile.overlay_us.sort_unstable();
+    profile.rows_rebuilt.sort_unstable();
+    profile.cells_rebuilt.sort_unstable();
+
+    Some(profile)
 }
 
 fn profile_autosave_hold(
@@ -1375,6 +1628,14 @@ struct ProfileSummary {
     git_watcher_poll_cost: DistributionStats,
     startup_active_path_group_ready: DistributionStats,
     startup_full_restore: DistributionStats,
+    native_visible_render_pass: Option<DistributionStats>,
+    native_visible_panes_rendered: Option<CountStats>,
+    native_visible_apply_frame: Option<DistributionStats>,
+    native_visible_row_rebuild: Option<DistributionStats>,
+    native_visible_flatten: Option<DistributionStats>,
+    native_visible_overlay: Option<DistributionStats>,
+    native_visible_rows_rebuilt: Option<CountStats>,
+    native_visible_cells_rebuilt: Option<CountStats>,
     replay_legacy_snapshot_build: Option<DistributionStats>,
     replay_legacy_row_render: Option<DistributionStats>,
     replay_legacy_round_bounds: Option<DistributionStats>,
@@ -1414,6 +1675,7 @@ struct ProfileSummary {
     git_watcher_poll_cost_p95_us: u128,
     startup_active_path_group_ready_p95_us: u128,
     startup_full_restore_p95_us: u128,
+    native_visible_render_pass_p95_us: Option<u128>,
     replay_legacy_snapshot_build_p95_us: Option<u128>,
     replay_legacy_row_render_p95_us: Option<u128>,
     replay_legacy_round_bounds_p95_us: Option<u128>,
