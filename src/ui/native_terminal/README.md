@@ -10,7 +10,7 @@ and terminal runtime ownership remain unchanged.
 | ---- | ----------- |
 | `mod.rs` | Public pilot gate helpers and native terminal body exports |
 | `component.rs` | Dioxus terminal body component for the pilot canvas |
-| `frame.rs` | `TerminalSnapshot` to renderer-frame adapter |
+| `frame.rs` | Snapshot/native-frame adapter used by the pilot canvas |
 | `glyph_atlas.rs` | Monospace glyph atlas cache for the pilot renderer |
 | `paint.rs` | Custom paint bridge and paint-source lifecycle |
 | `renderer.rs` | WGPU pipeline, buffers, and output texture management |
@@ -26,28 +26,41 @@ and terminal runtime ownership remain unchanged.
   enabled.
 
 ## Invariants
-- `TerminalManager` remains the runtime owner for pilot panes.
+- `TerminalManager` remains the app-facing runtime owner for pilot panes.
 - Workspace and orchestrator modules decide which panes exist and which session is selected.
-- Native terminal components consume immutable terminal snapshots and forward input through
-  existing UI-side adapters.
+- When `GESTALT_NATIVE_TERMINAL_BACKEND=1` is enabled, `TerminalManager` may route the selected
+  session through the imported `terminal_native` backend while still publishing compatibility
+  snapshots for legacy consumers.
+- Native terminal components prefer immutable native frames when available and fall back to
+  immutable terminal snapshots otherwise.
 
 ## Usage Examples
 ```bash
 cargo run --features native-renderer --bin gestalt
 GESTALT_NATIVE_TERMINAL_PILOT=1 cargo run --features native-renderer --bin gestalt
+GESTALT_NATIVE_TERMINAL_PILOT=1 GESTALT_NATIVE_TERMINAL_BACKEND=1 \
+  cargo run --features native-renderer --bin gestalt
 ```
 
 ## Validation Notes
 - 2026-03-15 compile gates:
   - `cargo check`
   - `cargo check --features native-renderer`
+- 2026-03-15 backend migration compile gate:
+  - `cargo check --features native-renderer`
 - 2026-03-15 bounded launch smoke:
   - baseline native workspace: `elapsed=10.01 user=0.47 sys=0.17 maxrss=182504`
   - pilot-enabled native workspace: `elapsed=10.01 user=0.46 sys=0.18 maxrss=182752`
+- 2026-03-15 direct native-frame handoff:
+  - the pilot canvas now reads `TerminalManager::native_frame_shared(...)` when
+    `GESTALT_NATIVE_TERMINAL_BACKEND=1`
+  - `cargo test --features native-renderer frame_builds_cells_from_native_frame` is currently
+    blocked by unrelated existing test compile failures in `src/pantograph_host.rs` and
+    `src/ui/git_commit_graph.rs`
 - Interpretation: the selected-pane pilot launched successfully and did not materially change
   process memory in a no-interaction 10-second workspace run. This is only a launch-path sanity
   check, not a full interactive performance benchmark.
 
 ## Revisit Triggers
-- The pilot requires runtime ownership changes inside `terminal`.
+- The pilot requires more than the current backend-routing seam inside `terminal`.
 - More than one native terminal body path is needed and the module needs decomposition.
