@@ -715,6 +715,7 @@ fn WorkspaceTerminalCard(
                 session_id,
                 cwd,
                 pane.is_focused,
+                pane.is_selected,
                 terminal,
                 terminal_manager_for_input,
                 emily_bridge_for_history,

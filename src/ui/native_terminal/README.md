@@ -9,11 +9,21 @@ and terminal runtime ownership remain unchanged.
 | File | Description |
 | ---- | ----------- |
 | `mod.rs` | Public pilot gate helpers and native terminal body exports |
+| `component.rs` | Dioxus terminal body component for the pilot canvas |
+| `frame.rs` | `TerminalSnapshot` to renderer-frame adapter |
+| `glyph_atlas.rs` | Monospace glyph atlas cache for the pilot renderer |
+| `paint.rs` | Custom paint bridge and paint-source lifecycle |
+| `renderer.rs` | WGPU pipeline, buffers, and output texture management |
+| `scene.rs` | Renderer-facing quad scene construction |
 
 ## Constraints
 - Must remain a presentation/infrastructure seam only.
 - Must not become a second owner for PTY/session lifecycle.
 - Must keep the legacy `terminal_view` DOM path available as fallback.
+- The first pilot only activates for the selected pane when `GESTALT_NATIVE_TERMINAL_PILOT`
+  is enabled under the `native-renderer` feature.
+- The first pilot renders the active viewport only and falls back to the legacy path when CRT is
+  enabled.
 
 ## Invariants
 - `TerminalManager` remains the runtime owner for pilot panes.

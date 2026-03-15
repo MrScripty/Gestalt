@@ -7,6 +7,10 @@ use crate::ui::insert_command_mode::{
     InsertModeOutcome, InsertModeSelection, InsertModeState, KeyModifiers, TerminalKeyRoute,
     command_matches, mode_after_blur, mode_after_focus, route_terminal_key, selected_command_id,
 };
+#[cfg(feature = "native-renderer")]
+use crate::ui::native_terminal::{
+    NativeTerminalBody, native_terminal_pilot_active_for_selected_pane,
+};
 use crate::ui::terminal_input::{
     cursor_move_bytes, key_event_to_bytes, map_click_to_terminal_cell, read_clipboard_text,
     read_terminal_selection, scroll_terminal_to_bottom, select_terminal_round,
@@ -41,6 +45,7 @@ pub(crate) fn terminal_shell(
     session_id: SessionId,
     source_cwd: String,
     terminal_is_focused: bool,
+    terminal_is_selected: bool,
     terminal: Arc<TerminalSnapshot>,
     terminal_manager: Arc<TerminalManager>,
     emily_bridge: Arc<EmilyBridge>,
@@ -51,6 +56,8 @@ pub(crate) fn terminal_shell(
     let mut terminal_body_mounts = interaction.terminal_body_mounts;
     let mut terminal_body_stick_bottom = interaction.terminal_body_stick_bottom;
     let mut snippet_hotkey_state = interaction.snippet_hotkey_state;
+    #[cfg(not(feature = "native-renderer"))]
+    let _ = terminal_is_selected;
     let crt_enabled = app_state.read().crt_enabled();
     let shell_class = match (terminal_is_focused, crt_enabled) {
         (true, true) => "terminal-shell focused crt-enabled",
@@ -63,6 +70,11 @@ pub(crate) fn terminal_shell(
     } else {
         "terminal-body"
     };
+    #[cfg(feature = "native-renderer")]
+    let native_terminal_active =
+        native_terminal_pilot_active_for_selected_pane(terminal_is_selected) && !crt_enabled;
+    #[cfg(not(feature = "native-renderer"))]
+    let native_terminal_active = false;
     let body_style = format!(
         "--term-rows: {}; --term-cols: {};",
         terminal.rows, terminal.cols
@@ -81,9 +93,13 @@ pub(crate) fn terminal_shell(
         .cursor_row
         .min(max_render_rows_u16.saturating_sub(1));
     let cursor_col = terminal.cursor_col.min(terminal.cols.saturating_sub(1));
-    let render_window_rows = usize::from(terminal.rows)
-        .saturating_mul(RENDER_WINDOW_MULTIPLIER)
-        .max(RENDER_WINDOW_MIN_ROWS);
+    let render_window_rows = if native_terminal_active {
+        usize::from(terminal.rows.max(1))
+    } else {
+        usize::from(terminal.rows)
+            .saturating_mul(RENDER_WINDOW_MULTIPLIER)
+            .max(RENDER_WINDOW_MIN_ROWS)
+    };
     let window_start = terminal.lines.len().saturating_sub(render_window_rows);
     let rendered_lines = &terminal.lines[window_start..];
     let click_rows = u16::try_from(rendered_lines.len().max(1)).unwrap_or(u16::MAX);
@@ -171,6 +187,17 @@ pub(crate) fn terminal_shell(
             });
         });
     }
+
+    #[cfg(feature = "native-renderer")]
+    let native_terminal_body = rsx! {
+        NativeTerminalBody {
+            key: "native-terminal-{session_id}",
+            terminal: terminal.clone(),
+            show_caret: show_caret,
+        }
+    };
+    #[cfg(not(feature = "native-renderer"))]
+    let native_terminal_body = rsx! { div {} };
 
     rsx! {
         div {
@@ -492,6 +519,9 @@ pub(crate) fn terminal_shell(
                 id: "{terminal_body_id}",
                 style: "{body_style}",
                 onscroll: move |event| {
+                    if native_terminal_active {
+                        return;
+                    }
                     let scroll = event.data();
                     let distance_from_bottom = f64::from(scroll.scroll_height() - scroll.client_height())
                         - scroll.scroll_top();
@@ -595,49 +625,53 @@ pub(crate) fn terminal_shell(
                         .insert(session_id, event.data());
                     terminal_body_stick_bottom.write().insert(session_id, true);
                 },
-                div { class: "terminal-grid",
-                    for row_idx in 0..rendered_lines.len() {
-                        {
-                            let line = rendered_lines
-                                .get(row_idx)
-                                .map(|line| line.as_str())
-                                .unwrap_or_default();
-                            let actual_row_idx = window_start.saturating_add(row_idx);
-                            #[cfg(feature = "native-renderer")]
-                            let has_snippet = false;
-                            #[cfg(not(feature = "native-renderer"))]
-                            let has_snippet = snippet_row_ranges.iter().any(|(start, end)| {
-                                actual_row_idx >= usize::try_from(*start).unwrap_or(usize::MAX)
-                                    && actual_row_idx <= usize::try_from(*end).unwrap_or(0)
-                            });
-                            let line_class = if has_snippet {
-                                "terminal-line snippet-annotated"
-                            } else {
-                                "terminal-line"
-                            };
-                            rsx! {
-                                div {
-                                    class: "{line_class}",
-                                    key: "line-{session_id}-{actual_row_idx}",
-                                    "data-row": "{actual_row_idx}",
-                                    if cfg!(feature = "native-renderer") {
-                                        {
-                                            let native_line = if show_caret
-                                                && actual_row_idx == usize::from(cursor_row)
+                if native_terminal_active {
+                    {native_terminal_body}
+                } else {
+                    div { class: "terminal-grid",
+                        for row_idx in 0..rendered_lines.len() {
+                            {
+                                let line = rendered_lines
+                                    .get(row_idx)
+                                    .map(|line| line.as_str())
+                                    .unwrap_or_default();
+                                let actual_row_idx = window_start.saturating_add(row_idx);
+                                #[cfg(feature = "native-renderer")]
+                                let has_snippet = false;
+                                #[cfg(not(feature = "native-renderer"))]
+                                let has_snippet = snippet_row_ranges.iter().any(|(start, end)| {
+                                    actual_row_idx >= usize::try_from(*start).unwrap_or(usize::MAX)
+                                        && actual_row_idx <= usize::try_from(*end).unwrap_or(0)
+                                });
+                                let line_class = if has_snippet {
+                                    "terminal-line snippet-annotated"
+                                } else {
+                                    "terminal-line"
+                                };
+                                rsx! {
+                                    div {
+                                        class: "{line_class}",
+                                        key: "line-{session_id}-{actual_row_idx}",
+                                        "data-row": "{actual_row_idx}",
+                                        if cfg!(feature = "native-renderer") {
                                             {
-                                                render_native_terminal_line_with_caret(
-                                                    line,
-                                                    cursor_col,
-                                                )
-                                            } else {
-                                                line.to_string()
-                                            };
-                                            rsx!(span { class: "terminal-text", "{native_line}" })
+                                                let native_line = if show_caret
+                                                    && actual_row_idx == usize::from(cursor_row)
+                                                {
+                                                    render_native_terminal_line_with_caret(
+                                                        line,
+                                                        cursor_col,
+                                                    )
+                                                } else {
+                                                    line.to_string()
+                                                };
+                                                rsx!(span { class: "terminal-text", "{native_line}" })
+                                            }
+                                        } else if show_caret && actual_row_idx == usize::from(cursor_row) {
+                                            {render_terminal_line_with_caret(line, cursor_col)}
+                                        } else {
+                                            {render_terminal_line(line)}
                                         }
-                                    } else if show_caret && actual_row_idx == usize::from(cursor_row) {
-                                        {render_terminal_line_with_caret(line, cursor_col)}
-                                    } else {
-                                        {render_terminal_line(line)}
                                     }
                                 }
                             }

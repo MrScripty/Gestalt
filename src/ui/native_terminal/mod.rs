@@ -1,3 +1,13 @@
+mod component;
+mod constants;
+mod frame;
+mod glyph_atlas;
+mod paint;
+mod renderer;
+mod scene;
+
+pub(crate) use component::NativeTerminalBody;
+
 pub(crate) const PILOT_ENV_VAR: &str = "GESTALT_NATIVE_TERMINAL_PILOT";
 
 pub(crate) fn native_terminal_pilot_enabled() -> bool {
@@ -10,6 +20,10 @@ pub(crate) fn native_terminal_pilot_enabled() -> bool {
             )
         })
         .unwrap_or(false)
+}
+
+pub(crate) fn native_terminal_pilot_active_for_selected_pane(is_selected: bool) -> bool {
+    is_selected && native_terminal_pilot_enabled()
 }
 
 #[cfg(test)]
