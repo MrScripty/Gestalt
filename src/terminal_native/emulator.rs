@@ -384,31 +384,56 @@ fn map_color(color: Color) -> TerminalColor {
 }
 
 fn map_flags(flags: Flags) -> TerminalCellFlags {
+    if flags.is_empty() {
+        return TerminalCellFlags::NONE;
+    }
+
     let mut mapped = TerminalCellFlags::NONE;
 
-    for (alacritty_flag, frame_flag) in [
-        (Flags::INVERSE, TerminalCellFlags::INVERSE),
-        (Flags::BOLD, TerminalCellFlags::BOLD),
-        (Flags::ITALIC, TerminalCellFlags::ITALIC),
-        (Flags::UNDERLINE, TerminalCellFlags::UNDERLINE),
-        (Flags::WRAPLINE, TerminalCellFlags::WRAPLINE),
-        (Flags::WIDE_CHAR, TerminalCellFlags::WIDE_CHAR),
-        (Flags::WIDE_CHAR_SPACER, TerminalCellFlags::WIDE_CHAR_SPACER),
-        (Flags::DIM, TerminalCellFlags::DIM),
-        (Flags::HIDDEN, TerminalCellFlags::HIDDEN),
-        (Flags::STRIKEOUT, TerminalCellFlags::STRIKEOUT),
-        (
-            Flags::LEADING_WIDE_CHAR_SPACER,
-            TerminalCellFlags::LEADING_WIDE_CHAR_SPACER,
-        ),
-        (Flags::DOUBLE_UNDERLINE, TerminalCellFlags::DOUBLE_UNDERLINE),
-        (Flags::UNDERCURL, TerminalCellFlags::UNDERCURL),
-        (Flags::DOTTED_UNDERLINE, TerminalCellFlags::DOTTED_UNDERLINE),
-        (Flags::DASHED_UNDERLINE, TerminalCellFlags::DASHED_UNDERLINE),
-    ] {
-        if flags.contains(alacritty_flag) {
-            mapped = mapped.union(frame_flag);
-        }
+    if flags.contains(Flags::INVERSE) {
+        mapped = mapped.union(TerminalCellFlags::INVERSE);
+    }
+    if flags.contains(Flags::BOLD) {
+        mapped = mapped.union(TerminalCellFlags::BOLD);
+    }
+    if flags.contains(Flags::ITALIC) {
+        mapped = mapped.union(TerminalCellFlags::ITALIC);
+    }
+    if flags.contains(Flags::UNDERLINE) {
+        mapped = mapped.union(TerminalCellFlags::UNDERLINE);
+    }
+    if flags.contains(Flags::WRAPLINE) {
+        mapped = mapped.union(TerminalCellFlags::WRAPLINE);
+    }
+    if flags.contains(Flags::WIDE_CHAR) {
+        mapped = mapped.union(TerminalCellFlags::WIDE_CHAR);
+    }
+    if flags.contains(Flags::WIDE_CHAR_SPACER) {
+        mapped = mapped.union(TerminalCellFlags::WIDE_CHAR_SPACER);
+    }
+    if flags.contains(Flags::DIM) {
+        mapped = mapped.union(TerminalCellFlags::DIM);
+    }
+    if flags.contains(Flags::HIDDEN) {
+        mapped = mapped.union(TerminalCellFlags::HIDDEN);
+    }
+    if flags.contains(Flags::STRIKEOUT) {
+        mapped = mapped.union(TerminalCellFlags::STRIKEOUT);
+    }
+    if flags.contains(Flags::LEADING_WIDE_CHAR_SPACER) {
+        mapped = mapped.union(TerminalCellFlags::LEADING_WIDE_CHAR_SPACER);
+    }
+    if flags.contains(Flags::DOUBLE_UNDERLINE) {
+        mapped = mapped.union(TerminalCellFlags::DOUBLE_UNDERLINE);
+    }
+    if flags.contains(Flags::UNDERCURL) {
+        mapped = mapped.union(TerminalCellFlags::UNDERCURL);
+    }
+    if flags.contains(Flags::DOTTED_UNDERLINE) {
+        mapped = mapped.union(TerminalCellFlags::DOTTED_UNDERLINE);
+    }
+    if flags.contains(Flags::DASHED_UNDERLINE) {
+        mapped = mapped.union(TerminalCellFlags::DASHED_UNDERLINE);
     }
 
     mapped
