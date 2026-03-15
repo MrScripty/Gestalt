@@ -39,6 +39,8 @@ renderer.
 - `controller.rs` is the application/controller seam and owns runtime commands.
 - `demo.rs` is presentation only and forwards user events to the controller.
 - `paint.rs` and `session.rs` are infrastructure concerns.
+- `paint.rs` reports surface-size changes through the controller instead of
+  mutating PTY state directly.
 - `model.rs` is the renderer-facing contract between layers.
 
 ## Alternatives Rejected
@@ -75,6 +77,9 @@ cargo run --features terminal-native-spike --bin terminal_native_spike
   not yet covered.
 - Selection, mouse reporting, clipboard integration, and IME are intentionally
   out of scope for this spike.
+- Keyboard capture still relies on an invisible full-surface input overlay
+  because direct terminal-surface focus handling in `dioxus-native` is not yet
+  reliable enough for this spike.
 - Binary build verification is complete and an X11 smoke pass covered launch,
   typed input, and resize.
 - A true interactive visual/manual validation run still needs a local desktop
