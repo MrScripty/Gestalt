@@ -298,10 +298,10 @@ impl TerminalRaster {
         }
 
         if let Some(changes) = frame.changed_spans() {
-            for change in changes {
+            for change in changes.spans() {
                 let mut index =
                     usize::from(change.row) * usize::from(frame.cols) + usize::from(change.left);
-                for cell in change.cells.iter() {
+                for cell in changes.cells_for_span(change) {
                     if let Some(target) = self.cells.get_mut(index) {
                         *target = cell.clone();
                     }

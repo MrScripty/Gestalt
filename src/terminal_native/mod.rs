@@ -22,9 +22,9 @@ pub(crate) use constants::{
 pub use emulator::{AlacrittyEmulator, AlacrittyEmulatorConfig, EmulatorSnapshotProfile};
 pub use gpu_scene::{TerminalGpuSceneCache, TerminalGpuSceneProfile};
 pub use model::{
-    TerminalCell, TerminalCellFlags, TerminalCellPublication, TerminalCellSpanUpdate,
-    TerminalColor, TerminalCursor, TerminalCursorShape, TerminalDamage, TerminalDamageSpan,
-    TerminalFrame,
+    TerminalCell, TerminalCellFlags, TerminalCellPublication, TerminalCellSpanBatch,
+    TerminalCellSpanUpdate, TerminalColor, TerminalCursor, TerminalCursorShape, TerminalDamage,
+    TerminalDamageSpan, TerminalFrame,
 };
 pub use raster::TerminalRaster;
 pub use session::{NativeTerminalError, NativeTerminalSession, NativeTerminalSessionConfig};

@@ -20,10 +20,10 @@ impl TerminalFrame {
         }
     }
 
-    pub fn changed_spans(&self) -> Option<&[TerminalCellSpanUpdate]> {
+    pub fn changed_spans(&self) -> Option<&TerminalCellSpanBatch> {
         match &self.publication {
             TerminalCellPublication::Full(_) => None,
-            TerminalCellPublication::Partial(changes) => Some(changes.as_ref()),
+            TerminalCellPublication::Partial(changes) => Some(changes),
         }
     }
 
@@ -40,7 +40,7 @@ impl TerminalFrame {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TerminalCellPublication {
     Full(Arc<[TerminalCell]>),
-    Partial(Arc<[TerminalCellSpanUpdate]>),
+    Partial(TerminalCellSpanBatch),
 }
 
 /// Renderable terminal cell projected from the emulator grid.
@@ -150,9 +150,32 @@ pub struct TerminalDamageSpan {
 }
 
 /// Single renderer-facing contiguous row span within the viewport.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TerminalCellSpanUpdate {
     pub row: u16,
     pub left: u16,
-    pub cells: Arc<[TerminalCell]>,
+    pub len: u16,
+    pub cells_start: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TerminalCellSpanBatch {
+    spans: Arc<[TerminalCellSpanUpdate]>,
+    cells: Arc<[TerminalCell]>,
+}
+
+impl TerminalCellSpanBatch {
+    pub fn new(spans: Arc<[TerminalCellSpanUpdate]>, cells: Arc<[TerminalCell]>) -> Self {
+        Self { spans, cells }
+    }
+
+    pub fn spans(&self) -> &[TerminalCellSpanUpdate] {
+        self.spans.as_ref()
+    }
+
+    pub fn cells_for_span(&self, span: &TerminalCellSpanUpdate) -> &[TerminalCell] {
+        let start = span.cells_start as usize;
+        let end = start + usize::from(span.len);
+        &self.cells[start..end]
+    }
 }

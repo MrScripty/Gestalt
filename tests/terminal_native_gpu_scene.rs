@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
 use gestalt::terminal_native::{
-    TerminalCell, TerminalCellPublication, TerminalCellSpanUpdate, TerminalCursor,
-    TerminalCursorShape, TerminalDamage, TerminalDamageSpan, TerminalFrame, TerminalGpuSceneCache,
+    TerminalCell, TerminalCellPublication, TerminalCellSpanBatch, TerminalCellSpanUpdate,
+    TerminalCursor, TerminalCursorShape, TerminalDamage, TerminalDamageSpan, TerminalFrame,
+    TerminalGpuSceneCache,
 };
 
 const TEST_ROWS: u16 = 2;
@@ -28,14 +29,18 @@ fn gpu_scene_reuses_cached_glyphs_across_frames() {
 #[test]
 fn gpu_scene_applies_partial_updates_over_cached_cells() {
     let full = full_frame(['h', 'i', ' ', ' ', ' ', ' ']);
-    let partial = partial_frame(vec![TerminalCellSpanUpdate {
-        row: 0,
-        left: 2,
-        cells: Arc::<[TerminalCell]>::from([TerminalCell {
+    let partial = partial_frame(
+        vec![TerminalCellSpanUpdate {
+            row: 0,
+            left: 2,
+            len: 1,
+            cells_start: 0,
+        }],
+        vec![TerminalCell {
             codepoint: '!',
             ..TerminalCell::default()
-        }]),
-    }]);
+        }],
+    );
     let mut cache = TerminalGpuSceneCache::new();
 
     let _ = cache.prepare(&full, TEST_WIDTH, TEST_HEIGHT);
@@ -94,7 +99,7 @@ fn frame_with_cursor(
     }
 }
 
-fn partial_frame(changes: Vec<TerminalCellSpanUpdate>) -> TerminalFrame {
+fn partial_frame(spans: Vec<TerminalCellSpanUpdate>, cells: Vec<TerminalCell>) -> TerminalFrame {
     TerminalFrame {
         rows: TEST_ROWS,
         cols: TEST_COLS,
@@ -113,8 +118,9 @@ fn partial_frame(changes: Vec<TerminalCellSpanUpdate>) -> TerminalFrame {
             }]
             .into(),
         ),
-        publication: TerminalCellPublication::Partial(Arc::<[TerminalCellSpanUpdate]>::from(
-            changes,
+        publication: TerminalCellPublication::Partial(TerminalCellSpanBatch::new(
+            Arc::<[TerminalCellSpanUpdate]>::from(spans),
+            Arc::<[TerminalCell]>::from(cells),
         )),
     }
 }

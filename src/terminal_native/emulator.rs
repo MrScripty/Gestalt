@@ -12,9 +12,9 @@ use alacritty_terminal::term::{
 use alacritty_terminal::vte::ansi::{Color, CursorShape, NamedColor, Processor};
 
 use super::model::{
-    TerminalCell, TerminalCellFlags, TerminalCellPublication, TerminalCellSpanUpdate,
-    TerminalColor, TerminalCursor, TerminalCursorShape, TerminalDamage as FrameDamage,
-    TerminalDamageSpan, TerminalFrame,
+    TerminalCell, TerminalCellFlags, TerminalCellPublication, TerminalCellSpanBatch,
+    TerminalCellSpanUpdate, TerminalColor, TerminalCursor, TerminalCursorShape,
+    TerminalDamage as FrameDamage, TerminalDamageSpan, TerminalFrame,
 };
 
 const DEFAULT_ROWS: u16 = 42;
@@ -222,7 +222,7 @@ fn build_publication(
             TerminalCellPublication::Full(Arc::<[TerminalCell]>::from(cells.to_vec()))
         }
         FrameDamage::Partial(spans) => {
-            TerminalCellPublication::Partial(collect_changed_spans(cells, size, spans).into())
+            TerminalCellPublication::Partial(collect_changed_spans(cells, size, spans))
         }
     }
 }
@@ -314,9 +314,10 @@ fn collect_changed_spans(
     cells: &[TerminalCell],
     size: ViewportSize,
     spans: &[TerminalDamageSpan],
-) -> Vec<TerminalCellSpanUpdate> {
+) -> TerminalCellSpanBatch {
     let width = usize::from(size.cols);
-    let mut changes = Vec::with_capacity(spans.len());
+    let mut change_spans = Vec::with_capacity(spans.len());
+    let mut changed_cells = Vec::new();
 
     for span in spans {
         if span.row >= size.rows || span.left > span.right || span.left >= size.cols {
@@ -329,14 +330,17 @@ fn collect_changed_spans(
         let Some(row_cells) = cells.get(start..end) else {
             continue;
         };
-        changes.push(TerminalCellSpanUpdate {
+        let cells_start = changed_cells.len() as u32;
+        changed_cells.extend_from_slice(row_cells);
+        change_spans.push(TerminalCellSpanUpdate {
             row: span.row,
             left: span.left,
-            cells: Arc::<[TerminalCell]>::from(row_cells.to_vec()),
+            len: row_cells.len() as u16,
+            cells_start,
         });
     }
 
-    changes
+    TerminalCellSpanBatch::new(change_spans.into(), changed_cells.into())
 }
 
 fn project_cell(cell: &Cell) -> TerminalCell {
@@ -563,13 +567,16 @@ mod tests {
     }
 
     fn changed_cells(frame: &TerminalFrame) -> Vec<(u16, u16, TerminalCell)> {
-        frame
-            .changed_spans()
-            .unwrap_or(&[])
+        let Some(changes) = frame.changed_spans() else {
+            return Vec::new();
+        };
+
+        changes
+            .spans()
             .iter()
             .flat_map(|change| {
-                change
-                    .cells
+                changes
+                    .cells_for_span(change)
                     .iter()
                     .enumerate()
                     .map(|(offset, cell)| (change.row, change.left + offset as u16, cell.clone()))

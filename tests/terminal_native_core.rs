@@ -1,6 +1,6 @@
 use gestalt::terminal_native::{
-    AlacrittyEmulator, AlacrittyEmulatorConfig, TerminalCellPublication, TerminalCellSpanUpdate,
-    TerminalColor, TerminalCursorShape, TerminalDamage, TerminalFrame,
+    AlacrittyEmulator, AlacrittyEmulatorConfig, TerminalCellPublication, TerminalCellSpanBatch,
+    TerminalCellSpanUpdate, TerminalColor, TerminalCursorShape, TerminalDamage, TerminalFrame,
 };
 
 fn emulator(rows: u16, cols: u16) -> AlacrittyEmulator {
@@ -88,19 +88,23 @@ fn partial_updates_preserve_undamaged_cells() {
 }
 
 fn changed_cells(frame: &TerminalFrame) -> Vec<(u16, u16, gestalt::terminal_native::TerminalCell)> {
-    frame
-        .changed_spans()
-        .unwrap_or(&[])
+    let Some(changes) = frame.changed_spans() else {
+        return Vec::new();
+    };
+
+    changes
+        .spans()
         .iter()
-        .flat_map(span_cells)
+        .flat_map(|change| span_cells(changes, change))
         .collect()
 }
 
-fn span_cells(
-    change: &TerminalCellSpanUpdate,
-) -> impl Iterator<Item = (u16, u16, gestalt::terminal_native::TerminalCell)> + '_ {
-    change
-        .cells
+fn span_cells<'a>(
+    changes: &'a TerminalCellSpanBatch,
+    change: &'a TerminalCellSpanUpdate,
+) -> impl Iterator<Item = (u16, u16, gestalt::terminal_native::TerminalCell)> + 'a {
+    changes
+        .cells_for_span(change)
         .iter()
         .enumerate()
         .map(|(offset, cell)| (change.row, change.left + offset as u16, cell.clone()))
