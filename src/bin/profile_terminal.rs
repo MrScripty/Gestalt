@@ -3,7 +3,7 @@ use gestalt::persistence;
 use gestalt::state::{AppState, SessionId};
 use gestalt::terminal::{TerminalManager, TerminalSnapshot};
 #[cfg(feature = "terminal-native-spike")]
-use gestalt::terminal_native::{AlacrittyEmulator, AlacrittyEmulatorConfig, TerminalRaster};
+use gestalt::terminal_native::{AlacrittyEmulator, AlacrittyEmulatorConfig, TerminalGpuSceneCache};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::hint::black_box;
@@ -151,7 +151,10 @@ fn main() -> Result<(), String> {
         "Profiling keypress latency with {} samples...",
         config.typing_samples
     );
-    println!("Warm terminal history lines: {}", config.warmup_history_lines);
+    println!(
+        "Warm terminal history lines: {}",
+        config.warmup_history_lines
+    );
 
     let render_profile =
         profile_render_hold(&terminal_manager, &app_state, config.render_iterations);
@@ -528,8 +531,7 @@ fn seed_terminal_output(
 ) -> Result<(), String> {
     let fill = "x".repeat(HISTORY_LINE_WIDTH);
     let completion_marker = format!("{warmup_history_lines} {fill}");
-    let command =
-        format!("for i in $(seq 1 {warmup_history_lines}); do echo \"$i {fill}\"; done");
+    let command = format!("for i in $(seq 1 {warmup_history_lines}); do echo \"$i {fill}\"; done");
 
     for session_id in session_ids {
         terminal_manager
@@ -1392,8 +1394,7 @@ fn profile_terminal_replay_benchmark(config: &ProfileConfig) -> Option<ReplayBen
 
     let mut legacy_snapshot_build =
         Vec::with_capacity(config.replay_profile_iterations * chunks.len());
-    let mut legacy_row_render =
-        Vec::with_capacity(config.replay_profile_iterations * chunks.len());
+    let mut legacy_row_render = Vec::with_capacity(config.replay_profile_iterations * chunks.len());
     let mut legacy_round_bounds =
         Vec::with_capacity(config.replay_profile_iterations * chunks.len());
     let mut native_snapshot_build =
@@ -1402,15 +1403,18 @@ fn profile_terminal_replay_benchmark(config: &ProfileConfig) -> Option<ReplayBen
         Vec::with_capacity(config.replay_profile_iterations * chunks.len());
 
     for _ in 0..config.replay_profile_iterations {
-        let mut legacy_parser =
-            Parser::new(REPLAY_PROFILE_ROWS, REPLAY_PROFILE_COLS, REPLAY_PROFILE_SCROLLBACK);
+        let mut legacy_parser = Parser::new(
+            REPLAY_PROFILE_ROWS,
+            REPLAY_PROFILE_COLS,
+            REPLAY_PROFILE_SCROLLBACK,
+        );
         let mut legacy_scrollback = BenchScrollback::default();
         let mut native_emulator = AlacrittyEmulator::new(AlacrittyEmulatorConfig {
             rows: REPLAY_PROFILE_ROWS,
             cols: REPLAY_PROFILE_COLS,
             scrollback: REPLAY_PROFILE_SCROLLBACK,
         });
-        let mut raster = TerminalRaster::new();
+        let mut scene_cache = TerminalGpuSceneCache::new();
 
         for chunk in &chunks {
             legacy_parser.process(chunk);
@@ -1435,7 +1439,7 @@ fn profile_terminal_replay_benchmark(config: &ProfileConfig) -> Option<ReplayBen
             native_snapshot_build.push(native_snapshot_started.elapsed().as_micros());
 
             let native_raster_started = Instant::now();
-            raster.update(
+            let _ = scene_cache.prepare(
                 &frame,
                 u32::from(frame.cols).saturating_mul(9),
                 u32::from(frame.rows).saturating_mul(18),
@@ -1505,7 +1509,7 @@ fn print_replay_benchmark(summary: &Option<ReplayBenchmarkSummary>) {
         summary.native_snapshot_build.max_us
     );
     println!(
-        "  native raster update us: avg={} p50={} p95={} p99={} max={}",
+        "  native render prepare us: avg={} p50={} p95={} p99={} max={}",
         summary.native_raster_update.avg_us,
         summary.native_raster_update.p50_us,
         summary.native_raster_update.p95_us,
