@@ -45,6 +45,8 @@ pub struct AlacrittyEmulator {
     term: Term<VoidListener>,
     size: ViewportSize,
     projected_cells: Vec<TerminalCell>,
+    projected_cells_spare: Vec<TerminalCell>,
+    shared_full_cells: Option<Arc<Vec<TerminalCell>>>,
     last_display_offset: usize,
 }
 
@@ -67,6 +69,8 @@ impl AlacrittyEmulator {
             term: Term::new(term_config, &size, VoidListener),
             size,
             projected_cells: vec![TerminalCell::default(); size.cell_count()],
+            projected_cells_spare: vec![TerminalCell::default(); size.cell_count()],
+            shared_full_cells: None,
             last_display_offset: 0,
         }
     }
@@ -89,6 +93,9 @@ impl AlacrittyEmulator {
         self.size = next;
         self.projected_cells
             .resize(self.size.cell_count(), TerminalCell::default());
+        self.projected_cells_spare
+            .resize(self.size.cell_count(), TerminalCell::default());
+        self.shared_full_cells = None;
         true
     }
 
@@ -112,6 +119,11 @@ impl AlacrittyEmulator {
         let damage_collect_us = damage_collect_started.elapsed().as_micros();
 
         let projection_update_started = Instant::now();
+        if matches!(damage, FrameDamage::Full) {
+            self.shared_full_cells = None;
+        } else {
+            self.materialize_shared_full_cells();
+        }
         project_damage_into(
             &mut self.projected_cells,
             self.term.grid(),
@@ -123,7 +135,7 @@ impl AlacrittyEmulator {
         let bracketed_paste = self.term.mode().contains(TermMode::BRACKETED_PASTE);
 
         let publication_build_started = Instant::now();
-        let publication = build_publication(&self.projected_cells, self.size, &damage);
+        let publication = self.build_publication(&damage);
         let publication_build_us = publication_build_started.elapsed().as_micros();
         self.last_display_offset = display_offset;
 
@@ -145,6 +157,38 @@ impl AlacrittyEmulator {
                 publication_build_us,
             },
         )
+    }
+
+    fn build_publication(&mut self, damage: &FrameDamage) -> TerminalCellPublication {
+        match damage {
+            FrameDamage::Full => self.build_full_publication(),
+            FrameDamage::Partial(spans) => TerminalCellPublication::Partial(collect_changed_spans(
+                &self.projected_cells,
+                self.size,
+                spans,
+            )),
+        }
+    }
+
+    fn build_full_publication(&mut self) -> TerminalCellPublication {
+        let shared = Arc::new(std::mem::take(&mut self.projected_cells));
+        self.shared_full_cells = Some(Arc::clone(&shared));
+        self.projected_cells = std::mem::take(&mut self.projected_cells_spare);
+        self.projected_cells
+            .resize(self.size.cell_count(), TerminalCell::default());
+        TerminalCellPublication::Full(shared)
+    }
+
+    fn materialize_shared_full_cells(&mut self) {
+        let Some(shared) = self.shared_full_cells.take() else {
+            return;
+        };
+
+        if self.projected_cells.len() != shared.len() {
+            self.projected_cells
+                .resize(shared.len(), TerminalCell::default());
+        }
+        self.projected_cells.clone_from_slice(shared.as_slice());
     }
 }
 
@@ -229,19 +273,6 @@ fn project_damage_into(
         FrameDamage::Full => rebuild_projected_cells(cells, grid, size, display_offset),
         FrameDamage::Partial(spans) => {
             update_damage_spans(cells, grid, size, display_offset, spans)
-        }
-    }
-}
-
-fn build_publication(
-    cells: &[TerminalCell],
-    size: ViewportSize,
-    damage: &FrameDamage,
-) -> TerminalCellPublication {
-    match damage {
-        FrameDamage::Full => TerminalCellPublication::Full(Arc::new(cells.to_vec())),
-        FrameDamage::Partial(spans) => {
-            TerminalCellPublication::Partial(collect_changed_spans(cells, size, spans))
         }
     }
 }
