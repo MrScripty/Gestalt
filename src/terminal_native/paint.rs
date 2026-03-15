@@ -6,6 +6,7 @@ use super::gpu_renderer::{NativeTerminalGpuRenderer, NativeTerminalGpuShared};
 pub struct NativeTerminalPaintSource {
     controller: NativeTerminalController,
     shared_gpu: NativeTerminalGpuShared,
+    last_surface_cells: Option<(u16, u16)>,
     state: RendererState,
 }
 
@@ -19,6 +20,7 @@ impl NativeTerminalPaintSource {
         Self {
             controller,
             shared_gpu,
+            last_surface_cells: None,
             state: RendererState::Suspended,
         }
     }
@@ -31,6 +33,7 @@ impl CustomPaintSource for NativeTerminalPaintSource {
     }
 
     fn suspend(&mut self) {
+        self.last_surface_cells = None;
         self.state = RendererState::Suspended;
     }
 
@@ -49,8 +52,21 @@ impl CustomPaintSource for NativeTerminalPaintSource {
             return None;
         }
 
-        self.controller.resize_for_surface(width, height);
+        let surface_cells = NativeTerminalController::surface_cells(width, height);
+        let cells_changed = self.last_surface_cells != Some(surface_cells);
+        if cells_changed {
+            self.controller
+                .resize_cells(surface_cells.0, surface_cells.1);
+            self.last_surface_cells = Some(surface_cells);
+        }
+
         let revision = self.controller.revision();
+        if !cells_changed {
+            if let Some(handle) = state.cached_handle_if_unchanged(revision, width, height) {
+                return Some(handle);
+            }
+        }
+
         let frame = self.controller.frame();
         state.render(&mut ctx, &frame, revision, width, height)
     }

@@ -21,6 +21,12 @@ impl PartialEq for NativeTerminalController {
 impl Eq for NativeTerminalController {}
 
 impl NativeTerminalController {
+    pub fn surface_cells(width: u32, height: u32) -> (u16, u16) {
+        let rows = ((height / CELL_HEIGHT_PX).max(u32::from(MIN_TERMINAL_ROWS))) as u16;
+        let cols = ((width / CELL_WIDTH_PX).max(u32::from(MIN_TERMINAL_COLS))) as u16;
+        (rows, cols)
+    }
+
     pub fn spawn_for_current_dir() -> Self {
         let cwd = env::current_dir()
             .ok()
@@ -56,13 +62,7 @@ impl NativeTerminalController {
         let _ = self.session.send_input(bytes);
     }
 
-    pub fn resize_cells(&self, rows: u16, cols: u16) {
-        let _ = self.session.resize(rows, cols);
-    }
-
-    pub fn resize_for_surface(&self, width: u32, height: u32) {
-        let rows = ((height / CELL_HEIGHT_PX).max(u32::from(MIN_TERMINAL_ROWS))) as u16;
-        let cols = ((width / CELL_WIDTH_PX).max(u32::from(MIN_TERMINAL_COLS))) as u16;
-        self.resize_cells(rows, cols);
+    pub fn resize_cells(&self, rows: u16, cols: u16) -> bool {
+        self.session.resize(rows, cols).unwrap_or(false)
     }
 }

@@ -252,6 +252,19 @@ impl NativeTerminalGpuShared {
 }
 
 impl NativeTerminalGpuRenderer {
+    pub fn cached_handle_if_unchanged(
+        &self,
+        revision: u64,
+        width: u32,
+        height: u32,
+    ) -> Option<TextureHandle> {
+        if self.last_revision != revision || self.last_size != (width, height) {
+            return None;
+        }
+
+        self.output.as_ref().map(|output| output.handle.clone())
+    }
+
     pub fn render(
         &mut self,
         ctx: &mut CustomPaintCtx<'_>,
