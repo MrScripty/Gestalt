@@ -221,8 +221,32 @@ impl TerminalGpuSceneCache {
     }
 
     fn rebuild_all_rows(&mut self, frame: &TerminalFrame, atlas: &mut GlyphAtlas) -> u32 {
-        for row in 0..self.rows {
-            self.rebuild_row(row, frame.cursor, atlas);
+        let row_count = usize::from(self.rows);
+        let cols = usize::from(self.cols);
+        let cell_width = self.cell_width as f32;
+        let cell_height = self.cell_height as f32;
+
+        for (row_index, (row_cells, (backgrounds, glyphs))) in self
+            .cells
+            .chunks_exact(cols)
+            .zip(
+                self.background_rows
+                    .iter_mut()
+                    .zip(self.glyph_rows.iter_mut()),
+            )
+            .enumerate()
+            .take(row_count)
+        {
+            rebuild_row_cells(
+                backgrounds,
+                glyphs,
+                row_index as u16,
+                row_cells,
+                frame.cursor,
+                cell_width,
+                cell_height,
+                atlas,
+            );
         }
         u32::from(self.rows)
     }
@@ -265,73 +289,93 @@ impl TerminalGpuSceneCache {
         let Some(glyphs) = self.glyph_rows.get_mut(row_index) else {
             return;
         };
-        backgrounds.clear();
-        glyphs.clear();
-        let cell_width = self.cell_width as f32;
-        let cell_height = self.cell_height as f32;
-        let row_y = f32::from(row) * cell_height;
-        let mut x = 0.0_f32;
         let row_start = usize::from(row) * usize::from(self.cols);
         let row_end = row_start + usize::from(self.cols);
         let Some(row_cells) = self.cells.get(row_start..row_end) else {
             return;
         };
+        rebuild_row_cells(
+            backgrounds,
+            glyphs,
+            row,
+            row_cells,
+            cursor,
+            self.cell_width as f32,
+            self.cell_height as f32,
+            atlas,
+        );
+    }
+}
 
-        for (col, cell) in row_cells.iter().enumerate() {
-            let col = col as u16;
+fn rebuild_row_cells(
+    backgrounds: &mut Vec<QuadInstance>,
+    glyphs: &mut Vec<QuadInstance>,
+    row: u16,
+    row_cells: &[TerminalCell],
+    cursor: TerminalCursor,
+    cell_width: f32,
+    cell_height: f32,
+    atlas: &mut GlyphAtlas,
+) {
+    backgrounds.clear();
+    glyphs.clear();
+    let row_y = f32::from(row) * cell_height;
+    let mut x = 0.0_f32;
 
-            let cursor_here = cursor.row == row && cursor.col == col;
-            if is_plain_blank_cell(cell, cursor_here) {
-                x += cell_width;
-                continue;
-            }
+    for (col, cell) in row_cells.iter().enumerate() {
+        let col = col as u16;
 
-            let rect = [x, row_y, cell_width, cell_height];
-            if is_default_visible_cell(cell, cursor_here) {
-                let tile = atlas.ensure_glyph(cell.codepoint);
-                if !tile.empty {
-                    glyphs.push(QuadInstance::glyph(
-                        rect,
-                        rgba(DEFAULT_FOREGROUND),
-                        tile.uv_rect,
-                    ));
-                }
-                x += cell_width;
-                continue;
-            }
-            if is_simple_foreground_cell(cell, cursor_here) {
-                let tile = atlas.ensure_glyph(cell.codepoint);
-                if !tile.empty {
-                    glyphs.push(QuadInstance::glyph(
-                        rect,
-                        rgba(resolve_color(cell.fg)),
-                        tile.uv_rect,
-                    ));
-                }
-                x += cell_width;
-                continue;
-            }
+        let cursor_here = cursor.row == row && cursor.col == col;
+        if is_plain_blank_cell(cell, cursor_here) {
+            x += cell_width;
+            continue;
+        }
 
-            let (bg, fg) = resolved_colors(cell, cursor_here);
-
-            if bg != DEFAULT_BACKGROUND {
-                backgrounds.push(QuadInstance::solid(rect, rgba(bg)));
-            }
-
-            if cell.flags.contains(TerminalCellFlags::HIDDEN)
-                || cell.flags.contains(TerminalCellFlags::WIDE_CHAR_SPACER)
-                || cell.codepoint.is_whitespace()
-            {
-                x += cell_width;
-                continue;
-            }
-
+        let rect = [x, row_y, cell_width, cell_height];
+        if is_default_visible_cell(cell, cursor_here) {
             let tile = atlas.ensure_glyph(cell.codepoint);
             if !tile.empty {
-                glyphs.push(QuadInstance::glyph(rect, rgba(fg), tile.uv_rect));
+                glyphs.push(QuadInstance::glyph(
+                    rect,
+                    rgba(DEFAULT_FOREGROUND),
+                    tile.uv_rect,
+                ));
             }
             x += cell_width;
+            continue;
         }
+        if is_simple_foreground_cell(cell, cursor_here) {
+            let tile = atlas.ensure_glyph(cell.codepoint);
+            if !tile.empty {
+                glyphs.push(QuadInstance::glyph(
+                    rect,
+                    rgba(resolve_color(cell.fg)),
+                    tile.uv_rect,
+                ));
+            }
+            x += cell_width;
+            continue;
+        }
+
+        let (bg, fg) = resolved_colors(cell, cursor_here);
+
+        if bg != DEFAULT_BACKGROUND {
+            backgrounds.push(QuadInstance::solid(rect, rgba(bg)));
+        }
+
+        if cell.flags.contains(TerminalCellFlags::HIDDEN)
+            || cell.flags.contains(TerminalCellFlags::WIDE_CHAR_SPACER)
+            || cell.codepoint.is_whitespace()
+        {
+            x += cell_width;
+            continue;
+        }
+
+        let tile = atlas.ensure_glyph(cell.codepoint);
+        if !tile.empty {
+            glyphs.push(QuadInstance::glyph(rect, rgba(fg), tile.uv_rect));
+        }
+        x += cell_width;
     }
 }
 
