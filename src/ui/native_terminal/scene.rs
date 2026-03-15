@@ -3,9 +3,9 @@ use bytemuck::{Pod, Zeroable};
 use super::frame::{NativeTerminalCell, NativeTerminalCursor, NativeTerminalFrame};
 use super::glyph_atlas::GlyphAtlas;
 
-const DEFAULT_BACKGROUND: [u8; 4] = [248, 251, 251, 255];
-const DEFAULT_FOREGROUND: [u8; 4] = [32, 68, 76, 255];
-const CURSOR_COLOR: [u8; 4] = [42, 157, 143, 96];
+const DEFAULT_BACKGROUND: [u8; 4] = [8, 12, 16, 255];
+const DEFAULT_FOREGROUND: [u8; 4] = [222, 226, 230, 255];
+const CURSOR_COLOR: [u8; 4] = [255, 244, 163, 160];
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]

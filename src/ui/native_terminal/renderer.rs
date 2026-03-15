@@ -24,9 +24,9 @@ use super::glyph_atlas::GlyphAtlas;
 use super::scene::{QuadInstance, build_scene};
 
 const DEFAULT_CLEAR: Color = Color {
-    r: 248.0 / 255.0,
-    g: 251.0 / 255.0,
-    b: 251.0 / 255.0,
+    r: 8.0 / 255.0,
+    g: 12.0 / 255.0,
+    b: 16.0 / 255.0,
     a: 1.0,
 };
 
