@@ -249,11 +249,16 @@ fn rebuild_projected_cells(
     size: ViewportSize,
     display_offset: usize,
 ) {
-    cells.fill(TerminalCell::default());
     for row in 0..size.rows {
-        for col in 0..size.cols {
-            update_projected_cell(cells, grid, size, display_offset, row, col);
-        }
+        update_projected_row(
+            cells,
+            grid,
+            size,
+            display_offset,
+            row,
+            0,
+            size.cols.saturating_sub(1),
+        );
     }
 }
 
@@ -274,27 +279,35 @@ fn update_damage_spans(
             continue;
         }
 
-        for col in span.left..=right {
-            update_projected_cell(cells, grid, size, display_offset, span.row, col);
-        }
+        update_projected_row(
+            cells,
+            grid,
+            size,
+            display_offset,
+            span.row,
+            span.left,
+            right,
+        );
     }
 }
 
-fn update_projected_cell(
+fn update_projected_row(
     cells: &mut [TerminalCell],
     grid: &Grid<Cell>,
     size: ViewportSize,
     display_offset: usize,
     row: u16,
-    col: u16,
+    left: u16,
+    right: u16,
 ) {
+    let line = viewport_to_point(display_offset, Point::new(usize::from(row), Column(0))).line;
     let width = usize::from(size.cols);
-    let index = usize::from(row) * width + usize::from(col);
-    let point = viewport_to_point(
-        display_offset,
-        Point::new(usize::from(row), Column(usize::from(col))),
-    );
-    cells[index] = project_cell(&grid[point.line][point.column]);
+    let mut index = usize::from(row) * width + usize::from(left);
+
+    for col in left..=right {
+        cells[index] = project_cell(&grid[line][Column(usize::from(col))]);
+        index += 1;
+    }
 }
 
 fn collect_changed_cells(
