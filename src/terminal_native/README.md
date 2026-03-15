@@ -56,9 +56,11 @@ renderer.
 - The composition root assembles long-lived runtime resources near the binary entrypoint.
 - The controller owns PTY lifecycle, resize, and input dispatch.
 - The emulator owns terminal semantics and damage tracking.
-- The emulator maintains the mutable projected-cell cache and publishes immutable frame snapshots.
+- The emulator maintains the mutable projected-cell cache and is the only layer allowed to mutate projected terminal cells.
+- The emulator publishes immutable frames as either a full cell snapshot or a partial changed-cell set.
+- Full publication is required on resize, full damage, or display-offset changes.
 - The GPU renderer owns atlas textures, pipelines, and output texture lifecycle.
-- The published frame is immutable to consumers and replaced atomically.
+- Renderer-side caches may retain prior immutable state, but they only apply published changes and never mutate emulator-owned state.
 
 ## Revisit Triggers
 - The spike needs multi-pane lifecycle management.
