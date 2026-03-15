@@ -340,7 +340,18 @@ fn collect_changed_spans(
 ) -> TerminalCellSpanBatch {
     let width = usize::from(size.cols);
     let mut change_spans = Vec::with_capacity(spans.len());
-    let mut changed_cells = Vec::new();
+    let mut total_changed_cells = 0usize;
+
+    for span in spans {
+        if span.row >= size.rows || span.left > span.right || span.left >= size.cols {
+            continue;
+        }
+
+        let right = span.right.min(size.cols.saturating_sub(1));
+        total_changed_cells += usize::from(right - span.left) + 1;
+    }
+
+    let mut changed_cells = Vec::with_capacity(total_changed_cells);
 
     for span in spans {
         if span.row >= size.rows || span.left > span.right || span.left >= size.cols {

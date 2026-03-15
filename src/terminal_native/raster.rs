@@ -285,8 +285,10 @@ impl TerminalRaster {
 
     fn apply_frame(&mut self, frame: &TerminalFrame) {
         if let Some(cells) = frame.full_cells() {
-            self.cells.clear();
-            self.cells.extend_from_slice(cells);
+            if self.cells.len() != cells.len() {
+                self.cells.resize(cells.len(), TerminalCell::default());
+            }
+            self.cells.clone_from_slice(cells);
             return;
         }
 
