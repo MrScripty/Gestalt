@@ -1,6 +1,6 @@
 use gestalt::terminal_native::{
-    AlacrittyEmulator, AlacrittyEmulatorConfig, TerminalCellPublication, TerminalColor,
-    TerminalCursorShape, TerminalDamage, TerminalFrame,
+    AlacrittyEmulator, AlacrittyEmulatorConfig, TerminalCellPublication, TerminalCellSpanUpdate,
+    TerminalColor, TerminalCursorShape, TerminalDamage, TerminalFrame,
 };
 
 fn emulator(rows: u16, cols: u16) -> AlacrittyEmulator {
@@ -89,11 +89,21 @@ fn partial_updates_preserve_undamaged_cells() {
 
 fn changed_cells(frame: &TerminalFrame) -> Vec<(u16, u16, gestalt::terminal_native::TerminalCell)> {
     frame
-        .changed_cells()
+        .changed_spans()
         .unwrap_or(&[])
         .iter()
-        .map(|change| (change.row, change.col, change.cell.clone()))
+        .flat_map(span_cells)
         .collect()
+}
+
+fn span_cells(
+    change: &TerminalCellSpanUpdate,
+) -> impl Iterator<Item = (u16, u16, gestalt::terminal_native::TerminalCell)> + '_ {
+    change
+        .cells
+        .iter()
+        .enumerate()
+        .map(|(offset, cell)| (change.row, change.left + offset as u16, cell.clone()))
 }
 
 fn change_at(

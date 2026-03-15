@@ -297,12 +297,15 @@ impl TerminalRaster {
             );
         }
 
-        if let Some(changes) = frame.changed_cells() {
+        if let Some(changes) = frame.changed_spans() {
             for change in changes {
-                let index =
-                    usize::from(change.row) * usize::from(frame.cols) + usize::from(change.col);
-                if let Some(cell) = self.cells.get_mut(index) {
-                    *cell = change.cell.clone();
+                let mut index =
+                    usize::from(change.row) * usize::from(frame.cols) + usize::from(change.left);
+                for cell in change.cells.iter() {
+                    if let Some(target) = self.cells.get_mut(index) {
+                        *target = cell.clone();
+                    }
+                    index += 1;
                 }
             }
         }

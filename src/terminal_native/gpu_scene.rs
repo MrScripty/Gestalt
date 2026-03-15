@@ -168,13 +168,17 @@ impl TerminalGpuSceneCache {
             return;
         }
 
-        if let Some(changes) = frame.changed_cells() {
+        if let Some(changes) = frame.changed_spans() {
             for change in changes {
-                let Some(index) = cell_index(self.cols, change.row, change.col) else {
-                    continue;
+                let mut index = match cell_index(self.cols, change.row, change.left) {
+                    Some(index) => index,
+                    None => continue,
                 };
-                if let Some(cell) = self.cells.get_mut(index) {
-                    *cell = change.cell.clone();
+                for cell in change.cells.iter() {
+                    if let Some(target) = self.cells.get_mut(index) {
+                        *target = cell.clone();
+                    }
+                    index += 1;
                 }
             }
         }

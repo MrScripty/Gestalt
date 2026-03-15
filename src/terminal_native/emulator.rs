@@ -12,9 +12,9 @@ use alacritty_terminal::term::{
 use alacritty_terminal::vte::ansi::{Color, CursorShape, NamedColor, Processor};
 
 use super::model::{
-    TerminalCell, TerminalCellFlags, TerminalCellPublication, TerminalCellUpdate, TerminalColor,
-    TerminalCursor, TerminalCursorShape, TerminalDamage as FrameDamage, TerminalDamageSpan,
-    TerminalFrame,
+    TerminalCell, TerminalCellFlags, TerminalCellPublication, TerminalCellSpanUpdate,
+    TerminalColor, TerminalCursor, TerminalCursorShape, TerminalDamage as FrameDamage,
+    TerminalDamageSpan, TerminalFrame,
 };
 
 const DEFAULT_ROWS: u16 = 42;
@@ -222,7 +222,7 @@ fn build_publication(
             TerminalCellPublication::Full(Arc::<[TerminalCell]>::from(cells.to_vec()))
         }
         FrameDamage::Partial(spans) => {
-            TerminalCellPublication::Partial(collect_changed_cells(cells, size, spans).into())
+            TerminalCellPublication::Partial(collect_changed_spans(cells, size, spans).into())
         }
     }
 }
@@ -310,31 +310,30 @@ fn update_projected_row(
     }
 }
 
-fn collect_changed_cells(
+fn collect_changed_spans(
     cells: &[TerminalCell],
     size: ViewportSize,
     spans: &[TerminalDamageSpan],
-) -> Vec<TerminalCellUpdate> {
+) -> Vec<TerminalCellSpanUpdate> {
     let width = usize::from(size.cols);
-    let mut changes = Vec::new();
+    let mut changes = Vec::with_capacity(spans.len());
 
     for span in spans {
-        if span.left > span.right {
+        if span.row >= size.rows || span.left > span.right || span.left >= size.cols {
             continue;
         }
 
-        for col in span.left..=span.right {
-            let index = usize::from(span.row)
-                .saturating_mul(width)
-                .saturating_add(usize::from(col));
-            if let Some(cell) = cells.get(index) {
-                changes.push(TerminalCellUpdate {
-                    row: span.row,
-                    col,
-                    cell: cell.clone(),
-                });
-            }
-        }
+        let right = span.right.min(size.cols.saturating_sub(1));
+        let start = usize::from(span.row) * width + usize::from(span.left);
+        let end = usize::from(span.row) * width + usize::from(right) + 1;
+        let Some(row_cells) = cells.get(start..end) else {
+            continue;
+        };
+        changes.push(TerminalCellSpanUpdate {
+            row: span.row,
+            left: span.left,
+            cells: Arc::<[TerminalCell]>::from(row_cells.to_vec()),
+        });
     }
 
     changes
@@ -537,10 +536,17 @@ mod tests {
 
     fn changed_cells(frame: &TerminalFrame) -> Vec<(u16, u16, TerminalCell)> {
         frame
-            .changed_cells()
+            .changed_spans()
             .unwrap_or(&[])
             .iter()
-            .map(|change| (change.row, change.col, change.cell.clone()))
+            .flat_map(|change| {
+                change
+                    .cells
+                    .iter()
+                    .enumerate()
+                    .map(|(offset, cell)| (change.row, change.left + offset as u16, cell.clone()))
+                    .collect::<Vec<_>>()
+            })
             .collect()
     }
 

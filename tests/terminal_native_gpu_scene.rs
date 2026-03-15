@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use gestalt::terminal_native::{
-    TerminalCell, TerminalCellPublication, TerminalCellUpdate, TerminalCursor, TerminalCursorShape,
-    TerminalDamage, TerminalDamageSpan, TerminalFrame, TerminalGpuSceneCache,
+    TerminalCell, TerminalCellPublication, TerminalCellSpanUpdate, TerminalCursor,
+    TerminalCursorShape, TerminalDamage, TerminalDamageSpan, TerminalFrame, TerminalGpuSceneCache,
 };
 
 const TEST_ROWS: u16 = 2;
@@ -28,13 +28,13 @@ fn gpu_scene_reuses_cached_glyphs_across_frames() {
 #[test]
 fn gpu_scene_applies_partial_updates_over_cached_cells() {
     let full = full_frame(['h', 'i', ' ', ' ', ' ', ' ']);
-    let partial = partial_frame(vec![TerminalCellUpdate {
+    let partial = partial_frame(vec![TerminalCellSpanUpdate {
         row: 0,
-        col: 2,
-        cell: TerminalCell {
+        left: 2,
+        cells: Arc::<[TerminalCell]>::from([TerminalCell {
             codepoint: '!',
             ..TerminalCell::default()
-        },
+        }]),
     }]);
     let mut cache = TerminalGpuSceneCache::new();
 
@@ -94,7 +94,7 @@ fn frame_with_cursor(
     }
 }
 
-fn partial_frame(changes: Vec<TerminalCellUpdate>) -> TerminalFrame {
+fn partial_frame(changes: Vec<TerminalCellSpanUpdate>) -> TerminalFrame {
     TerminalFrame {
         rows: TEST_ROWS,
         cols: TEST_COLS,
@@ -113,6 +113,8 @@ fn partial_frame(changes: Vec<TerminalCellUpdate>) -> TerminalFrame {
             }]
             .into(),
         ),
-        publication: TerminalCellPublication::Partial(Arc::<[TerminalCellUpdate]>::from(changes)),
+        publication: TerminalCellPublication::Partial(Arc::<[TerminalCellSpanUpdate]>::from(
+            changes,
+        )),
     }
 }

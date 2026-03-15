@@ -20,7 +20,7 @@ impl TerminalFrame {
         }
     }
 
-    pub fn changed_cells(&self) -> Option<&[TerminalCellUpdate]> {
+    pub fn changed_spans(&self) -> Option<&[TerminalCellSpanUpdate]> {
         match &self.publication {
             TerminalCellPublication::Full(_) => None,
             TerminalCellPublication::Partial(changes) => Some(changes.as_ref()),
@@ -40,7 +40,7 @@ impl TerminalFrame {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TerminalCellPublication {
     Full(Arc<[TerminalCell]>),
-    Partial(Arc<[TerminalCellUpdate]>),
+    Partial(Arc<[TerminalCellSpanUpdate]>),
 }
 
 /// Renderable terminal cell projected from the emulator grid.
@@ -149,10 +149,10 @@ pub struct TerminalDamageSpan {
     pub right: u16,
 }
 
-/// Single renderer-facing cell update within the viewport.
+/// Single renderer-facing contiguous row span within the viewport.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TerminalCellUpdate {
+pub struct TerminalCellSpanUpdate {
     pub row: u16,
-    pub col: u16,
-    pub cell: TerminalCell,
+    pub left: u16,
+    pub cells: Arc<[TerminalCell]>,
 }
