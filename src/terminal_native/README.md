@@ -61,6 +61,7 @@ renderer.
 - Full publication is required on resize, full damage, or display-offset changes.
 - The GPU renderer owns atlas textures, pipelines, and output texture lifecycle.
 - Panes in the same native window share one GPU renderer core and one glyph atlas cache instead of constructing separate atlas textures and pipelines per pane.
+- Hidden panes keep their PTY sessions running, but the standalone spike unmounts their native paint surfaces until they become visible again.
 - Renderer-side caches may retain prior immutable state, but they only apply published changes and never mutate emulator-owned state.
 
 ## Revisit Triggers
@@ -85,6 +86,9 @@ cargo run --features terminal-native-spike --bin terminal_native_spike
 - The current shared glyph atlas assumes panes in the same window converge on
   the same fixed cell metrics; materially different pane cell sizes would
   thrash the shared atlas and need a keyed atlas pool instead.
+- The standalone spike now schedules visibility at the pane level: only the
+  selected pane keeps a live canvas mounted, while background panes show a
+  summary card and resume rendering when re-selected.
 - Selection, mouse reporting, clipboard integration, and IME are intentionally
   out of scope for this spike.
 - Keyboard capture still relies on an invisible full-surface input overlay

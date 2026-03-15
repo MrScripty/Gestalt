@@ -3,9 +3,12 @@ use super::gpu_renderer::NativeTerminalGpuShared;
 use super::input::special_key_event_to_bytes;
 use super::paint::NativeTerminalPaintSource;
 use super::{
-    APP_ROOT_STYLE, CANVAS_STYLE, INPUT_OVERLAY_STYLE, PANE_CARD_STYLE, PANE_GRID_STYLE,
-    PANE_HEADER_STYLE, PANE_META_STYLE, PANE_TITLE_STYLE, STATUS_BAR_STYLE, STATUS_HINT_STYLE,
-    STATUS_HINT_TEXT, STATUS_TITLE_STYLE, STATUS_TITLE_TEXT, TERMINAL_SURFACE_STYLE,
+    ACTIVE_PANE_STACK_STYLE, APP_ROOT_STYLE, BACKGROUND_PANE_BODY_STYLE,
+    BACKGROUND_PANE_BUTTON_STYLE, BACKGROUND_PANE_LIST_STYLE, CANVAS_STYLE, INPUT_OVERLAY_STYLE,
+    PANE_CARD_STYLE, PANE_HEADER_STYLE, PANE_LAYOUT_STYLE, PANE_META_STYLE,
+    PANE_SWITCH_BUTTON_ACTIVE_STYLE, PANE_SWITCH_BUTTON_STYLE, PANE_SWITCHER_STYLE,
+    PANE_TITLE_STYLE, STATUS_BAR_STYLE, STATUS_HINT_STYLE, STATUS_HINT_TEXT, STATUS_TITLE_STYLE,
+    STATUS_TITLE_TEXT, TERMINAL_SURFACE_STYLE,
 };
 use dioxus::prelude::*;
 use dioxus_native::use_wgpu;
@@ -16,7 +19,11 @@ pub fn TerminalNativeDemo(
     right: NativeTerminalController,
     shared_gpu: NativeTerminalGpuShared,
 ) -> Element {
+    let mut active_index = use_signal(|| 0_usize);
+    let left_summary = left.summary();
+    let right_summary = right.summary();
     let status = format!("left:{}  right:{}", status_line(&left), status_line(&right));
+    let active_is_left = *active_index.read() == 0;
 
     rsx! {
         div {
@@ -35,16 +42,47 @@ pub fn TerminalNativeDemo(
                     "{STATUS_HINT_TEXT}"
                 }
             }
-            div { style: PANE_GRID_STYLE,
-                TerminalNativePane {
-                    title: "pane-1",
-                    controller: left,
-                    shared_gpu: shared_gpu.clone(),
+            div { style: PANE_LAYOUT_STYLE,
+                div { style: ACTIVE_PANE_STACK_STYLE,
+                    div { style: PANE_SWITCHER_STYLE,
+                        button {
+                            style: if active_is_left { PANE_SWITCH_BUTTON_ACTIVE_STYLE } else { PANE_SWITCH_BUTTON_STYLE },
+                            onclick: move |_| active_index.set(0),
+                            "pane-1"
+                        }
+                        button {
+                            style: if !active_is_left { PANE_SWITCH_BUTTON_ACTIVE_STYLE } else { PANE_SWITCH_BUTTON_STYLE },
+                            onclick: move |_| active_index.set(1),
+                            "pane-2"
+                        }
+                    }
+                    if active_is_left {
+                        TerminalNativePane {
+                            title: "pane-1",
+                            controller: left.clone(),
+                            shared_gpu: shared_gpu.clone(),
+                        }
+                    } else {
+                        TerminalNativePane {
+                            title: "pane-2",
+                            controller: right.clone(),
+                            shared_gpu: shared_gpu.clone(),
+                        }
+                    }
                 }
-                TerminalNativePane {
-                    title: "pane-2",
-                    controller: right,
-                    shared_gpu,
+                div { style: BACKGROUND_PANE_LIST_STYLE,
+                    BackgroundPaneCard {
+                        title: "pane-1",
+                        summary: left_summary,
+                        is_visible: active_is_left,
+                        on_show: move |_| active_index.set(0),
+                    }
+                    BackgroundPaneCard {
+                        title: "pane-2",
+                        summary: right_summary,
+                        is_visible: !active_is_left,
+                        on_show: move |_| active_index.set(1),
+                    }
                 }
             }
         }
@@ -99,6 +137,41 @@ fn TerminalNativePane(
                         }
                         input_buffer.set(String::new());
                     },
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn BackgroundPaneCard(
+    title: &'static str,
+    summary: super::NativeTerminalSessionSummary,
+    is_visible: bool,
+    on_show: EventHandler<MouseEvent>,
+) -> Element {
+    let state_text = if is_visible {
+        "visible"
+    } else if summary.closed {
+        "closed"
+    } else {
+        "running in background"
+    };
+
+    rsx! {
+        div { style: PANE_CARD_STYLE,
+            div { style: PANE_HEADER_STYLE,
+                div { style: PANE_TITLE_STYLE, "{title}" }
+                div { style: PANE_META_STYLE, "{summary.cols}x{summary.rows}  revision={summary.revision}" }
+            }
+            div { style: BACKGROUND_PANE_BODY_STYLE,
+                div { "{state_text}" }
+                if !is_visible {
+                    button {
+                        style: BACKGROUND_PANE_BUTTON_STYLE,
+                        onclick: move |event| on_show.call(event),
+                        "show pane"
+                    }
                 }
             }
         }
