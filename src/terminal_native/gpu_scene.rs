@@ -184,11 +184,6 @@ impl TerminalGpuSceneCache {
         }
     }
 
-    fn cell(&self, row: u16, col: u16) -> Option<&TerminalCell> {
-        let index = cell_index(self.cols, row, col)?;
-        self.cells.get(index)
-    }
-
     fn ensure_row_cache(&mut self) {
         let row_count = usize::from(self.rows);
         self.background_rows
@@ -240,12 +235,14 @@ impl TerminalGpuSceneCache {
         let cell_height = self.cell_height as f32;
         let row_y = f32::from(row) * cell_height;
         let mut x = 0.0_f32;
+        let row_start = usize::from(row) * usize::from(self.cols);
+        let row_end = row_start + usize::from(self.cols);
+        let Some(row_cells) = self.cells.get(row_start..row_end) else {
+            return;
+        };
 
-        for col in 0..self.cols {
-            let Some(cell) = self.cell(row, col) else {
-                x += cell_width;
-                continue;
-            };
+        for (col, cell) in row_cells.iter().enumerate() {
+            let col = col as u16;
 
             let cursor_here = cursor.row == row && cursor.col == col;
             if is_plain_blank_cell(cell, cursor_here) {
