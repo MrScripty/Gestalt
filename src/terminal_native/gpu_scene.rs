@@ -9,9 +9,9 @@ use super::{
     TerminalFrame,
 };
 
-const DEFAULT_BACKGROUND: [u8; 4] = [8, 12, 16, 255];
-const DEFAULT_FOREGROUND: [u8; 4] = [222, 226, 230, 255];
-const CURSOR_COLOR: [u8; 4] = [255, 244, 163, 160];
+const DEFAULT_BACKGROUND_F32: [f32; 4] = [8.0 / 255.0, 12.0 / 255.0, 16.0 / 255.0, 1.0];
+const DEFAULT_FOREGROUND_F32: [f32; 4] = [222.0 / 255.0, 226.0 / 255.0, 230.0 / 255.0, 1.0];
+const CURSOR_COLOR_F32: [f32; 4] = [1.0, 244.0 / 255.0, 163.0 / 255.0, 160.0 / 255.0];
 const CURSOR_LINE_THICKNESS_PX: f32 = 2.0;
 
 #[repr(C)]
@@ -359,7 +359,7 @@ fn rebuild_row_cells(
             if !tile.empty {
                 glyphs.push(QuadInstance::glyph(
                     rect,
-                    rgba(DEFAULT_FOREGROUND),
+                    DEFAULT_FOREGROUND_F32,
                     tile.uv_rect,
                 ));
             }
@@ -371,7 +371,7 @@ fn rebuild_row_cells(
             if !tile.empty {
                 glyphs.push(QuadInstance::glyph(
                     rect,
-                    rgba(resolve_color(cell.fg)),
+                    resolve_color_f32(cell.fg),
                     tile.uv_rect,
                 ));
             }
@@ -381,8 +381,8 @@ fn rebuild_row_cells(
 
         let (bg, fg) = resolved_colors(cell, cursor_here);
 
-        if bg != DEFAULT_BACKGROUND {
-            backgrounds.push(QuadInstance::solid(rect, rgba(bg)));
+        if bg != DEFAULT_BACKGROUND_F32 {
+            backgrounds.push(QuadInstance::solid(rect, bg));
         }
 
         if cell.flags.contains(TerminalCellFlags::HIDDEN)
@@ -395,7 +395,7 @@ fn rebuild_row_cells(
 
         let tile = atlas.ensure_glyph(cell.codepoint);
         if !tile.empty {
-            glyphs.push(QuadInstance::glyph(rect, rgba(fg), tile.uv_rect));
+            glyphs.push(QuadInstance::glyph(rect, fg, tile.uv_rect));
         }
         x += cell_width;
     }
@@ -434,7 +434,7 @@ fn extend_cursor_instances(
     match frame.cursor.shape {
         TerminalCursorShape::Block => overlays.push(QuadInstance::solid(
             [x, y, cell_width, cell_height],
-            rgba(CURSOR_COLOR),
+            CURSOR_COLOR_F32,
         )),
         TerminalCursorShape::Underline => overlays.push(QuadInstance::solid(
             [
@@ -443,28 +443,28 @@ fn extend_cursor_instances(
                 cell_width,
                 CURSOR_LINE_THICKNESS_PX,
             ],
-            rgba(CURSOR_COLOR),
+            CURSOR_COLOR_F32,
         )),
         TerminalCursorShape::Beam => overlays.push(QuadInstance::solid(
             [x, y, CURSOR_LINE_THICKNESS_PX, cell_height],
-            rgba(CURSOR_COLOR),
+            CURSOR_COLOR_F32,
         )),
         TerminalCursorShape::HollowBlock => {
             overlays.push(QuadInstance::solid(
                 [x, y, cell_width, 1.0],
-                rgba(CURSOR_COLOR),
+                CURSOR_COLOR_F32,
             ));
             overlays.push(QuadInstance::solid(
                 [x, y + (cell_height - 1.0).max(0.0), cell_width, 1.0],
-                rgba(CURSOR_COLOR),
+                CURSOR_COLOR_F32,
             ));
             overlays.push(QuadInstance::solid(
                 [x, y, 1.0, cell_height],
-                rgba(CURSOR_COLOR),
+                CURSOR_COLOR_F32,
             ));
             overlays.push(QuadInstance::solid(
                 [x + (cell_width - 1.0).max(0.0), y, 1.0, cell_height],
-                rgba(CURSOR_COLOR),
+                CURSOR_COLOR_F32,
             ));
         }
         TerminalCursorShape::Hidden => {}
@@ -507,64 +507,55 @@ fn cell_extent(size: u32, cells: u16) -> u32 {
     (size / u32::from(cells)).max(1)
 }
 
-fn rgba(color: [u8; 4]) -> [f32; 4] {
-    [
-        color[0] as f32 / 255.0,
-        color[1] as f32 / 255.0,
-        color[2] as f32 / 255.0,
-        color[3] as f32 / 255.0,
-    ]
-}
-
-fn resolved_colors(cell: &TerminalCell, cursor_here: bool) -> ([u8; 4], [u8; 4]) {
-    let mut fg = resolve_color(cell.fg);
-    let mut bg = resolve_color(cell.bg);
+fn resolved_colors(cell: &TerminalCell, cursor_here: bool) -> ([f32; 4], [f32; 4]) {
+    let mut fg = resolve_color_f32(cell.fg);
+    let mut bg = resolve_color_f32(cell.bg);
 
     if cell.flags.contains(TerminalCellFlags::INVERSE) {
         std::mem::swap(&mut fg, &mut bg);
     }
 
     if cell.flags.contains(TerminalCellFlags::DIM) {
-        fg[0] /= 2;
-        fg[1] /= 2;
-        fg[2] /= 2;
+        fg[0] *= 0.5;
+        fg[1] *= 0.5;
+        fg[2] *= 0.5;
     }
 
     if cursor_here && matches!(cell.fg, TerminalColor::DefaultForeground) {
-        fg = DEFAULT_BACKGROUND;
+        fg = DEFAULT_BACKGROUND_F32;
     }
 
     (bg, fg)
 }
 
-fn resolve_color(color: TerminalColor) -> [u8; 4] {
+fn resolve_color_f32(color: TerminalColor) -> [f32; 4] {
     match color {
-        TerminalColor::DefaultForeground => DEFAULT_FOREGROUND,
-        TerminalColor::DefaultBackground => DEFAULT_BACKGROUND,
-        TerminalColor::Cursor => [255, 244, 163, 255],
-        TerminalColor::Palette(index) => resolve_palette(index),
-        TerminalColor::Rgb { r, g, b } => [r, g, b, 255],
+        TerminalColor::DefaultForeground => DEFAULT_FOREGROUND_F32,
+        TerminalColor::DefaultBackground => DEFAULT_BACKGROUND_F32,
+        TerminalColor::Cursor => [1.0, 244.0 / 255.0, 163.0 / 255.0, 1.0],
+        TerminalColor::Palette(index) => resolve_palette_f32(index),
+        TerminalColor::Rgb { r, g, b } => [channel_f32(r), channel_f32(g), channel_f32(b), 1.0],
     }
 }
 
-fn resolve_palette(index: u8) -> [u8; 4] {
-    const ANSI: [[u8; 4]; 16] = [
-        [18, 20, 22, 255],
-        [204, 36, 29, 255],
-        [152, 151, 26, 255],
-        [215, 153, 33, 255],
-        [69, 133, 136, 255],
-        [177, 98, 134, 255],
-        [104, 157, 106, 255],
-        [235, 219, 178, 255],
-        [102, 92, 84, 255],
-        [251, 73, 52, 255],
-        [184, 187, 38, 255],
-        [250, 189, 47, 255],
-        [131, 165, 152, 255],
-        [211, 134, 155, 255],
-        [142, 192, 124, 255],
-        [251, 241, 199, 255],
+fn resolve_palette_f32(index: u8) -> [f32; 4] {
+    const ANSI: [[f32; 4]; 16] = [
+        [18.0 / 255.0, 20.0 / 255.0, 22.0 / 255.0, 1.0],
+        [204.0 / 255.0, 36.0 / 255.0, 29.0 / 255.0, 1.0],
+        [152.0 / 255.0, 151.0 / 255.0, 26.0 / 255.0, 1.0],
+        [215.0 / 255.0, 153.0 / 255.0, 33.0 / 255.0, 1.0],
+        [69.0 / 255.0, 133.0 / 255.0, 136.0 / 255.0, 1.0],
+        [177.0 / 255.0, 98.0 / 255.0, 134.0 / 255.0, 1.0],
+        [104.0 / 255.0, 157.0 / 255.0, 106.0 / 255.0, 1.0],
+        [235.0 / 255.0, 219.0 / 255.0, 178.0 / 255.0, 1.0],
+        [102.0 / 255.0, 92.0 / 255.0, 84.0 / 255.0, 1.0],
+        [251.0 / 255.0, 73.0 / 255.0, 52.0 / 255.0, 1.0],
+        [184.0 / 255.0, 187.0 / 255.0, 38.0 / 255.0, 1.0],
+        [250.0 / 255.0, 189.0 / 255.0, 47.0 / 255.0, 1.0],
+        [131.0 / 255.0, 165.0 / 255.0, 152.0 / 255.0, 1.0],
+        [211.0 / 255.0, 134.0 / 255.0, 155.0 / 255.0, 1.0],
+        [142.0 / 255.0, 192.0 / 255.0, 124.0 / 255.0, 1.0],
+        [251.0 / 255.0, 241.0 / 255.0, 199.0 / 255.0, 1.0],
     ];
 
     if let Some(color) = ANSI.get(index as usize) {
@@ -576,16 +567,25 @@ fn resolve_palette(index: u8) -> [u8; 4] {
         let r = index / 36;
         let g = (index / 6) % 6;
         let b = index % 6;
-        return [cube_component(r), cube_component(g), cube_component(b), 255];
+        return [
+            cube_component_f32(r),
+            cube_component_f32(g),
+            cube_component_f32(b),
+            1.0,
+        ];
     }
 
-    let gray = 8 + (index.saturating_sub(232) * 10);
-    [gray, gray, gray, 255]
+    let gray = channel_f32(8 + (index.saturating_sub(232) * 10));
+    [gray, gray, gray, 1.0]
 }
 
-fn cube_component(component: u8) -> u8 {
+fn cube_component_f32(component: u8) -> f32 {
     match component {
-        0 => 0,
-        _ => 55 + component * 40,
+        0 => 0.0,
+        _ => channel_f32(55 + component * 40),
     }
+}
+
+fn channel_f32(value: u8) -> f32 {
+    value as f32 / 255.0
 }
