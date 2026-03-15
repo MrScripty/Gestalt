@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
 use alacritty_terminal::event::VoidListener;
-use alacritty_terminal::grid::Dimensions;
+use alacritty_terminal::grid::{Dimensions, Grid};
+use alacritty_terminal::index::{Column, Point};
 use alacritty_terminal::term::cell::{Cell, Flags};
 use alacritty_terminal::term::{
     Config, MIN_COLUMNS, MIN_SCREEN_LINES, RenderableCursor, Term, TermDamage, TermMode,
-    point_to_viewport,
+    point_to_viewport, viewport_to_point,
 };
 use alacritty_terminal::vte::ansi::{Color, CursorShape, NamedColor, Processor};
 
@@ -41,6 +42,8 @@ pub struct AlacrittyEmulator {
     parser: Processor,
     term: Term<VoidListener>,
     size: ViewportSize,
+    projected_cells: Vec<TerminalCell>,
+    last_display_offset: usize,
 }
 
 impl AlacrittyEmulator {
@@ -53,6 +56,8 @@ impl AlacrittyEmulator {
             parser: Processor::default(),
             term: Term::new(term_config, &size, VoidListener),
             size,
+            projected_cells: vec![TerminalCell::default(); size.cell_count()],
+            last_display_offset: 0,
         }
     }
 
@@ -72,15 +77,33 @@ impl AlacrittyEmulator {
 
         self.term.resize(next);
         self.size = next;
+        self.projected_cells
+            .resize(self.size.cell_count(), TerminalCell::default());
         true
     }
 
     pub fn snapshot(&mut self) -> TerminalFrame {
-        let damage = collect_damage(&mut self.term);
-        let content = self.term.renderable_content();
-        let cursor = project_cursor(content.cursor, content.display_offset);
-        let cells = collect_cells(content, self.size);
+        let mut damage = collect_damage(&mut self.term);
+        let (cursor, display_offset) = {
+            let content = self.term.renderable_content();
+            (
+                project_cursor(content.cursor, content.display_offset),
+                content.display_offset,
+            )
+        };
+        if self.last_display_offset != display_offset {
+            damage = FrameDamage::Full;
+        }
+        project_damage_into(
+            &mut self.projected_cells,
+            self.term.grid(),
+            self.size,
+            display_offset,
+            &damage,
+        );
         let bracketed_paste = self.term.mode().contains(TermMode::BRACKETED_PASTE);
+        let cells = Arc::<[TerminalCell]>::from(self.projected_cells.clone());
+        self.last_display_offset = display_offset;
 
         self.term.reset_damage();
 
@@ -89,7 +112,7 @@ impl AlacrittyEmulator {
             cols: self.size.cols,
             cursor,
             bracketed_paste,
-            display_offset: self.term.grid().display_offset(),
+            display_offset,
             damage,
             cells,
         }
@@ -145,26 +168,19 @@ fn collect_damage(term: &mut Term<VoidListener>) -> FrameDamage {
     }
 }
 
-fn collect_cells(
-    content: alacritty_terminal::term::RenderableContent<'_>,
+fn project_damage_into(
+    cells: &mut [TerminalCell],
+    grid: &Grid<Cell>,
     size: ViewportSize,
-) -> Arc<[TerminalCell]> {
-    let mut cells = vec![TerminalCell::default(); size.cell_count()];
-    let width = usize::from(size.cols);
-    let display_offset = content.display_offset;
-
-    for indexed in content.display_iter {
-        let Some(point) = point_to_viewport(display_offset, indexed.point) else {
-            continue;
-        };
-
-        let index = point.line * width + point.column.0;
-        if let Some(cell) = cells.get_mut(index) {
-            *cell = project_cell(indexed.cell);
+    display_offset: usize,
+    damage: &FrameDamage,
+) {
+    match damage {
+        FrameDamage::Full => rebuild_projected_cells(cells, grid, size, display_offset),
+        FrameDamage::Partial(spans) => {
+            update_damage_spans(cells, grid, size, display_offset, spans)
         }
     }
-
-    cells.into()
 }
 
 fn project_cursor(cursor: RenderableCursor, display_offset: usize) -> TerminalCursor {
@@ -181,6 +197,60 @@ fn project_cursor(cursor: RenderableCursor, display_offset: usize) -> TerminalCu
         col: point.column.0 as u16,
         shape: map_cursor_shape(cursor.shape),
     }
+}
+
+fn rebuild_projected_cells(
+    cells: &mut [TerminalCell],
+    grid: &Grid<Cell>,
+    size: ViewportSize,
+    display_offset: usize,
+) {
+    cells.fill(TerminalCell::default());
+    for row in 0..size.rows {
+        for col in 0..size.cols {
+            update_projected_cell(cells, grid, size, display_offset, row, col);
+        }
+    }
+}
+
+fn update_damage_spans(
+    cells: &mut [TerminalCell],
+    grid: &Grid<Cell>,
+    size: ViewportSize,
+    display_offset: usize,
+    spans: &[TerminalDamageSpan],
+) {
+    for span in spans {
+        if span.row >= size.rows || span.left >= size.cols {
+            continue;
+        }
+
+        let right = span.right.min(size.cols.saturating_sub(1));
+        if span.left > right {
+            continue;
+        }
+
+        for col in span.left..=right {
+            update_projected_cell(cells, grid, size, display_offset, span.row, col);
+        }
+    }
+}
+
+fn update_projected_cell(
+    cells: &mut [TerminalCell],
+    grid: &Grid<Cell>,
+    size: ViewportSize,
+    display_offset: usize,
+    row: u16,
+    col: u16,
+) {
+    let width = usize::from(size.cols);
+    let index = usize::from(row) * width + usize::from(col);
+    let point = viewport_to_point(
+        display_offset,
+        Point::new(usize::from(row), Column(usize::from(col))),
+    );
+    cells[index] = project_cell(&grid[point.line][point.column]);
 }
 
 fn project_cell(cell: &Cell) -> TerminalCell {
@@ -322,5 +392,26 @@ mod tests {
         assert_eq!(frame.cols, 6);
         assert_eq!(frame.damage, FrameDamage::Full);
         assert_eq!(frame.cell(0, 0).unwrap().codepoint, 'a');
+    }
+
+    #[test]
+    fn partial_damage_updates_preserve_undamaged_cells() {
+        let mut emulator = AlacrittyEmulator::new(AlacrittyEmulatorConfig {
+            rows: 4,
+            cols: 8,
+            scrollback: 128,
+        });
+
+        let _ = emulator.snapshot();
+        emulator.ingest(b"hi");
+        let _ = emulator.snapshot();
+
+        emulator.ingest(b"!");
+        let frame = emulator.snapshot();
+
+        assert_eq!(frame.cell(0, 0).unwrap().codepoint, 'h');
+        assert_eq!(frame.cell(0, 1).unwrap().codepoint, 'i');
+        assert_eq!(frame.cell(0, 2).unwrap().codepoint, '!');
+        assert!(matches!(frame.damage, FrameDamage::Partial(_)));
     }
 }

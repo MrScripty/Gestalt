@@ -59,3 +59,20 @@ fn resize_marks_terminal_fully_damaged() {
     assert_eq!(frame.damage, TerminalDamage::Full);
     assert_eq!(frame.cell(0, 0).unwrap().codepoint, 'a');
 }
+
+#[test]
+fn partial_updates_preserve_undamaged_cells() {
+    let mut emulator = emulator(4, 8);
+
+    let _ = emulator.snapshot();
+    emulator.ingest(b"hi");
+    let _ = emulator.snapshot();
+
+    emulator.ingest(b"!");
+    let frame = emulator.snapshot();
+
+    assert_eq!(frame.cell(0, 0).unwrap().codepoint, 'h');
+    assert_eq!(frame.cell(0, 1).unwrap().codepoint, 'i');
+    assert_eq!(frame.cell(0, 2).unwrap().codepoint, '!');
+    assert!(matches!(frame.damage, TerminalDamage::Partial(_)));
+}
