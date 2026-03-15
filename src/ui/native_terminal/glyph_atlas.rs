@@ -149,9 +149,19 @@ impl GlyphAtlas {
         let glyph = glyph_id.with_scale_and_position(scale, point(origin_x, baseline));
 
         if let Some(outline) = self.font.outline_glyph(glyph) {
+            let bounds = outline.px_bounds();
+            let offset_x = bounds.min.x as i32;
+            let offset_y = bounds.min.y as i32;
             outline.draw(|x, y, alpha| {
-                if x < self.cell_width && y < self.cell_height {
-                    let index = (y * self.cell_width + x) as usize;
+                let tile_x = offset_x + x as i32;
+                let tile_y = offset_y + y as i32;
+                if tile_x >= 0
+                    && tile_y >= 0
+                    && tile_x < self.cell_width as i32
+                    && tile_y < self.cell_height as i32
+                {
+                    let index =
+                        (tile_y as u32 * self.cell_width + tile_x as u32) as usize;
                     tile[index] = ((alpha * 255.0).round() as u32).min(255) as u8;
                 }
             });
@@ -214,4 +224,69 @@ fn write_tile_pixel(tile: &mut [u8], cell_width: u32, cell_height: u32, x: u32, 
 
     let index = (y * cell_width + x) as usize;
     tile[index] = value;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::GlyphAtlas;
+
+    #[derive(Debug)]
+    struct FilledBounds {
+        top: u32,
+        bottom: u32,
+    }
+
+    #[test]
+    fn x_height_glyph_sits_below_ascender_glyph() {
+        let mut atlas = GlyphAtlas::new();
+        atlas.set_cell_size(18, 32);
+
+        let a = filled_bounds(&atlas.rasterize_tile('a'), atlas.cell_width, atlas.cell_height)
+            .expect("a should rasterize");
+        let t = filled_bounds(&atlas.rasterize_tile('t'), atlas.cell_width, atlas.cell_height)
+            .expect("t should rasterize");
+
+        assert!(
+            a.top > t.top,
+            "expected 'a' to start below 't', got a.top={} t.top={}",
+            a.top,
+            t.top
+        );
+    }
+
+    #[test]
+    fn descender_glyph_extends_below_x_height_glyph() {
+        let mut atlas = GlyphAtlas::new();
+        atlas.set_cell_size(18, 32);
+
+        let a = filled_bounds(&atlas.rasterize_tile('a'), atlas.cell_width, atlas.cell_height)
+            .expect("a should rasterize");
+        let g = filled_bounds(&atlas.rasterize_tile('g'), atlas.cell_width, atlas.cell_height)
+            .expect("g should rasterize");
+
+        assert!(
+            g.bottom > a.bottom,
+            "expected 'g' to extend below 'a', got g.bottom={} a.bottom={}",
+            g.bottom,
+            a.bottom
+        );
+    }
+
+    fn filled_bounds(tile: &[u8], cell_width: u32, cell_height: u32) -> Option<FilledBounds> {
+        let mut top = None;
+        let mut bottom = None;
+        for y in 0..cell_height {
+            let row_start = (y * cell_width) as usize;
+            let row_end = row_start + cell_width as usize;
+            if tile[row_start..row_end].iter().any(|value| *value > 0) {
+                top.get_or_insert(y);
+                bottom = Some(y);
+            }
+        }
+
+        Some(FilledBounds {
+            top: top?,
+            bottom: bottom?,
+        })
+    }
 }
