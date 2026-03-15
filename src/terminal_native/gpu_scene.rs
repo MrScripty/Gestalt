@@ -50,6 +50,7 @@ pub struct TerminalGpuSceneCache {
     flat_backgrounds: Vec<QuadInstance>,
     flat_glyphs: Vec<QuadInstance>,
     flat_overlays: Vec<QuadInstance>,
+    flat_scene_dirty: bool,
     last_cursor: Option<TerminalCursor>,
     cell_width: u32,
     cell_height: u32,
@@ -73,6 +74,7 @@ impl TerminalGpuSceneCache {
             flat_backgrounds: Vec::new(),
             flat_glyphs: Vec::new(),
             flat_overlays: Vec::new(),
+            flat_scene_dirty: true,
             last_cursor: None,
             cell_width: 1,
             cell_height: 1,
@@ -123,29 +125,35 @@ impl TerminalGpuSceneCache {
         let row_rebuild_us = row_rebuild_started.elapsed().as_micros();
 
         let flatten_started = Instant::now();
-        let background_count = self
-            .background_rows
-            .iter()
-            .map(std::vec::Vec::len)
-            .sum::<usize>();
-        let glyph_count = self
-            .glyph_rows
-            .iter()
-            .map(std::vec::Vec::len)
-            .sum::<usize>();
-        self.flat_backgrounds.clear();
-        self.flat_glyphs.clear();
-        self.flat_overlays.clear();
-        self.flat_backgrounds.reserve(background_count);
-        self.flat_glyphs.reserve(glyph_count);
-        self.flat_overlays.reserve(8);
+        if geometry_changed || rows_rebuilt > 0 {
+            self.flat_scene_dirty = true;
+        }
+        if self.flat_scene_dirty {
+            let background_count = self
+                .background_rows
+                .iter()
+                .map(std::vec::Vec::len)
+                .sum::<usize>();
+            let glyph_count = self
+                .glyph_rows
+                .iter()
+                .map(std::vec::Vec::len)
+                .sum::<usize>();
+            self.flat_backgrounds.clear();
+            self.flat_glyphs.clear();
+            self.flat_backgrounds.reserve(background_count);
+            self.flat_glyphs.reserve(glyph_count);
 
-        for row in &self.background_rows {
-            self.flat_backgrounds.extend_from_slice(row);
+            for row in &self.background_rows {
+                self.flat_backgrounds.extend_from_slice(row);
+            }
+            for row in &self.glyph_rows {
+                self.flat_glyphs.extend_from_slice(row);
+            }
+            self.flat_scene_dirty = false;
         }
-        for row in &self.glyph_rows {
-            self.flat_glyphs.extend_from_slice(row);
-        }
+        self.flat_overlays.clear();
+        self.flat_overlays.reserve(8);
         let flatten_us = flatten_started.elapsed().as_micros();
 
         let overlay_started = Instant::now();
