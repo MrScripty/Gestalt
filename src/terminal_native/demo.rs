@@ -15,15 +15,33 @@ use dioxus_native::use_wgpu;
 
 #[component]
 pub fn TerminalNativeDemo(
-    left: NativeTerminalController,
-    right: NativeTerminalController,
+    panes: Vec<NativeTerminalController>,
     shared_gpu: NativeTerminalGpuShared,
 ) -> Element {
     let mut active_index = use_signal(|| 0_usize);
-    let left_summary = left.summary();
-    let right_summary = right.summary();
-    let status = format!("left:{}  right:{}", status_line(&left), status_line(&right));
-    let active_is_left = *active_index.read() == 0;
+    let pane_summaries = panes
+        .iter()
+        .enumerate()
+        .map(|(index, controller)| PaneSummary {
+            index,
+            title: pane_title(index),
+            status_line: status_line(controller),
+            summary: controller.summary(),
+        })
+        .collect::<Vec<_>>();
+    let pane_count = pane_summaries.len();
+    let active = (*active_index.read()).min(pane_count.saturating_sub(1));
+    let active_summary = pane_summaries.get(active).cloned();
+    let status = if let Some(summary) = &active_summary {
+        format!(
+            "visible={}  hidden={}  active:{}",
+            1,
+            pane_count.saturating_sub(1),
+            summary.status_line
+        )
+    } else {
+        "no panes".to_string()
+    };
 
     rsx! {
         div {
@@ -45,43 +63,44 @@ pub fn TerminalNativeDemo(
             div { style: PANE_LAYOUT_STYLE,
                 div { style: ACTIVE_PANE_STACK_STYLE,
                     div { style: PANE_SWITCHER_STYLE,
-                        button {
-                            style: if active_is_left { PANE_SWITCH_BUTTON_ACTIVE_STYLE } else { PANE_SWITCH_BUTTON_STYLE },
-                            onclick: move |_| active_index.set(0),
-                            "pane-1"
-                        }
-                        button {
-                            style: if !active_is_left { PANE_SWITCH_BUTTON_ACTIVE_STYLE } else { PANE_SWITCH_BUTTON_STYLE },
-                            onclick: move |_| active_index.set(1),
-                            "pane-2"
+                        for pane in &pane_summaries {
+                            button {
+                                key: "{pane.index}",
+                                style: if pane.index == active {
+                                    PANE_SWITCH_BUTTON_ACTIVE_STYLE
+                                } else {
+                                    PANE_SWITCH_BUTTON_STYLE
+                                },
+                                onclick: {
+                                    let index = pane.index;
+                                    move |_| active_index.set(index)
+                                },
+                                "{pane.title}"
+                            }
                         }
                     }
-                    if active_is_left {
-                        TerminalNativePane {
-                            title: "pane-1",
-                            controller: left.clone(),
-                            shared_gpu: shared_gpu.clone(),
-                        }
-                    } else {
-                        TerminalNativePane {
-                            title: "pane-2",
-                            controller: right.clone(),
-                            shared_gpu: shared_gpu.clone(),
+                    if let Some(controller) = panes.get(active).cloned() {
+                        if let Some(summary) = active_summary.clone() {
+                            TerminalNativePane {
+                                title: summary.title,
+                                controller,
+                                shared_gpu: shared_gpu.clone(),
+                            }
                         }
                     }
                 }
                 div { style: BACKGROUND_PANE_LIST_STYLE,
-                    BackgroundPaneCard {
-                        title: "pane-1",
-                        summary: left_summary,
-                        is_visible: active_is_left,
-                        on_show: move |_| active_index.set(0),
-                    }
-                    BackgroundPaneCard {
-                        title: "pane-2",
-                        summary: right_summary,
-                        is_visible: !active_is_left,
-                        on_show: move |_| active_index.set(1),
+                    for pane in &pane_summaries {
+                        BackgroundPaneCard {
+                            key: "{pane.index}",
+                            title: pane.title.clone(),
+                            summary: pane.summary,
+                            is_visible: pane.index == active,
+                            on_show: {
+                                let index = pane.index;
+                                move |_| active_index.set(index)
+                            },
+                        }
                     }
                 }
             }
@@ -91,7 +110,7 @@ pub fn TerminalNativeDemo(
 
 #[component]
 fn TerminalNativePane(
-    title: &'static str,
+    title: String,
     controller: NativeTerminalController,
     shared_gpu: NativeTerminalGpuShared,
 ) -> Element {
@@ -145,7 +164,7 @@ fn TerminalNativePane(
 
 #[component]
 fn BackgroundPaneCard(
-    title: &'static str,
+    title: String,
     summary: super::NativeTerminalSessionSummary,
     is_visible: bool,
     on_show: EventHandler<MouseEvent>,
@@ -176,6 +195,18 @@ fn BackgroundPaneCard(
             }
         }
     }
+}
+
+#[derive(Clone)]
+struct PaneSummary {
+    index: usize,
+    title: String,
+    status_line: String,
+    summary: super::NativeTerminalSessionSummary,
+}
+
+fn pane_title(index: usize) -> String {
+    format!("pane-{}", index + 1)
 }
 
 fn status_line(controller: &NativeTerminalController) -> String {

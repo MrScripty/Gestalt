@@ -78,6 +78,7 @@ None.
 ## Usage Examples
 ```bash
 cargo run --features terminal-native-spike --bin terminal_native_spike
+GESTALT_NATIVE_SPIKE_PANES=6 cargo run --features terminal-native-spike --bin terminal_native_spike
 ```
 
 ## Current Constraints
@@ -89,6 +90,8 @@ cargo run --features terminal-native-spike --bin terminal_native_spike
 - The standalone spike now schedules visibility at the pane level: only the
   selected pane keeps a live canvas mounted, while background panes show a
   summary card and resume rendering when re-selected.
+- The standalone spike now supports an arbitrary pane count through
+  `GESTALT_NATIVE_SPIKE_PANES`, defaulting to `4`.
 - Selection, mouse reporting, clipboard integration, and IME are intentionally
   out of scope for this spike.
 - Keyboard capture still relies on an invisible full-surface input overlay

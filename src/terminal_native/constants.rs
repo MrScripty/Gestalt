@@ -5,6 +5,7 @@ pub const WINDOW_HEIGHT_PX: f64 = 900.0;
 pub const DEFAULT_SESSION_ROWS: u16 = 42;
 pub const DEFAULT_SESSION_COLS: u16 = 140;
 pub const DEFAULT_SCROLLBACK: usize = 20_000;
+pub const DEFAULT_SPIKE_PANE_COUNT: usize = 4;
 
 pub const CELL_WIDTH_PX: u32 = 9;
 pub const CELL_HEIGHT_PX: u32 = 18;
@@ -21,8 +22,7 @@ pub const ACTIVE_PANE_STACK_STYLE: &str =
 pub const PANE_SWITCHER_STYLE: &str = "display: flex; gap: 8px; flex-wrap: wrap;";
 pub const PANE_SWITCH_BUTTON_STYLE: &str = "padding: 8px 12px; border: 1px solid rgba(124, 145, 168, 0.28); background: rgba(14,20,26,0.92); color: #90a4b8; font-family: monospace; font-size: 12px;";
 pub const PANE_SWITCH_BUTTON_ACTIVE_STYLE: &str = "padding: 8px 12px; border: 1px solid rgba(156, 194, 255, 0.42); background: rgba(24,36,52,0.96); color: #f2f6fa; font-family: monospace; font-size: 12px;";
-pub const BACKGROUND_PANE_LIST_STYLE: &str =
-    "min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 12px;";
+pub const BACKGROUND_PANE_LIST_STYLE: &str = "min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 12px; overflow: auto;";
 pub const PANE_CARD_STYLE: &str = "min-width: 0; min-height: 0; display: flex; flex-direction: column; border: 1px solid rgba(124, 145, 168, 0.28); background: rgba(12,18,24,0.92); box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);";
 pub const PANE_HEADER_STYLE: &str = "padding: 8px 10px; border-bottom: 1px solid rgba(124, 145, 168, 0.2); color: #dfe7ee; font-family: monospace; font-size: 12px; display: flex; gap: 10px; align-items: center;";
 pub const PANE_TITLE_STYLE: &str = "font-weight: 700; color: #f2f6fa;";

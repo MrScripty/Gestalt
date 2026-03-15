@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 use dioxus_native::Config;
 
-use super::constants::{WINDOW_HEIGHT_PX, WINDOW_TITLE, WINDOW_WIDTH_PX};
+use super::constants::{DEFAULT_SPIKE_PANE_COUNT, WINDOW_HEIGHT_PX, WINDOW_TITLE, WINDOW_WIDTH_PX};
 use super::controller::NativeTerminalController;
 use super::demo::TerminalNativeDemo;
 use super::gpu_renderer::NativeTerminalGpuShared;
@@ -27,18 +27,25 @@ pub fn launch_terminal_native_spike() {
 #[component]
 fn TerminalNativeSpikeApp() -> Element {
     let controllers = use_hook(|| {
-        [
-            NativeTerminalController::spawn_for_current_dir(),
-            NativeTerminalController::spawn_for_current_dir(),
-        ]
+        let pane_count = spike_pane_count();
+        (0..pane_count)
+            .map(|_| NativeTerminalController::spawn_for_current_dir())
+            .collect::<Vec<_>>()
     });
     let shared_gpu = use_hook(NativeTerminalGpuShared::default);
 
     rsx! {
         TerminalNativeDemo {
-            left: controllers[0].clone(),
-            right: controllers[1].clone(),
+            panes: controllers.clone(),
             shared_gpu: shared_gpu.clone(),
         }
     }
+}
+
+fn spike_pane_count() -> usize {
+    std::env::var("GESTALT_NATIVE_SPIKE_PANES")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(DEFAULT_SPIKE_PANE_COUNT)
 }
