@@ -33,6 +33,8 @@ pub struct TerminalGpuSceneProfile {
     pub row_rebuild_us: u128,
     pub flatten_us: u128,
     pub overlay_us: u128,
+    pub rows_rebuilt: u32,
+    pub cells_rebuilt: u32,
 }
 
 pub struct TerminalGpuSceneCache {
@@ -104,12 +106,14 @@ impl TerminalGpuSceneCache {
 
         let row_rebuild_started = Instant::now();
         let atlas = self.atlas.clone();
-        atlas.with_mut(|atlas| {
-            if geometry_changed || matches!(frame.damage, super::TerminalDamage::Full) {
-                self.rebuild_all_rows(frame, atlas);
+        let (rows_rebuilt, cells_rebuilt) = atlas.with_mut(|atlas| {
+            let rows_rebuilt = if geometry_changed || matches!(frame.damage, super::TerminalDamage::Full) {
+                self.rebuild_all_rows(frame, atlas)
             } else {
-                self.rebuild_dirty_rows(frame, atlas);
-            }
+                self.rebuild_dirty_rows(frame, atlas)
+            };
+            let cells_rebuilt = rows_rebuilt.saturating_mul(u32::from(self.cols));
+            (rows_rebuilt, cells_rebuilt)
         });
         let row_rebuild_us = row_rebuild_started.elapsed().as_micros();
 
@@ -160,6 +164,8 @@ impl TerminalGpuSceneCache {
                 row_rebuild_us,
                 flatten_us,
                 overlay_us,
+                rows_rebuilt,
+                cells_rebuilt,
             },
         )
     }
@@ -214,13 +220,14 @@ impl TerminalGpuSceneCache {
         self.dirty_rows.resize(row_count, false);
     }
 
-    fn rebuild_all_rows(&mut self, frame: &TerminalFrame, atlas: &mut GlyphAtlas) {
+    fn rebuild_all_rows(&mut self, frame: &TerminalFrame, atlas: &mut GlyphAtlas) -> u32 {
         for row in 0..self.rows {
             self.rebuild_row(row, frame.cursor, atlas);
         }
+        u32::from(self.rows)
     }
 
-    fn rebuild_dirty_rows(&mut self, frame: &TerminalFrame, atlas: &mut GlyphAtlas) {
+    fn rebuild_dirty_rows(&mut self, frame: &TerminalFrame, atlas: &mut GlyphAtlas) -> u32 {
         self.dirty_rows.fill(false);
 
         if let super::TerminalDamage::Partial(spans) = &frame.damage {
@@ -240,11 +247,14 @@ impl TerminalGpuSceneCache {
             self.dirty_rows[usize::from(frame.cursor.row)] = true;
         }
 
+        let mut rebuilt_rows = 0u32;
         for row in 0..self.dirty_rows.len() {
             if self.dirty_rows[row] {
                 self.rebuild_row(row as u16, frame.cursor, atlas);
+                rebuilt_rows += 1;
             }
         }
+        rebuilt_rows
     }
 
     fn rebuild_row(&mut self, row: u16, cursor: TerminalCursor, atlas: &mut GlyphAtlas) {

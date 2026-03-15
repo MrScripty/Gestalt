@@ -138,6 +138,12 @@ fn main() -> Result<(), String> {
                 replay_native_render_row_rebuild: replay_benchmark
                     .as_ref()
                     .map(|benchmark| benchmark.native_render_row_rebuild),
+                replay_native_render_rows_rebuilt: replay_benchmark
+                    .as_ref()
+                    .map(|benchmark| benchmark.native_render_rows_rebuilt),
+                replay_native_render_cells_rebuilt: replay_benchmark
+                    .as_ref()
+                    .map(|benchmark| benchmark.native_render_cells_rebuilt),
                 replay_native_render_flatten: replay_benchmark
                     .as_ref()
                     .map(|benchmark| benchmark.native_render_flatten),
@@ -517,6 +523,12 @@ fn main() -> Result<(), String> {
         replay_native_render_row_rebuild: replay_benchmark
             .as_ref()
             .map(|benchmark| benchmark.native_render_row_rebuild),
+        replay_native_render_rows_rebuilt: replay_benchmark
+            .as_ref()
+            .map(|benchmark| benchmark.native_render_rows_rebuilt),
+        replay_native_render_cells_rebuilt: replay_benchmark
+            .as_ref()
+            .map(|benchmark| benchmark.native_render_cells_rebuilt),
         replay_native_render_flatten: replay_benchmark
             .as_ref()
             .map(|benchmark| benchmark.native_render_flatten),
@@ -1308,6 +1320,27 @@ impl DistributionStats {
     }
 }
 
+#[derive(Clone, Copy, Serialize)]
+struct CountStats {
+    avg: u128,
+    p50: u128,
+    p95: u128,
+    p99: u128,
+    max: u128,
+}
+
+impl CountStats {
+    fn from_sorted(sorted_values: &[u128]) -> Self {
+        Self {
+            avg: average(sorted_values),
+            p50: percentile(sorted_values, 50),
+            p95: percentile(sorted_values, 95),
+            p99: percentile(sorted_values, 99),
+            max: sorted_values.last().copied().unwrap_or_default(),
+        }
+    }
+}
+
 #[derive(Serialize)]
 struct ProfileSummary {
     warmup_history_lines: usize,
@@ -1337,6 +1370,8 @@ struct ProfileSummary {
     replay_native_snapshot_publication: Option<DistributionStats>,
     replay_native_render_apply_frame: Option<DistributionStats>,
     replay_native_render_row_rebuild: Option<DistributionStats>,
+    replay_native_render_rows_rebuilt: Option<CountStats>,
+    replay_native_render_cells_rebuilt: Option<CountStats>,
     replay_native_render_flatten: Option<DistributionStats>,
     replay_native_render_overlay: Option<DistributionStats>,
     replay_native_raster_update: Option<DistributionStats>,
@@ -1390,6 +1425,8 @@ struct ReplayOnlyProfileSummary {
     replay_native_snapshot_publication: Option<DistributionStats>,
     replay_native_render_apply_frame: Option<DistributionStats>,
     replay_native_render_row_rebuild: Option<DistributionStats>,
+    replay_native_render_rows_rebuilt: Option<CountStats>,
+    replay_native_render_cells_rebuilt: Option<CountStats>,
     replay_native_render_flatten: Option<DistributionStats>,
     replay_native_render_overlay: Option<DistributionStats>,
     replay_native_raster_update: Option<DistributionStats>,
@@ -1463,6 +1500,8 @@ struct ReplayBenchmarkSummary {
     native_snapshot_publication: DistributionStats,
     native_render_apply_frame: DistributionStats,
     native_render_row_rebuild: DistributionStats,
+    native_render_rows_rebuilt: CountStats,
+    native_render_cells_rebuilt: CountStats,
     native_render_flatten: DistributionStats,
     native_render_overlay: DistributionStats,
     native_raster_update: DistributionStats,
@@ -1582,6 +1621,10 @@ fn profile_terminal_replay_benchmark(config: &ProfileConfig) -> Option<ReplayBen
         Vec::with_capacity(config.replay_profile_iterations * chunks.len());
     let mut native_render_row_rebuild =
         Vec::with_capacity(config.replay_profile_iterations * chunks.len());
+    let mut native_render_rows_rebuilt =
+        Vec::with_capacity(config.replay_profile_iterations * chunks.len());
+    let mut native_render_cells_rebuilt =
+        Vec::with_capacity(config.replay_profile_iterations * chunks.len());
     let mut native_render_flatten =
         Vec::with_capacity(config.replay_profile_iterations * chunks.len());
     let mut native_render_overlay =
@@ -1637,6 +1680,8 @@ fn profile_terminal_replay_benchmark(config: &ProfileConfig) -> Option<ReplayBen
             native_raster_update.push(native_raster_started.elapsed().as_micros());
             native_render_apply_frame.push(render_profile.apply_frame_us);
             native_render_row_rebuild.push(render_profile.row_rebuild_us);
+            native_render_rows_rebuilt.push(u128::from(render_profile.rows_rebuilt));
+            native_render_cells_rebuilt.push(u128::from(render_profile.cells_rebuilt));
             native_render_flatten.push(render_profile.flatten_us);
             native_render_overlay.push(render_profile.overlay_us);
         }
@@ -1655,6 +1700,8 @@ fn profile_terminal_replay_benchmark(config: &ProfileConfig) -> Option<ReplayBen
     native_snapshot_publication.sort_unstable();
     native_render_apply_frame.sort_unstable();
     native_render_row_rebuild.sort_unstable();
+    native_render_rows_rebuilt.sort_unstable();
+    native_render_cells_rebuilt.sort_unstable();
     native_render_flatten.sort_unstable();
     native_render_overlay.sort_unstable();
     native_raster_update.sort_unstable();
@@ -1669,6 +1716,8 @@ fn profile_terminal_replay_benchmark(config: &ProfileConfig) -> Option<ReplayBen
         native_snapshot_publication: stats_from_sorted(&native_snapshot_publication),
         native_render_apply_frame: stats_from_sorted(&native_render_apply_frame),
         native_render_row_rebuild: stats_from_sorted(&native_render_row_rebuild),
+        native_render_rows_rebuilt: CountStats::from_sorted(&native_render_rows_rebuilt),
+        native_render_cells_rebuilt: CountStats::from_sorted(&native_render_cells_rebuilt),
         native_render_flatten: stats_from_sorted(&native_render_flatten),
         native_render_overlay: stats_from_sorted(&native_render_overlay),
         native_raster_update: stats_from_sorted(&native_raster_update),
@@ -1771,6 +1820,22 @@ fn print_replay_benchmark(summary: &Option<ReplayBenchmarkSummary>) {
         summary.native_render_row_rebuild.p95_us,
         summary.native_render_row_rebuild.p99_us,
         summary.native_render_row_rebuild.max_us
+    );
+    println!(
+        "    rows rebuilt/frame: avg={} p50={} p95={} p99={} max={}",
+        summary.native_render_rows_rebuilt.avg,
+        summary.native_render_rows_rebuilt.p50,
+        summary.native_render_rows_rebuilt.p95,
+        summary.native_render_rows_rebuilt.p99,
+        summary.native_render_rows_rebuilt.max
+    );
+    println!(
+        "    cells rebuilt/frame: avg={} p50={} p95={} p99={} max={}",
+        summary.native_render_cells_rebuilt.avg,
+        summary.native_render_cells_rebuilt.p50,
+        summary.native_render_cells_rebuilt.p95,
+        summary.native_render_cells_rebuilt.p99,
+        summary.native_render_cells_rebuilt.max
     );
     println!(
         "    flatten us: avg={} p50={} p95={} p99={} max={}",
