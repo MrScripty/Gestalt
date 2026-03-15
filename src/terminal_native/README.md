@@ -53,6 +53,7 @@ renderer.
 - The composition root assembles long-lived runtime resources near the binary entrypoint.
 - The controller owns PTY lifecycle, resize, and input dispatch.
 - The emulator owns terminal semantics and damage tracking.
+- The emulator maintains the mutable projected-cell cache and publishes immutable frame snapshots.
 - The raster and paint stages own pixel generation and GPU texture lifecycle.
 - The published frame is immutable to consumers and replaced atomically.
 
