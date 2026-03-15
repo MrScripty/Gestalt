@@ -47,7 +47,7 @@ pub enum TerminalCellPublication {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TerminalCell {
     pub codepoint: char,
-    pub zerowidth: Arc<[char]>,
+    pub zerowidth: Option<Arc<[char]>>,
     pub fg: TerminalColor,
     pub bg: TerminalColor,
     pub flags: TerminalCellFlags,
@@ -57,7 +57,7 @@ impl Default for TerminalCell {
     fn default() -> Self {
         Self {
             codepoint: ' ',
-            zerowidth: Arc::from([]),
+            zerowidth: None,
             fg: TerminalColor::DefaultForeground,
             bg: TerminalColor::DefaultBackground,
             flags: TerminalCellFlags::NONE,

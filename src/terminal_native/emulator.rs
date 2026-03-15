@@ -330,8 +330,7 @@ fn collect_changed_cells(
 fn project_cell(cell: &Cell) -> TerminalCell {
     let zerowidth = cell
         .zerowidth()
-        .map(|value| Arc::<[char]>::from(value.to_vec()))
-        .unwrap_or_else(|| Arc::<[char]>::from([]));
+        .map(|value| Arc::<[char]>::from(value.to_vec()));
 
     TerminalCell {
         codepoint: cell.c,
