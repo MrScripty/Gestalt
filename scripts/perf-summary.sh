@@ -80,6 +80,11 @@ else
     baseline_total_send_p95_us
     render_total_send_p95_us
     full_total_send_p95_us
+    replay_legacy_snapshot_build_p95_us
+    replay_legacy_row_render_p95_us
+    replay_legacy_round_bounds_p95_us
+    replay_native_snapshot_build_p95_us
+    replay_native_raster_update_p95_us
   )
 fi
 

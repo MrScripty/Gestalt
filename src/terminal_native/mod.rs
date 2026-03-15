@@ -21,4 +21,5 @@ pub use model::{
     TerminalCell, TerminalCellFlags, TerminalColor, TerminalCursor, TerminalCursorShape,
     TerminalDamage, TerminalDamageSpan, TerminalFrame,
 };
+pub use raster::TerminalRaster;
 pub use session::{NativeTerminalError, NativeTerminalSession, NativeTerminalSessionConfig};
