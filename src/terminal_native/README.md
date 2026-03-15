@@ -15,7 +15,10 @@ the Alacritty semantics + native GPU rendering spike.
 | `model.rs` | Renderer-facing terminal frame, cursor, cell, and damage types |
 | `input.rs` | Keyboard and text-input translation into PTY byte sequences |
 | `paint.rs` | Native GPU custom paint source and texture lifecycle management |
-| `raster.rs` | Damage-aware CPU rasterization used by the GPU paint source |
+| `glyph_atlas.rs` | Bundled monospace glyph atlas cache used by the GPU renderer |
+| `gpu_scene.rs` | Renderer-facing quad instance generation from immutable terminal frames |
+| `gpu_renderer.rs` | WGPU terminal renderer that composes backgrounds, glyphs, and cursor quads |
+| `raster.rs` | Legacy CPU raster path kept for fallback benchmarking during the spike |
 | `emulator.rs` | Alacritty-backed terminal emulator adapter that projects frames into the local model |
 | `session.rs` | Single-session PTY runtime that feeds emulator frames for the spike renderer |
 
@@ -54,7 +57,7 @@ renderer.
 - The controller owns PTY lifecycle, resize, and input dispatch.
 - The emulator owns terminal semantics and damage tracking.
 - The emulator maintains the mutable projected-cell cache and publishes immutable frame snapshots.
-- The raster and paint stages own pixel generation and GPU texture lifecycle.
+- The GPU renderer owns atlas textures, pipelines, and output texture lifecycle.
 - The published frame is immutable to consumers and replaced atomically.
 
 ## Revisit Triggers
@@ -63,7 +66,7 @@ renderer.
 
 ## Dependencies
 **Internal:** none  
-**External:** `alacritty_terminal`, `dioxus-native`, `font8x8`, `portable-pty`, `parking_lot`, `wgpu`
+**External:** `ab_glyph`, `alacritty_terminal`, `dioxus-native`, `font8x8`, `portable-pty`, `parking_lot`, `wgpu`
 
 ## Related ADRs
 None.
@@ -74,14 +77,15 @@ cargo run --features terminal-native-spike --bin terminal_native_spike
 ```
 
 ## Current Constraints
-- Glyph rasterization currently uses `font8x8`, so complex Unicode shaping is
-  not yet covered.
+- The hot render path now uses a bundled DejaVu Sans Mono glyph atlas, but it
+  still assumes fixed terminal cells rather than full text shaping.
 - Selection, mouse reporting, clipboard integration, and IME are intentionally
   out of scope for this spike.
 - Keyboard capture still relies on an invisible full-surface input overlay
   because direct terminal-surface focus handling in `dioxus-native` is not yet
   reliable enough for this spike.
-- Binary build verification is complete and an X11 smoke pass covered launch,
-  typed input, and resize.
+- Binary build verification is complete, focused GPU-scene tests pass, and the
+  replay benchmark now measures GPU scene preparation instead of CPU raster
+  updates.
 - A true interactive visual/manual validation run still needs a local desktop
   session.
