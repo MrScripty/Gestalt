@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use font8x8::{BASIC_FONTS, UnicodeFonts};
 
 use super::{
@@ -18,6 +20,17 @@ pub struct TerminalRaster {
     cols: u16,
     pixels: Vec<u8>,
     last_cursor: Option<TerminalCursor>,
+    tile_cache: HashMap<TileCacheKey, Vec<u8>>,
+}
+
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+struct TileCacheKey {
+    codepoint: char,
+    fg: [u8; 4],
+    bg: [u8; 4],
+    hidden: bool,
+    spacer: bool,
+    missing: bool,
 }
 
 impl TerminalRaster {
@@ -31,6 +44,7 @@ impl TerminalRaster {
             cols: 0,
             pixels: Vec::new(),
             last_cursor: None,
+            tile_cache: HashMap::new(),
         }
     }
 
@@ -55,6 +69,9 @@ impl TerminalRaster {
         self.cols = frame.cols;
         self.cell_width = cell_extent(width, frame.cols);
         self.cell_height = cell_extent(height, frame.rows);
+        if geometry_changed {
+            self.tile_cache.clear();
+        }
 
         if geometry_changed || matches!(frame.damage, TerminalDamage::Full) {
             self.clear(DEFAULT_BACKGROUND);
@@ -121,66 +138,44 @@ impl TerminalRaster {
 
         let cursor_here = frame.cursor.row == row && frame.cursor.col == col;
         let (bg, fg) = resolved_colors(cell, cursor_here);
-        self.fill_rect(row, col, bg);
+        let hidden = cell.flags.contains(TerminalCellFlags::HIDDEN);
+        let spacer = cell.flags.contains(TerminalCellFlags::WIDE_CHAR_SPACER);
+        let missing = BASIC_FONTS.get(cell.codepoint).is_none() && !cell.codepoint.is_whitespace();
+        let key = TileCacheKey {
+            codepoint: cell.codepoint,
+            fg,
+            bg,
+            hidden,
+            spacer,
+            missing,
+        };
+        let cell_width = self.cell_width;
+        let cell_height = self.cell_height;
+        let frame_width = self.width;
+        let tile = self
+            .tile_cache
+            .entry(key)
+            .or_insert_with(|| build_tile(cell_width, cell_height, key))
+            .as_slice();
+        blit_tile(
+            &mut self.pixels,
+            frame_width,
+            cell_width,
+            cell_height,
+            row,
+            col,
+            tile,
+        );
 
-        if cell.flags.contains(TerminalCellFlags::HIDDEN)
-            || cell.flags.contains(TerminalCellFlags::WIDE_CHAR_SPACER)
-        {
+        if hidden || spacer {
             if cursor_here {
                 self.draw_cursor(frame.cursor, row, col, fg);
             }
             return;
         }
 
-        if let Some(glyph) = BASIC_FONTS.get(cell.codepoint) {
-            self.draw_glyph(row, col, glyph, fg);
-        } else if !cell.codepoint.is_whitespace() {
-            self.draw_missing_glyph(row, col, fg);
-        }
-
         if cursor_here {
             self.draw_cursor(frame.cursor, row, col, fg);
-        }
-    }
-
-    fn fill_rect(&mut self, row: u16, col: u16, color: [u8; 4]) {
-        let start_x = u32::from(col) * self.cell_width;
-        let start_y = u32::from(row) * self.cell_height;
-        let end_x = (start_x + self.cell_width).min(self.width);
-        let end_y = (start_y + self.cell_height).min(self.height);
-
-        for y in start_y..end_y {
-            for x in start_x..end_x {
-                let index = ((y * self.width + x) * 4) as usize;
-                self.pixels[index..index + 4].copy_from_slice(&color);
-            }
-        }
-    }
-
-    fn draw_glyph(&mut self, row: u16, col: u16, glyph: [u8; 8], color: [u8; 4]) {
-        let scale_x = self.cell_width.max(1) / 8;
-        let scale_y = self.cell_height.max(1) / 8;
-        let glyph_width = 8 * scale_x.max(1);
-        let glyph_height = 8 * scale_y.max(1);
-        let offset_x = (self.cell_width.saturating_sub(glyph_width)) / 2;
-        let offset_y = (self.cell_height.saturating_sub(glyph_height)) / 2;
-        let origin_x = u32::from(col) * self.cell_width + offset_x;
-        let origin_y = u32::from(row) * self.cell_height + offset_y;
-
-        for (glyph_row, bits) in glyph.iter().enumerate() {
-            for glyph_col in 0..8_u32 {
-                if bits & (1 << glyph_col) == 0 {
-                    continue;
-                }
-
-                for y in 0..scale_y.max(1) {
-                    for x in 0..scale_x.max(1) {
-                        let pixel_x = origin_x + glyph_col * scale_x.max(1) + x;
-                        let pixel_y = origin_y + (glyph_row as u32) * scale_y.max(1) + y;
-                        self.write_pixel(pixel_x, pixel_y, color);
-                    }
-                }
-            }
         }
     }
 
@@ -266,6 +261,140 @@ impl TerminalRaster {
         let index = ((y * self.width + x) * 4) as usize;
         self.pixels[index..index + 4].copy_from_slice(&color);
     }
+}
+
+fn blit_tile(
+    pixels: &mut [u8],
+    frame_width: u32,
+    cell_width: u32,
+    cell_height: u32,
+    row: u16,
+    col: u16,
+    tile: &[u8],
+) {
+    let start_x = u32::from(col) * cell_width;
+    let start_y = u32::from(row) * cell_height;
+    let row_bytes = (cell_width as usize) * 4;
+
+    for tile_row in 0..cell_height as usize {
+        let dest_y = start_y as usize + tile_row;
+        let dest_index = ((dest_y * frame_width as usize) + start_x as usize) * 4;
+        let src_index = tile_row * row_bytes;
+        pixels[dest_index..dest_index + row_bytes]
+            .copy_from_slice(&tile[src_index..src_index + row_bytes]);
+    }
+}
+
+fn build_tile(cell_width: u32, cell_height: u32, key: TileCacheKey) -> Vec<u8> {
+    let mut tile = vec![0; (cell_width as usize) * (cell_height as usize) * 4];
+    fill_tile(&mut tile, cell_width, cell_height, key.bg);
+
+    if key.hidden || key.spacer {
+        return tile;
+    }
+
+    if let Some(glyph) = BASIC_FONTS.get(key.codepoint) {
+        draw_tile_glyph(&mut tile, cell_width, cell_height, glyph, key.fg);
+    } else if key.missing {
+        draw_tile_missing_glyph(&mut tile, cell_width, cell_height, key.fg);
+    }
+
+    tile
+}
+
+fn fill_tile(tile: &mut [u8], cell_width: u32, cell_height: u32, color: [u8; 4]) {
+    let width = cell_width as usize;
+    for y in 0..cell_height as usize {
+        let row_start = y * width * 4;
+        for x in 0..width {
+            let index = row_start + x * 4;
+            tile[index..index + 4].copy_from_slice(&color);
+        }
+    }
+}
+
+fn draw_tile_glyph(
+    tile: &mut [u8],
+    cell_width: u32,
+    cell_height: u32,
+    glyph: [u8; 8],
+    color: [u8; 4],
+) {
+    let scale_x = (cell_width.max(1) / 8).max(1);
+    let scale_y = (cell_height.max(1) / 8).max(1);
+    let glyph_width = 8 * scale_x;
+    let glyph_height = 8 * scale_y;
+    let offset_x = (cell_width.saturating_sub(glyph_width)) / 2;
+    let offset_y = (cell_height.saturating_sub(glyph_height)) / 2;
+
+    for (glyph_row, bits) in glyph.iter().enumerate() {
+        for glyph_col in 0..8_u32 {
+            if bits & (1 << glyph_col) == 0 {
+                continue;
+            }
+
+            for y in 0..scale_y {
+                for x in 0..scale_x {
+                    let pixel_x = offset_x + glyph_col * scale_x + x;
+                    let pixel_y = offset_y + (glyph_row as u32) * scale_y + y;
+                    write_tile_pixel(tile, cell_width, cell_height, pixel_x, pixel_y, color);
+                }
+            }
+        }
+    }
+}
+
+fn draw_tile_missing_glyph(
+    tile: &mut [u8],
+    cell_width: u32,
+    cell_height: u32,
+    color: [u8; 4],
+) {
+    let inset_x = cell_width.saturating_div(4).max(1);
+    let inset_y = cell_height.saturating_div(4).max(1);
+    let start_x = inset_x;
+    let end_x = cell_width.saturating_sub(inset_x);
+    let start_y = inset_y;
+    let end_y = cell_height.saturating_sub(inset_y);
+
+    for x in start_x..end_x {
+        write_tile_pixel(tile, cell_width, cell_height, x, start_y, color);
+        write_tile_pixel(
+            tile,
+            cell_width,
+            cell_height,
+            x,
+            end_y.saturating_sub(1),
+            color,
+        );
+    }
+    for y in start_y..end_y {
+        write_tile_pixel(tile, cell_width, cell_height, start_x, y, color);
+        write_tile_pixel(
+            tile,
+            cell_width,
+            cell_height,
+            end_x.saturating_sub(1),
+            y,
+            color,
+        );
+    }
+}
+
+fn write_tile_pixel(
+    tile: &mut [u8],
+    cell_width: u32,
+    cell_height: u32,
+    x: u32,
+    y: u32,
+    color: [u8; 4],
+) {
+    if x >= cell_width || y >= cell_height {
+        return;
+    }
+
+    let index = ((y * cell_width + x) * 4) as usize;
+    tile[index..index + 4].copy_from_slice(&color);
 }
 
 fn cell_extent(size: u32, cells: u16) -> u32 {
