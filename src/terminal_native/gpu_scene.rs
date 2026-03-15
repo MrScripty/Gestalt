@@ -110,12 +110,13 @@ impl TerminalGpuSceneCache {
         let row_rebuild_started = Instant::now();
         let atlas = self.atlas.clone();
         let (rows_rebuilt, cells_rebuilt) = atlas.with_mut(|atlas| {
-            let rows_rebuilt =
-                if geometry_changed || matches!(frame.damage, super::TerminalDamage::Full) {
-                    self.rebuild_all_rows(frame, atlas)
-                } else {
-                    self.rebuild_dirty_rows(frame, atlas)
-                };
+            let rows_rebuilt = if geometry_changed {
+                self.rebuild_all_rows(frame, atlas)
+            } else if matches!(frame.damage, super::TerminalDamage::Full) {
+                self.rebuild_marked_rows(frame, atlas)
+            } else {
+                self.rebuild_dirty_rows(frame, atlas)
+            };
             let cells_rebuilt = rows_rebuilt.saturating_mul(u32::from(self.cols));
             (rows_rebuilt, cells_rebuilt)
         });
@@ -194,9 +195,11 @@ impl TerminalGpuSceneCache {
             self.glyph_rows
                 .resize_with(usize::from(frame.rows), std::vec::Vec::new);
             self.dirty_rows.resize(usize::from(frame.rows), false);
+            self.dirty_rows.fill(true);
         }
 
         if let Some(cells) = frame.full_cells_shared() {
+            self.mark_full_frame_dirty_rows(frame, cells.as_slice());
             self.shared_full_cells = Some(Arc::clone(cells));
             return;
         }
@@ -234,6 +237,45 @@ impl TerminalGpuSceneCache {
         self.cells.clone_from_slice(cells.as_slice());
     }
 
+    fn mark_full_frame_dirty_rows(&mut self, frame: &TerminalFrame, next_cells: &[TerminalCell]) {
+        if self.dirty_rows.len() != usize::from(self.rows) {
+            self.dirty_rows.resize(usize::from(self.rows), false);
+        }
+
+        let cols = usize::from(self.cols);
+        if cols == 0 || next_cells.len() != cell_count(self.rows, self.cols) {
+            self.dirty_rows.fill(true);
+            return;
+        }
+
+        let previous_cells = self
+            .shared_full_cells
+            .as_deref()
+            .map(std::vec::Vec::as_slice)
+            .unwrap_or(self.cells.as_slice());
+        if previous_cells.len() != next_cells.len() {
+            self.dirty_rows.fill(true);
+            return;
+        }
+
+        for (dirty, (previous_row, next_row)) in self.dirty_rows.iter_mut().zip(
+            previous_cells
+                .chunks_exact(cols)
+                .zip(next_cells.chunks_exact(cols)),
+        ) {
+            *dirty = previous_row != next_row;
+        }
+
+        if let Some(previous_cursor) = self.last_cursor {
+            if cursor_marks_row_dirty(previous_cursor) && previous_cursor.row < self.rows {
+                self.dirty_rows[usize::from(previous_cursor.row)] = true;
+            }
+        }
+        if cursor_marks_row_dirty(frame.cursor) && frame.cursor.row < self.rows {
+            self.dirty_rows[usize::from(frame.cursor.row)] = true;
+        }
+    }
+
     fn rebuild_all_rows(&mut self, frame: &TerminalFrame, atlas: &mut GlyphAtlas) -> u32 {
         let row_count = usize::from(self.rows);
         let cols = usize::from(self.cols);
@@ -267,6 +309,17 @@ impl TerminalGpuSceneCache {
         u32::from(self.rows)
     }
 
+    fn rebuild_marked_rows(&mut self, frame: &TerminalFrame, atlas: &mut GlyphAtlas) -> u32 {
+        let mut rebuilt_rows = 0u32;
+        for row in 0..self.dirty_rows.len() {
+            if self.dirty_rows[row] {
+                self.rebuild_row(row as u16, frame.cursor, atlas);
+                rebuilt_rows += 1;
+            }
+        }
+        rebuilt_rows
+    }
+
     fn rebuild_dirty_rows(&mut self, frame: &TerminalFrame, atlas: &mut GlyphAtlas) -> u32 {
         self.dirty_rows.fill(false);
 
@@ -279,22 +332,15 @@ impl TerminalGpuSceneCache {
         }
 
         if let Some(previous_cursor) = self.last_cursor {
-            if previous_cursor.row < self.rows {
+            if cursor_marks_row_dirty(previous_cursor) && previous_cursor.row < self.rows {
                 self.dirty_rows[usize::from(previous_cursor.row)] = true;
             }
         }
-        if frame.cursor.row < self.rows {
+        if cursor_marks_row_dirty(frame.cursor) && frame.cursor.row < self.rows {
             self.dirty_rows[usize::from(frame.cursor.row)] = true;
         }
 
-        let mut rebuilt_rows = 0u32;
-        for row in 0..self.dirty_rows.len() {
-            if self.dirty_rows[row] {
-                self.rebuild_row(row as u16, frame.cursor, atlas);
-                rebuilt_rows += 1;
-            }
-        }
-        rebuilt_rows
+        self.rebuild_marked_rows(frame, atlas)
     }
 
     fn rebuild_row(&mut self, row: u16, cursor: TerminalCursor, atlas: &mut GlyphAtlas) {
@@ -472,6 +518,10 @@ fn cell_extent(size: u32, cells: u16) -> u32 {
     }
 
     (size / u32::from(cells)).max(1)
+}
+
+fn cursor_marks_row_dirty(cursor: TerminalCursor) -> bool {
+    !matches!(cursor.shape, TerminalCursorShape::Hidden)
 }
 
 fn resolved_colors(cell: &TerminalCell, cursor_here: bool) -> ([f32; 4], [f32; 4]) {

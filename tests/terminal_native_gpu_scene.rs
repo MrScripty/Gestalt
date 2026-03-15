@@ -84,14 +84,54 @@ fn gpu_scene_rebuilds_cursor_rows_without_cell_damage() {
     assert_ne!(first_color, second_color);
 }
 
+#[test]
+fn gpu_scene_skips_identical_full_frame_row_rebuilds() {
+    let frame = hidden_cursor_frame(['a', 'b', ' ', ' ', ' ', ' ']);
+    let mut cache = TerminalGpuSceneCache::new();
+
+    let (_, first_profile) = cache.prepare_profiled(&frame, TEST_WIDTH, TEST_HEIGHT);
+    let (_, second_profile) = cache.prepare_profiled(&frame, TEST_WIDTH, TEST_HEIGHT);
+
+    assert!(first_profile.rows_rebuilt > 0);
+    assert_eq!(second_profile.rows_rebuilt, 0);
+}
+
+#[test]
+fn gpu_scene_rebuilds_only_changed_rows_for_full_frame_updates() {
+    let initial = hidden_cursor_frame(['a', 'b', ' ', ' ', ' ', ' ']);
+    let updated = hidden_cursor_frame(['a', 'b', ' ', 'x', ' ', ' ']);
+    let mut cache = TerminalGpuSceneCache::new();
+
+    let _ = cache.prepare_profiled(&initial, TEST_WIDTH, TEST_HEIGHT);
+    let (_, profile) = cache.prepare_profiled(&updated, TEST_WIDTH, TEST_HEIGHT);
+
+    assert_eq!(profile.rows_rebuilt, 1);
+    assert_eq!(profile.cells_rebuilt, u32::from(TEST_COLS));
+}
+
 fn full_frame(chars: [char; (TEST_ROWS as usize) * (TEST_COLS as usize)]) -> TerminalFrame {
     frame_with_cursor(chars, 0, 0)
+}
+
+fn hidden_cursor_frame(
+    chars: [char; (TEST_ROWS as usize) * (TEST_COLS as usize)],
+) -> TerminalFrame {
+    frame_with_cursor_shape(chars, 0, 0, TerminalCursorShape::Hidden)
 }
 
 fn frame_with_cursor(
     chars: [char; (TEST_ROWS as usize) * (TEST_COLS as usize)],
     cursor_row: u16,
     cursor_col: u16,
+) -> TerminalFrame {
+    frame_with_cursor_shape(chars, cursor_row, cursor_col, TerminalCursorShape::Block)
+}
+
+fn frame_with_cursor_shape(
+    chars: [char; (TEST_ROWS as usize) * (TEST_COLS as usize)],
+    cursor_row: u16,
+    cursor_col: u16,
+    cursor_shape: TerminalCursorShape,
 ) -> TerminalFrame {
     let cells = chars
         .into_iter()
@@ -107,7 +147,7 @@ fn frame_with_cursor(
         cursor: TerminalCursor {
             row: cursor_row,
             col: cursor_col,
-            shape: TerminalCursorShape::Block,
+            shape: cursor_shape,
         },
         bracketed_paste: false,
         display_offset: 0,
