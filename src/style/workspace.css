@@ -481,14 +481,17 @@
 }
 
 .terminal-native-sticky-host {
-  position: sticky;
-  top: 0;
-  height: 100%;
+  position: absolute;
+  inset: 0;
+  z-index: 1;
 }
 
 .terminal-native-scroll-spacer {
+  position: relative;
+  display: block;
   width: 1px;
   min-width: 1px;
+  min-height: 100%;
   opacity: 0;
   pointer-events: none;
 }
