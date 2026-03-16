@@ -40,6 +40,8 @@ use crate::ui::tab_rail::TabRail;
 use crate::ui::terminal_input::{key_event_to_bytes, measure_terminal_viewport};
 use crate::ui::workspace::WorkspaceMain;
 use dioxus::document;
+#[cfg(feature = "terminal-native-spike")]
+use dioxus::html::Code;
 use dioxus::prelude::*;
 use emily::model::{VectorizationConfigPatch, VectorizationRunRequest};
 use std::collections::{HashMap, HashSet};
@@ -633,11 +635,26 @@ pub fn App() -> Element {
                 if !*embedding_settings_open.read()
                     && renaming_tab.read().is_none()
                     && let Some(session_id) = ui_state.read().focused_terminal
-                    && let Some(input) = key_event_to_bytes(&event)
                 {
-                    event.prevent_default();
-                    event.stop_propagation();
-                    let _ = terminal_manager.read().send_input(session_id, &input);
+                    let terminal_manager = terminal_manager.read().clone();
+                    #[cfg(feature = "terminal-native-spike")]
+                    if terminal_manager.native_frame_shared(session_id).is_some() {
+                        let visible_rows = terminal_manager
+                            .snapshot_shared(session_id)
+                            .map(|snapshot| snapshot.rows)
+                            .unwrap_or(1);
+                        if let Some(delta_lines) = root_page_scroll_delta(&event, visible_rows) {
+                            event.prevent_default();
+                            event.stop_propagation();
+                            let _ = terminal_manager.scroll_viewport(session_id, delta_lines);
+                            return;
+                        }
+                    }
+                    if let Some(input) = key_event_to_bytes(&event) {
+                        event.prevent_default();
+                        event.stop_propagation();
+                        let _ = terminal_manager.send_input(session_id, &input);
+                    }
                 }
             },
             onmousemove: move |event| {
@@ -960,6 +977,24 @@ fn crt_toggle_requested(key: &Key, ctrl: bool, alt: bool, shift: bool, meta: boo
     }
 
     matches!(key, Key::Character(text) if text == "1")
+}
+
+#[cfg(feature = "terminal-native-spike")]
+fn root_page_scroll_delta(event: &KeyboardEvent, visible_rows: u16) -> Option<i32> {
+    let modifiers = event.data().modifiers();
+    if modifiers.ctrl() || modifiers.alt() || modifiers.shift() || modifiers.meta() {
+        return None;
+    }
+
+    match event.data().key() {
+        Key::PageUp => Some(i32::from(visible_rows.max(1))),
+        Key::PageDown => Some(-i32::from(visible_rows.max(1))),
+        _ => match event.data().code() {
+            Code::PageUp => Some(i32::from(visible_rows.max(1))),
+            Code::PageDown => Some(-i32::from(visible_rows.max(1))),
+            _ => None,
+        },
+    }
 }
 
 fn initialize_emily_bridge() -> EmilyBridge {
