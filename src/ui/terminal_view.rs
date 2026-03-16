@@ -32,6 +32,12 @@ pub(crate) struct SnippetHotkeyState {
     pub armed_at_unix_ms: i64,
 }
 
+#[derive(Clone)]
+pub(crate) struct NativeTerminalScrollDrag {
+    pub session_id: SessionId,
+    pub track_mount: Rc<MountedData>,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) struct TerminalInteractionSignals {
     pub app_state: Signal<AppState>,
@@ -39,6 +45,8 @@ pub(crate) struct TerminalInteractionSignals {
     pub terminal_body_mounts: Signal<HashMap<SessionId, Rc<MountedData>>>,
     pub terminal_body_stick_bottom: Signal<HashMap<SessionId, bool>>,
     pub terminal_viewport_sizes: Signal<HashMap<SessionId, (u16, u16)>>,
+    pub native_hovered_terminal: Signal<Option<SessionId>>,
+    pub native_scroll_drag: Signal<Option<NativeTerminalScrollDrag>>,
     pub snippet_hotkey_state: Signal<Option<SnippetHotkeyState>>,
 }
 
@@ -57,6 +65,8 @@ pub(crate) fn terminal_shell(
     let mut terminal_body_mounts = interaction.terminal_body_mounts;
     let mut terminal_body_stick_bottom = interaction.terminal_body_stick_bottom;
     let terminal_viewport_sizes = interaction.terminal_viewport_sizes;
+    let mut native_hovered_terminal = interaction.native_hovered_terminal;
+    let mut native_scroll_drag = interaction.native_scroll_drag;
     let snippet_hotkey_state = interaction.snippet_hotkey_state;
     let mut shell_mount = use_signal(|| None::<Rc<MountedData>>);
     #[cfg(not(feature = "native-renderer"))]
@@ -199,8 +209,6 @@ pub(crate) fn terminal_shell(
         .as_ref()
         .map(|frame| frame.display_offset)
         .unwrap_or(0);
-    #[cfg(feature = "native-renderer")]
-    let native_max_offset = native_history_size;
     #[cfg(feature = "native-renderer")]
     let (native_thumb_top_pct, native_thumb_height_pct) = native_scrollbar_thumb_metrics(
         native_visible_rows,
@@ -374,6 +382,14 @@ pub(crate) fn terminal_shell(
                         .scroll_viewport(session_id, delta_lines);
                 }
             },
+            onmouseenter: move |_| {
+                native_hovered_terminal.set(Some(session_id));
+            },
+            onmouseleave: move |_| {
+                if *native_hovered_terminal.read() == Some(session_id) {
+                    native_hovered_terminal.set(None);
+                }
+            },
         }
     };
     #[cfg(not(feature = "native-renderer"))]
@@ -385,8 +401,6 @@ pub(crate) fn terminal_shell(
             native_thumb_top_pct, native_thumb_height_pct
         );
         let native_terminal_manager_for_scrollbar_down =
-            native_terminal_manager_for_scrollbar.clone();
-        let native_terminal_manager_for_scrollbar_move =
             native_terminal_manager_for_scrollbar.clone();
         rsx! {
             div {
@@ -403,42 +417,21 @@ pub(crate) fn terminal_shell(
                     event.prevent_default();
                     event.stop_propagation();
                     native_scroll_dragging.set(true);
-                    let client_y = event.data().client_coordinates().y;
                     let track_mount = native_scrollbar_mount.read().clone();
+                    let Some(track_mount_for_drag) = track_mount.clone() else {
+                        return;
+                    };
+                    native_scroll_drag.set(Some(NativeTerminalScrollDrag {
+                        session_id,
+                        track_mount: track_mount_for_drag,
+                    }));
+                    let client_y = event.data().client_coordinates().y;
                     let terminal_manager = native_terminal_manager_for_scrollbar_down.clone();
                     spawn(async move {
                         if let Some(track_mount) = track_mount {
                             let _ = scroll_native_terminal_from_track(
                                 track_mount,
                                 client_y,
-                                native_max_offset,
-                                session_id,
-                                terminal_manager,
-                            )
-                            .await;
-                        }
-                    });
-                },
-                onmousemove: move |event| {
-                    if !*native_scroll_dragging.read() {
-                        return;
-                    }
-                    if native_terminal_scroll_debug_enabled() {
-                        eprintln!(
-                            "[native-scroll] thumb-move session={} client_y={:.1}",
-                            session_id,
-                            event.data().client_coordinates().y
-                        );
-                    }
-                    let client_y = event.data().client_coordinates().y;
-                    let track_mount = native_scrollbar_mount.read().clone();
-                    let terminal_manager = native_terminal_manager_for_scrollbar_move.clone();
-                    spawn(async move {
-                        if let Some(track_mount) = track_mount {
-                            let _ = scroll_native_terminal_from_track(
-                                track_mount,
-                                client_y,
-                                native_max_offset,
                                 session_id,
                                 terminal_manager,
                             )
@@ -451,12 +444,7 @@ pub(crate) fn terminal_shell(
                         eprintln!("[native-scroll] thumb-up session={}", session_id);
                     }
                     native_scroll_dragging.set(false);
-                },
-                onmouseleave: move |_| {
-                    if native_terminal_scroll_debug_enabled() {
-                        eprintln!("[native-scroll] thumb-leave session={}", session_id);
-                    }
-                    native_scroll_dragging.set(false);
+                    native_scroll_drag.set(None);
                 },
                 div { class: "terminal-native-scrollbar-track" }
                 div {
@@ -1211,7 +1199,7 @@ fn handle_terminal_paste(
     paste_clipboard_into_terminal(terminal_manager, app_state, session_id, bracketed_paste);
 }
 
-fn wheel_delta_lines(event: &WheelEvent, visible_rows: u16) -> Option<i32> {
+pub(crate) fn wheel_delta_lines(event: &WheelEvent, visible_rows: u16) -> Option<i32> {
     let delta = match event.data().delta() {
         dioxus::html::geometry::WheelDelta::Pixels(pixels) => {
             let y = pixels.y;
@@ -1233,10 +1221,9 @@ fn wheel_delta_lines(event: &WheelEvent, visible_rows: u16) -> Option<i32> {
     Some(-delta)
 }
 
-async fn scroll_native_terminal_from_track(
+pub(crate) async fn scroll_native_terminal_from_track(
     track_mount: Rc<MountedData>,
     client_y: f64,
-    history_size: usize,
     session_id: SessionId,
     terminal_manager: Arc<TerminalManager>,
 ) -> bool {
@@ -1247,6 +1234,10 @@ async fn scroll_native_terminal_from_track(
     let height = client_rect.size.height.max(1.0);
     let relative_y = (client_y - client_rect.origin.y).clamp(0.0, height);
     let fraction = 1.0 - (relative_y / height);
+    let history_size = terminal_manager
+        .native_frame_shared(session_id)
+        .map(|frame| frame.history_size)
+        .unwrap_or(0);
     let desired_offset = (fraction * history_size as f64)
         .round()
         .clamp(0.0, history_size as f64) as i32;

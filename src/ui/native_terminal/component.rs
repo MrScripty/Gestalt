@@ -57,6 +57,8 @@ pub(crate) fn NativeTerminalBody(
     oninput: EventHandler<FormEvent>,
     onpaste: EventHandler<ClipboardEvent>,
     onwheel: EventHandler<WheelEvent>,
+    onmouseenter: EventHandler<MouseEvent>,
+    onmouseleave: EventHandler<MouseEvent>,
 ) -> Element {
     let _ = &onblur;
     let mut input_mount = use_signal(|| None::<Rc<MountedData>>);
@@ -88,6 +90,8 @@ pub(crate) fn NativeTerminalBody(
                 }
             },
             onwheel: move |event| onwheel.call(event),
+            onmouseenter: move |event| onmouseenter.call(event),
+            onmouseleave: move |event| onmouseleave.call(event),
             NativeTerminalPaintHost {
                 terminal: terminal.clone(),
                 native_frame: native_frame.clone(),

@@ -38,6 +38,9 @@ use crate::terminal::{PersistedTerminalState, TerminalManager, TerminalMemorySin
 use crate::ui::git_refresh::use_git_refresh_coordinator;
 use crate::ui::tab_rail::TabRail;
 use crate::ui::terminal_input::{key_event_to_bytes, measure_terminal_viewport};
+use crate::ui::terminal_view::{
+    NativeTerminalScrollDrag, scroll_native_terminal_from_track, wheel_delta_lines,
+};
 use crate::ui::workspace::WorkspaceMain;
 use dioxus::document;
 #[cfg(feature = "terminal-native-spike")]
@@ -142,6 +145,8 @@ pub fn App() -> Element {
     let terminal_body_mounts = use_signal(|| HashMap::<SessionId, Rc<MountedData>>::new());
     let terminal_body_stick_bottom = use_signal(|| HashMap::<SessionId, bool>::new());
     let terminal_viewport_sizes = use_signal(|| HashMap::<SessionId, (u16, u16)>::new());
+    let native_hovered_terminal = use_signal(|| None::<SessionId>);
+    let mut native_scroll_drag = use_signal(|| None::<NativeTerminalScrollDrag>);
     let autosave_dirty_notify = use_signal(|| Arc::new(tokio::sync::Notify::new()));
     let git_refresh_notify = use_signal(|| Arc::new(tokio::sync::Notify::new()));
     let refresh_tick = use_signal(|| 0_u64);
@@ -591,6 +596,8 @@ pub fn App() -> Element {
         terminal_body_mounts: terminal_body_mounts,
         terminal_body_stick_bottom: terminal_body_stick_bottom,
         terminal_viewport_sizes: terminal_viewport_sizes,
+        native_hovered_terminal: native_hovered_terminal,
+        native_scroll_drag: native_scroll_drag,
         emily_bridge: emily_bridge,
         vectorization_status: vectorization_status,
         terminal_manager: terminal_manager,
@@ -671,7 +678,42 @@ pub fn App() -> Element {
                     }
                 }
             },
+            onwheel: move |event: WheelEvent| {
+                let session_id = native_hovered_terminal
+                    .read()
+                    .or(ui_state.read().focused_terminal);
+                let Some(session_id) = session_id else {
+                    return;
+                };
+                let terminal_manager = terminal_manager.read().clone();
+                if terminal_manager.native_frame_shared(session_id).is_none() {
+                    return;
+                }
+                let visible_rows = terminal_viewport_sizes
+                    .read()
+                    .get(&session_id)
+                    .map(|(rows, _)| *rows)
+                    .unwrap_or(1);
+                if let Some(delta_lines) = wheel_delta_lines(&event, visible_rows) {
+                    event.prevent_default();
+                    event.stop_propagation();
+                    let _ = terminal_manager.scroll_viewport(session_id, delta_lines);
+                }
+            },
             onmousemove: move |event| {
+                if let Some(drag) = native_scroll_drag.read().clone() {
+                    let client_y = event.data().client_coordinates().y;
+                    let terminal_manager = terminal_manager.read().clone();
+                    spawn(async move {
+                        let _ = scroll_native_terminal_from_track(
+                            drag.track_mount,
+                            client_y,
+                            drag.session_id,
+                            terminal_manager,
+                        )
+                        .await;
+                    });
+                }
                 if rail_drag_start.read().is_some() && event.data().held_buttons().is_empty() {
                     rail_drag_start.set(None);
                     return;
@@ -686,9 +728,11 @@ pub fn App() -> Element {
                 rail_width_px.set(next_width.clamp(RAIL_WIDTH_MIN_PX, RAIL_WIDTH_MAX_PX));
             },
             onmouseup: move |_| {
+                native_scroll_drag.set(None);
                 rail_drag_start.set(None);
             },
             onmouseleave: move |_| {
+                native_scroll_drag.set(None);
                 if cfg!(feature = "native-renderer") {
                     return;
                 }

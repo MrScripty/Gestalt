@@ -6,7 +6,9 @@ use crate::terminal::TerminalManager;
 use crate::ui::UiState;
 use crate::ui::run_sidebar_panel_host::RunSidebarPanelHost;
 use crate::ui::sidebar_panel_host::SidebarPanelHost;
-use crate::ui::terminal_view::{SnippetHotkeyState, TerminalInteractionSignals, terminal_shell};
+use crate::ui::terminal_view::{
+    NativeTerminalScrollDrag, SnippetHotkeyState, TerminalInteractionSignals, terminal_shell,
+};
 use dioxus::html::input_data::MouseButton;
 use dioxus::prelude::*;
 use emily::model::VectorizationStatus;
@@ -41,6 +43,8 @@ pub(crate) fn WorkspaceMain(
     terminal_body_mounts: Signal<HashMap<SessionId, Rc<MountedData>>>,
     terminal_body_stick_bottom: Signal<HashMap<SessionId, bool>>,
     terminal_viewport_sizes: Signal<HashMap<SessionId, (u16, u16)>>,
+    native_hovered_terminal: Signal<Option<SessionId>>,
+    native_scroll_drag: Signal<Option<NativeTerminalScrollDrag>>,
     emily_bridge: Signal<Arc<EmilyBridge>>,
     vectorization_status: Signal<VectorizationStatus>,
     terminal_manager: Signal<Arc<TerminalManager>>,
@@ -221,6 +225,8 @@ pub(crate) fn WorkspaceMain(
         terminal_body_mounts,
         terminal_body_stick_bottom,
         terminal_viewport_sizes,
+        native_hovered_terminal,
+        native_scroll_drag,
         snippet_hotkey_state,
     };
     let workspace_class = if runner_drag_start.read().is_some()
