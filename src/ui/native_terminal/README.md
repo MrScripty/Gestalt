@@ -39,6 +39,28 @@ and terminal runtime ownership remain unchanged.
 - `glyph_atlas.rs` owns glyph baseline preservation by rasterizing outlined glyphs at their pixel
   bounds inside each tile; `scene.rs` should keep treating glyph quads as full-cell consumers of
   those atlas tiles instead of layering extra vertical offsets on top.
+- Native scroll state is owned by the native backend frame metadata:
+  - `history_size` is the available scrollback range
+  - `display_offset` is the current viewport offset from the live bottom
+  - wheel, paging, and scrollbar UI must update backend viewport state rather than scrolling the
+    terminal viewport node through layout
+- The native viewport itself should stay visually pinned inside the pane; only displayed terminal
+  content and scrollbar state should move during scrollback interaction.
+
+## Scroll Pipeline
+1. PTY output is ingested by `terminal_native::session`.
+2. `terminal_native::emulator` projects Alacritty grid state into `TerminalFrame`.
+3. `TerminalFrame` publishes:
+   - visible viewport cells
+   - `display_offset`
+   - `history_size`
+4. `TerminalManager` caches and republishes that frame for UI consumers.
+5. `terminal_view` routes wheel, paging, and scrollbar gestures back into `TerminalManager`.
+6. `native_terminal` renders the current viewport only; it does not own or simulate scrollback in
+   DOM layout.
+
+The native pane body may host scrollbar chrome, but DOM scrolling is not the source of truth for
+native terminal history.
 
 ## Usage Examples
 ```bash
