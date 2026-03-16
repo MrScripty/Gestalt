@@ -115,6 +115,7 @@ body:has(.shell.native-renderer) {
   min-height: 0;
   height: 100%;
   flex: 1 1 auto;
+  display: flex;
 }
 
 .shell.resizing {
