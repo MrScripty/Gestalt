@@ -87,6 +87,7 @@ pub(crate) fn NativeTerminalBody(
                     });
                 }
             },
+            onwheel: move |event| onwheel.call(event),
             NativeTerminalPaintHost {
                 terminal: terminal.clone(),
                 native_frame: native_frame.clone(),

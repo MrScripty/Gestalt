@@ -204,6 +204,7 @@ pub(crate) fn terminal_shell(
     let native_terminal_manager_for_keydown = shell_terminal_manager_for_keydown.clone();
     let native_terminal_manager_for_input = native_terminal_manager_for_keydown.clone();
     let native_terminal_manager_for_wheel = native_terminal_manager_for_keydown.clone();
+    let native_terminal_manager_for_page_scroll = native_terminal_manager_for_keydown.clone();
     let shell_terminal_manager_for_paste_shortcut = terminal_manager_for_paste_shortcut.clone();
     let native_terminal_manager_for_paste_shortcut =
         shell_terminal_manager_for_paste_shortcut.clone();
@@ -258,6 +259,13 @@ pub(crate) fn terminal_shell(
                 blur_terminal_session(ui_state, session_id);
             },
             onkeydown: move |event: KeyboardEvent| {
+                if let Some(delta_lines) = page_scroll_delta(&event, native_visible_rows) {
+                    event.prevent_default();
+                    event.stop_propagation();
+                    let _ = native_terminal_manager_for_page_scroll
+                        .scroll_viewport(session_id, delta_lines);
+                    return;
+                }
                 handle_terminal_keydown(
                     event,
                     session_id,
@@ -1051,6 +1059,19 @@ fn wheel_delta_lines(event: &WheelEvent, visible_rows: u16) -> Option<i32> {
     }
 
     Some(-delta)
+}
+
+fn page_scroll_delta(event: &KeyboardEvent, visible_rows: u16) -> Option<i32> {
+    let modifiers = event.data().modifiers();
+    if modifiers.ctrl() || modifiers.alt() || modifiers.shift() || modifiers.meta() {
+        return None;
+    }
+
+    match event.data().key() {
+        Key::PageUp => Some(i32::from(visible_rows.max(1))),
+        Key::PageDown => Some(-i32::from(visible_rows.max(1))),
+        _ => None,
+    }
 }
 
 fn paste_clipboard_into_terminal(
