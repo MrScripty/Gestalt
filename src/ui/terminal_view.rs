@@ -16,6 +16,7 @@ use crate::ui::terminal_input::{
 };
 use crate::ui::{EMILY_HISTORY_BACKFILL_PAGE_LINES, TerminalHistoryState, UiState};
 use dioxus::prelude::*;
+use dioxus::html::geometry::WheelDelta;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -202,6 +203,7 @@ pub(crate) fn terminal_shell(
     let shell_terminal_manager_for_keydown = terminal_manager_for_keydown.clone();
     let native_terminal_manager_for_keydown = shell_terminal_manager_for_keydown.clone();
     let native_terminal_manager_for_input = native_terminal_manager_for_keydown.clone();
+    let native_terminal_manager_for_wheel = native_terminal_manager_for_keydown.clone();
     let shell_terminal_manager_for_paste_shortcut = terminal_manager_for_paste_shortcut.clone();
     let native_terminal_manager_for_paste_shortcut =
         shell_terminal_manager_for_paste_shortcut.clone();
@@ -222,6 +224,7 @@ pub(crate) fn terminal_shell(
     let shell_terminal_manager_for_click = terminal_manager_for_click.clone();
     let body_terminal_manager_for_click = terminal_manager_for_click.clone();
     let shell_click_mount = shell_mount;
+    let native_visible_rows = terminal.rows;
     #[cfg(feature = "native-renderer")]
     let native_terminal_body = rsx! {
         NativeTerminalBody {
@@ -305,6 +308,14 @@ pub(crate) fn terminal_shell(
                     &native_terminal_manager_for_paste_event,
                     bracketed_paste,
                 );
+            },
+            onwheel: move |event| {
+                if let Some(delta_lines) = wheel_delta_lines(&event, native_visible_rows) {
+                    event.prevent_default();
+                    event.stop_propagation();
+                    let _ = native_terminal_manager_for_wheel
+                        .scroll_viewport(session_id, delta_lines);
+                }
             },
         }
     };
@@ -1020,6 +1031,26 @@ fn handle_terminal_paste(
     }
     let terminal_manager = terminal_manager_for_paste_event.clone();
     paste_clipboard_into_terminal(terminal_manager, app_state, session_id, bracketed_paste);
+}
+
+fn wheel_delta_lines(event: &WheelEvent, visible_rows: u16) -> Option<i32> {
+    let delta = match event.data().delta() {
+        WheelDelta::Pixels(pixels) => {
+            let y = pixels.y;
+            if y.abs() < 1.0 {
+                return None;
+            }
+            (y / 48.0).round() as i32
+        }
+        WheelDelta::Lines(lines) => lines.y.round() as i32,
+        WheelDelta::Pages(pages) => (pages.y * f64::from(visible_rows.max(1))).round() as i32,
+    };
+
+    if delta == 0 {
+        return None;
+    }
+
+    Some(-delta)
 }
 
 fn paste_clipboard_into_terminal(

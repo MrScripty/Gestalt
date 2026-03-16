@@ -56,6 +56,7 @@ pub(crate) fn NativeTerminalBody(
     onkeydown: EventHandler<KeyboardEvent>,
     oninput: EventHandler<FormEvent>,
     onpaste: EventHandler<ClipboardEvent>,
+    onwheel: EventHandler<WheelEvent>,
 ) -> Element {
     let _ = &onblur;
     let mut input_mount = use_signal(|| None::<Rc<MountedData>>);
@@ -119,6 +120,7 @@ pub(crate) fn NativeTerminalBody(
                 onkeydown: move |event| onkeydown.call(event),
                 oninput: move |event| oninput.call(event),
                 onpaste: move |event| onpaste.call(event),
+                onwheel: move |event| onwheel.call(event),
             }
         }
     }
