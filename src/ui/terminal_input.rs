@@ -4,7 +4,14 @@ use dioxus::prelude::{Key, ModifiersInteraction, MountedData, ScrollBehavior};
 use serde::Deserialize;
 use std::rc::Rc;
 
+#[cfg(feature = "native-renderer")]
+const TERM_LINE_HEIGHT_PX: f64 = 21.0;
+#[cfg(not(feature = "native-renderer"))]
 const TERM_LINE_HEIGHT_PX: f64 = 17.0;
+
+#[cfg(feature = "native-renderer")]
+const TERM_CHAR_WIDTH_PX: f64 = 11.4;
+#[cfg(not(feature = "native-renderer"))]
 const TERM_CHAR_WIDTH_PX: f64 = 8.4;
 const TERM_PAD_X_PX: f64 = 12.0;
 const TERM_PAD_Y_PX: f64 = 12.0;
