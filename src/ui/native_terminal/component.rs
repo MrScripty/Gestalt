@@ -21,7 +21,9 @@ fn NativeTerminalPaintHost(
     show_caret: bool,
     ui_scale: f64,
     visible_rows: u16,
+    visible_cols: u16,
     local_scroll_offset: u16,
+    horizontal_scroll_offset: u16,
     native_terminal_surface_cells: Signal<HashMap<SessionId, (u16, u16)>>,
     native_terminal_surface_sizes: Signal<HashMap<SessionId, (f64, f64)>>,
 ) -> Element {
@@ -34,6 +36,8 @@ fn NativeTerminalPaintHost(
                 show_caret,
                 visible_rows,
                 local_scroll_offset,
+                visible_cols,
+                horizontal_scroll_offset,
             )
         })
         .unwrap_or_else(|| {
@@ -42,6 +46,8 @@ fn NativeTerminalPaintHost(
                 show_caret,
                 visible_rows,
                 local_scroll_offset,
+                visible_cols,
+                horizontal_scroll_offset,
             )
         });
     let bridge =
@@ -59,6 +65,8 @@ fn NativeTerminalPaintHost(
                 show_caret,
                 visible_rows,
                 local_scroll_offset,
+                visible_cols,
+                horizontal_scroll_offset,
             )
         })
         .unwrap_or_else(|| {
@@ -67,6 +75,8 @@ fn NativeTerminalPaintHost(
                 show_caret,
                 visible_rows,
                 local_scroll_offset,
+                visible_cols,
+                horizontal_scroll_offset,
             )
         });
     bridge.update_frame(next_frame, ui_scale as f32);
@@ -123,7 +133,9 @@ pub(crate) fn NativeTerminalBody(
     show_caret: bool,
     ui_scale: f64,
     visible_rows: u16,
+    visible_cols: u16,
     local_scroll_offset: u16,
+    horizontal_scroll_offset: u16,
     native_terminal_surface_cells: Signal<HashMap<SessionId, (u16, u16)>>,
     native_terminal_surface_sizes: Signal<HashMap<SessionId, (f64, f64)>>,
     input_value: String,
@@ -186,7 +198,9 @@ pub(crate) fn NativeTerminalBody(
                 show_caret: show_caret,
                 ui_scale: ui_scale,
                 visible_rows: visible_rows,
+                visible_cols: visible_cols,
                 local_scroll_offset: local_scroll_offset,
+                horizontal_scroll_offset: horizontal_scroll_offset,
                 native_terminal_surface_cells: native_terminal_surface_cells,
                 native_terminal_surface_sizes: native_terminal_surface_sizes,
             }

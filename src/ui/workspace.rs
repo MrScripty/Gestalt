@@ -7,7 +7,8 @@ use crate::ui::UiState;
 use crate::ui::run_sidebar_panel_host::RunSidebarPanelHost;
 use crate::ui::sidebar_panel_host::SidebarPanelHost;
 use crate::ui::terminal_view::{
-    NativeTerminalScrollDrag, SnippetHotkeyState, TerminalInteractionSignals, terminal_shell,
+    NativeTerminalHorizontalScrollDrag, NativeTerminalScrollDrag, SnippetHotkeyState,
+    TerminalInteractionSignals, terminal_shell,
 };
 use dioxus::html::input_data::MouseButton;
 use dioxus::prelude::*;
@@ -45,10 +46,12 @@ pub(crate) fn WorkspaceMain(
     native_terminal_surface_cells: Signal<HashMap<SessionId, (u16, u16)>>,
     native_terminal_surface_sizes: Signal<HashMap<SessionId, (f64, f64)>>,
     native_terminal_local_offsets: Signal<HashMap<SessionId, usize>>,
+    native_terminal_horizontal_offsets: Signal<HashMap<SessionId, usize>>,
     terminal_body_stick_bottom: Signal<HashMap<SessionId, bool>>,
     terminal_viewport_sizes: Signal<HashMap<SessionId, (u16, u16)>>,
     native_hovered_terminal: Signal<Option<SessionId>>,
     native_scroll_drag: Signal<Option<NativeTerminalScrollDrag>>,
+    native_horizontal_scroll_drag: Signal<Option<NativeTerminalHorizontalScrollDrag>>,
     emily_bridge: Signal<Arc<EmilyBridge>>,
     vectorization_status: Signal<VectorizationStatus>,
     terminal_manager: Signal<Arc<TerminalManager>>,
@@ -231,10 +234,12 @@ pub(crate) fn WorkspaceMain(
         native_terminal_surface_cells,
         native_terminal_surface_sizes,
         native_terminal_local_offsets,
+        native_terminal_horizontal_offsets,
         terminal_body_stick_bottom,
         terminal_viewport_sizes,
         native_hovered_terminal,
         native_scroll_drag,
+        native_horizontal_scroll_drag,
         snippet_hotkey_state,
     };
     let workspace_class = if runner_drag_start.read().is_some()

@@ -525,8 +525,25 @@
   overflow: hidden;
 }
 
+.terminal-native-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: calc(8px * var(--font-scale));
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.terminal-native-pane {
+  grid-column: 1;
+  grid-row: 1;
+}
+
 .terminal-native-scrollbar {
   position: relative;
+  grid-column: 2;
+  grid-row: 1;
   width: calc(12px * var(--font-scale));
   min-width: calc(12px * var(--font-scale));
   min-height: 0;
@@ -557,6 +574,49 @@
   box-shadow:
     0 0 0 1px #0f1d11,
     0 0 10px #8fff6e2b;
+}
+
+.terminal-native-hscrollbar {
+  position: relative;
+  grid-column: 1;
+  grid-row: 2;
+  height: calc(12px * var(--font-scale));
+  min-height: calc(12px * var(--font-scale));
+  border-radius: 999px;
+  background: #ffffff0d;
+  box-shadow: inset 0 0 0 1px #ffffff14;
+  user-select: none;
+}
+
+.terminal-native-hscrollbar-hidden {
+  visibility: hidden;
+}
+
+.terminal-native-hscrollbar-track {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+
+.terminal-native-hscrollbar-thumb {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  min-width: calc(24px * var(--font-scale));
+  border-radius: 999px;
+  background: linear-gradient(90deg, #d7f5cb 0%, #8bcf7b 100%);
+  box-shadow:
+    0 0 0 1px #0f1d11,
+    0 0 10px #8fff6e2b;
+}
+
+.terminal-native-scrollbar-corner {
+  grid-column: 2;
+  grid-row: 2;
+  width: calc(12px * var(--font-scale));
+  height: calc(12px * var(--font-scale));
+  border-radius: 6px;
+  background: #ffffff08;
 }
 
 .terminal-native-canvas {

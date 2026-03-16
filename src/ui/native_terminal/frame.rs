@@ -38,14 +38,22 @@ impl NativeTerminalFrame {
         show_cursor: bool,
         visible_rows: u16,
         local_scroll_offset: u16,
+        visible_cols: u16,
+        horizontal_scroll_offset: u16,
     ) -> Self {
         let rows = visible_rows.max(1).min(snapshot.rows.max(1));
-        let cols = snapshot.cols.max(1);
+        let cols = visible_cols.max(1).min(snapshot.cols.max(1));
+        let left_col = horizontal_scroll_offset.min(snapshot.cols.saturating_sub(cols));
         let visible_lines = visible_window(snapshot, rows, local_scroll_offset);
         let mut cells = vec![NativeTerminalCell::default(); usize::from(rows) * usize::from(cols)];
 
         for (row_index, line) in visible_lines.iter().enumerate() {
-            for (col_index, codepoint) in line.chars().take(usize::from(cols)).enumerate() {
+            for (col_index, codepoint) in line
+                .chars()
+                .skip(usize::from(left_col))
+                .take(usize::from(cols))
+                .enumerate()
+            {
                 let cell_index = row_index * usize::from(cols) + col_index;
                 cells[cell_index] = NativeTerminalCell { codepoint };
             }
@@ -54,13 +62,22 @@ impl NativeTerminalFrame {
         let cursor = show_cursor.then(|| {
             let window_start = visible_window_start(snapshot, rows, local_scroll_offset);
             let cursor_row = usize::from(snapshot.cursor_row).saturating_sub(window_start);
+            if snapshot.cursor_col < left_col || snapshot.cursor_col >= left_col.saturating_add(cols)
+            {
+                return None;
+            }
             NativeTerminalCursor {
                 row: u16::try_from(cursor_row)
                     .unwrap_or(rows.saturating_sub(1))
                     .min(rows.saturating_sub(1)),
-                col: snapshot.cursor_col.min(cols.saturating_sub(1)),
+                col: snapshot
+                    .cursor_col
+                    .saturating_sub(left_col)
+                    .min(cols.saturating_sub(1)),
             }
-        });
+            .into()
+        })
+        .flatten();
 
         Self {
             rows,
@@ -80,19 +97,23 @@ impl NativeTerminalFrame {
         show_cursor: bool,
         visible_rows: u16,
         local_scroll_offset: u16,
+        visible_cols: u16,
+        horizontal_scroll_offset: u16,
     ) -> Self {
         let rows = visible_rows.max(1).min(frame.rows.max(1));
-        let cols = frame.cols.max(1);
+        let cols = visible_cols.max(1).min(frame.cols.max(1));
+        let left_col = horizontal_scroll_offset.min(frame.cols.saturating_sub(cols));
         let mut cells = vec![NativeTerminalCell::default(); usize::from(rows) * usize::from(cols)];
         let frame_row_offset = usize::from(frame.rows.max(rows) - rows) - usize::from(local_scroll_offset.min(frame.rows.saturating_sub(rows)));
 
         if let Some(full_cells) = full_cells(frame) {
             for row in 0..rows {
                 let source_row = usize::from(row) + frame_row_offset;
-                let source_row_offset = source_row * usize::from(cols);
+                let source_row_offset = source_row * usize::from(frame.cols);
                 let row_offset = usize::from(row) * usize::from(cols);
                 for col in 0..cols {
-                    let source_index = source_row_offset + usize::from(col);
+                    let source_index =
+                        source_row_offset + usize::from(left_col) + usize::from(col);
                     let index = row_offset + usize::from(col);
                     if let Some(cell) = full_cells.get(source_index) {
                         cells[index] = NativeTerminalCell {
@@ -111,12 +132,18 @@ impl NativeTerminalFrame {
                 if cursor.row < top_row {
                     return None;
                 }
+                if cursor.col < left_col || cursor.col >= left_col.saturating_add(cols) {
+                    return None;
+                }
                 Some(NativeTerminalCursor {
                     row: cursor
                         .row
                         .saturating_sub(top_row)
                         .min(rows.saturating_sub(1)),
-                    col: cursor.col.min(cols.saturating_sub(1)),
+                    col: cursor
+                        .col
+                        .saturating_sub(left_col)
+                        .min(cols.saturating_sub(1)),
                 })
             });
 
@@ -134,10 +161,26 @@ impl NativeTerminalFrame {
         show_cursor: bool,
         visible_rows: u16,
         local_scroll_offset: u16,
+        visible_cols: u16,
+        horizontal_scroll_offset: u16,
     ) -> Self {
-        let native = Self::from_native_frame(frame, show_cursor, visible_rows, local_scroll_offset);
+        let native = Self::from_native_frame(
+            frame,
+            show_cursor,
+            visible_rows,
+            local_scroll_offset,
+            visible_cols,
+            horizontal_scroll_offset,
+        );
         if native.is_visibly_blank() && snapshot.lines.iter().any(|line| !line.is_empty()) {
-            return Self::from_snapshot(snapshot, show_cursor, visible_rows, local_scroll_offset);
+            return Self::from_snapshot(
+                snapshot,
+                show_cursor,
+                visible_rows,
+                local_scroll_offset,
+                visible_cols,
+                horizontal_scroll_offset,
+            );
         }
         native
     }
@@ -195,7 +238,7 @@ mod tests {
             bracketed_paste: false,
         };
 
-        let frame = NativeTerminalFrame::from_snapshot(&snapshot, true);
+        let frame = NativeTerminalFrame::from_snapshot(&snapshot, true, 2, 0, 5, 0);
 
         assert_eq!(frame.rows, 2);
         assert_eq!(frame.cell(0, 0).codepoint, 't');
@@ -215,10 +258,30 @@ mod tests {
             bracketed_paste: false,
         };
 
-        let frame = NativeTerminalFrame::from_snapshot(&snapshot, true);
+        let frame = NativeTerminalFrame::from_snapshot(&snapshot, true, 1, 0, 3, 0);
         let cursor = frame.cursor.unwrap();
         assert_eq!(cursor.row, 0);
         assert_eq!(cursor.col, 2);
+    }
+
+    #[test]
+    fn frame_crops_snapshot_columns_for_horizontal_scroll() {
+        let snapshot = TerminalSnapshot {
+            lines: vec!["abcdef".into()],
+            rows: 1,
+            cols: 6,
+            cursor_row: 0,
+            cursor_col: 4,
+            hide_cursor: false,
+            bracketed_paste: false,
+        };
+
+        let frame = NativeTerminalFrame::from_snapshot(&snapshot, true, 1, 0, 3, 2);
+
+        assert_eq!(frame.cols, 3);
+        assert_eq!(frame.cell(0, 0).codepoint, 'c');
+        assert_eq!(frame.cell(0, 2).codepoint, 'e');
+        assert_eq!(frame.cursor.unwrap().col, 2);
     }
 
     #[test]
@@ -264,11 +327,57 @@ mod tests {
             ])),
         };
 
-        let native = NativeTerminalFrame::from_native_frame(&frame, true);
+        let native = NativeTerminalFrame::from_native_frame(&frame, true, 2, 0, 3, 0);
 
         assert_eq!(native.cell(0, 0).codepoint, 'a');
         assert_eq!(native.cell(1, 1).codepoint, ' ');
         assert_eq!(native.cursor.unwrap().row, 1);
         assert_eq!(native.cursor.unwrap().col, 2);
+    }
+
+    #[test]
+    fn frame_crops_native_columns_for_horizontal_scroll() {
+        let frame = TerminalFrame {
+            rows: 1,
+            cols: 5,
+            history_size: 0,
+            cursor: TerminalCursor {
+                row: 0,
+                col: 3,
+                shape: TerminalCursorShape::Block,
+            },
+            bracketed_paste: false,
+            display_offset: 0,
+            damage: TerminalDamage::Full,
+            publication: TerminalCellPublication::Full(Arc::new(vec![
+                TerminalCell {
+                    codepoint: 'a',
+                    ..TerminalCell::default()
+                },
+                TerminalCell {
+                    codepoint: 'b',
+                    ..TerminalCell::default()
+                },
+                TerminalCell {
+                    codepoint: 'c',
+                    ..TerminalCell::default()
+                },
+                TerminalCell {
+                    codepoint: 'd',
+                    ..TerminalCell::default()
+                },
+                TerminalCell {
+                    codepoint: 'e',
+                    ..TerminalCell::default()
+                },
+            ])),
+        };
+
+        let native = NativeTerminalFrame::from_native_frame(&frame, true, 1, 0, 2, 2);
+
+        assert_eq!(native.cols, 2);
+        assert_eq!(native.cell(0, 0).codepoint, 'c');
+        assert_eq!(native.cell(0, 1).codepoint, 'd');
+        assert_eq!(native.cursor.unwrap().col, 1);
     }
 }

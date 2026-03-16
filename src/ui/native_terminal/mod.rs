@@ -8,6 +8,7 @@ mod scene;
 
 pub(crate) use component::NativeTerminalBody;
 pub(crate) use scene::scaled_cell_height_px;
+pub(crate) use scene::scaled_cell_width_px;
 
 pub(crate) const PILOT_ENV_VAR: &str = "GESTALT_NATIVE_TERMINAL_PILOT";
 const PILOT_SCOPE_ENV_VAR: &str = "GESTALT_NATIVE_TERMINAL_PILOT_SCOPE";

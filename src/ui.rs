@@ -40,7 +40,9 @@ use crate::ui::tab_rail::TabRail;
 use crate::ui::terminal_input::{key_event_to_bytes, measure_terminal_viewport};
 #[cfg(feature = "native-renderer")]
 use crate::ui::terminal_input::measure_native_terminal_viewport;
-use crate::ui::terminal_view::{NativeTerminalScrollDrag, apply_native_scroll_delta};
+use crate::ui::terminal_view::{
+    NativeTerminalHorizontalScrollDrag, NativeTerminalScrollDrag, apply_native_scroll_delta,
+};
 use crate::ui::workspace::WorkspaceMain;
 use dioxus::document;
 #[cfg(feature = "terminal-native-spike")]
@@ -147,10 +149,12 @@ pub fn App() -> Element {
     let native_terminal_surface_cells = use_signal(|| HashMap::<SessionId, (u16, u16)>::new());
     let native_terminal_surface_sizes = use_signal(|| HashMap::<SessionId, (f64, f64)>::new());
     let mut native_terminal_local_offsets = use_signal(|| HashMap::<SessionId, usize>::new());
+    let mut native_terminal_horizontal_offsets = use_signal(|| HashMap::<SessionId, usize>::new());
     let terminal_body_stick_bottom = use_signal(|| HashMap::<SessionId, bool>::new());
     let terminal_viewport_sizes = use_signal(|| HashMap::<SessionId, (u16, u16)>::new());
     let native_hovered_terminal = use_signal(|| None::<SessionId>);
     let mut native_scroll_drag = use_signal(|| None::<NativeTerminalScrollDrag>);
+    let mut native_horizontal_scroll_drag = use_signal(|| None::<NativeTerminalHorizontalScrollDrag>);
     let autosave_dirty_notify = use_signal(|| Arc::new(tokio::sync::Notify::new()));
     let git_refresh_notify = use_signal(|| Arc::new(tokio::sync::Notify::new()));
     let refresh_tick = use_signal(|| 0_u64);
@@ -320,6 +324,7 @@ pub fn App() -> Element {
         let mut native_terminal_viewport_mounts = native_terminal_viewport_mounts;
         let mut native_terminal_surface_cells = native_terminal_surface_cells;
         let mut native_terminal_surface_sizes = native_terminal_surface_sizes;
+        let mut native_terminal_horizontal_offsets = native_terminal_horizontal_offsets;
         let mut terminal_viewport_sizes = terminal_viewport_sizes;
         use_future(move || {
             let terminal_manager = terminal_manager.clone();
@@ -353,6 +358,9 @@ pub fn App() -> Element {
                     native_terminal_surface_sizes
                         .write()
                         .retain(|session_id, _| active_session_set.contains(session_id));
+                    native_terminal_horizontal_offsets
+                        .write()
+                        .retain(|session_id, _| active_session_set.contains(session_id));
                     terminal_viewport_sizes
                         .write()
                         .retain(|session_id, _| active_session_set.contains(session_id));
@@ -384,7 +392,12 @@ pub fn App() -> Element {
                             if let Some(surface_cells) = native_surface_cells {
                                 Some(surface_cells)
                             } else if let Some(body_mount) = body_mount {
-                                measure_terminal_viewport(body_mount, ui_scale, native_terminal_active)
+                                measure_terminal_viewport(
+                                    body_mount,
+                                    ui_scale,
+                                    native_terminal_active,
+                                    wrap_enabled,
+                                )
                                     .await
                             } else {
                                 #[cfg(feature = "native-renderer")]
@@ -402,7 +415,12 @@ pub fn App() -> Element {
                                 }
                             }
                         } else if let Some(body_mount) = body_mount {
-                            measure_terminal_viewport(body_mount, ui_scale, native_terminal_active)
+                            measure_terminal_viewport(
+                                body_mount,
+                                ui_scale,
+                                native_terminal_active,
+                                wrap_enabled,
+                            )
                                 .await
                         } else {
                             None
@@ -410,6 +428,9 @@ pub fn App() -> Element {
                         let Some((rows, cols)) = measured else {
                             continue;
                         };
+                        if wrap_enabled {
+                            native_terminal_horizontal_offsets.write().remove(&session_id);
+                        }
                         terminal_viewport_sizes.write().insert(session_id, (rows, cols));
                         let cols = if native_terminal_active && !wrap_enabled {
                             terminal_manager
@@ -654,10 +675,12 @@ pub fn App() -> Element {
         native_terminal_surface_cells: native_terminal_surface_cells,
         native_terminal_surface_sizes: native_terminal_surface_sizes,
         native_terminal_local_offsets: native_terminal_local_offsets,
+        native_terminal_horizontal_offsets: native_terminal_horizontal_offsets,
         terminal_body_stick_bottom: terminal_body_stick_bottom,
         terminal_viewport_sizes: terminal_viewport_sizes,
         native_hovered_terminal: native_hovered_terminal,
         native_scroll_drag: native_scroll_drag,
+        native_horizontal_scroll_drag: native_horizontal_scroll_drag,
         emily_bridge: emily_bridge,
         vectorization_status: vectorization_status,
         terminal_manager: terminal_manager,
@@ -822,6 +845,46 @@ pub fn App() -> Element {
                         );
                     }
                 }
+                if let Some(drag) = native_horizontal_scroll_drag.read().clone() {
+                    let terminal_manager = terminal_manager.read().clone();
+                    let (frame_cols, visible_cols) = terminal_manager
+                        .native_frame_shared(drag.session_id)
+                        .map(|frame| {
+                            let visible_cols = terminal_viewport_sizes
+                                .read()
+                                .get(&drag.session_id)
+                                .map(|(_, cols)| *cols)
+                                .unwrap_or(frame.cols)
+                                .max(1);
+                            (frame.cols, visible_cols)
+                        })
+                        .unwrap_or((0, 0));
+                    let total_scroll_range =
+                        usize::from(frame_cols.saturating_sub(visible_cols));
+                    if total_scroll_range > 0 {
+                        let delta_offset = ((event.data().client_coordinates().x
+                            - drag.start_client_x)
+                            / drag.thumb_travel_px.max(1.0)
+                            * total_scroll_range as f64)
+                            .round() as i32;
+                        let desired_offset = if delta_offset >= 0 {
+                            drag.start_offset.saturating_add(delta_offset as usize)
+                        } else {
+                            drag.start_offset
+                                .saturating_sub(delta_offset.unsigned_abs() as usize)
+                        }
+                        .min(total_scroll_range);
+                        if desired_offset == 0 {
+                            native_terminal_horizontal_offsets
+                                .write()
+                                .remove(&drag.session_id);
+                        } else {
+                            native_terminal_horizontal_offsets
+                                .write()
+                                .insert(drag.session_id, desired_offset);
+                        }
+                    }
+                }
                 if rail_drag_start.read().is_some() && event.data().held_buttons().is_empty() {
                     rail_drag_start.set(None);
                     return;
@@ -837,10 +900,12 @@ pub fn App() -> Element {
             },
             onmouseup: move |_| {
                 native_scroll_drag.set(None);
+                native_horizontal_scroll_drag.set(None);
                 rail_drag_start.set(None);
             },
             onmouseleave: move |_| {
                 native_scroll_drag.set(None);
+                native_horizontal_scroll_drag.set(None);
                 if cfg!(feature = "native-renderer") {
                     return;
                 }

@@ -222,13 +222,17 @@ pub(crate) async fn measure_terminal_viewport(
     terminal_body: Rc<MountedData>,
     ui_scale: f64,
     native_terminal_active: bool,
+    wrap_enabled: bool,
 ) -> Option<(u16, u16)> {
     let client_rect = terminal_body.get_client_rect().await.ok()?;
     let viewport_width = (client_rect.size.width
         - (term_pad_x(ui_scale) * 2.0)
         - native_scrollbar_chrome_width(ui_scale, native_terminal_active))
         .max(0.0);
-    let viewport_height = (client_rect.size.height - (term_pad_y(ui_scale) * 2.0)).max(0.0);
+    let viewport_height = (client_rect.size.height
+        - (term_pad_y(ui_scale) * 2.0)
+        - native_horizontal_scrollbar_chrome_height(ui_scale, native_terminal_active, wrap_enabled))
+        .max(0.0);
     let cols = (viewport_width / term_char_width(ui_scale))
         .floor()
         .max(8.0) as u16;
@@ -389,4 +393,16 @@ fn native_scrollbar_chrome_width(ui_scale: f64, native_terminal_active: bool) ->
 
     let _ = (ui_scale, native_terminal_active);
     0.0
+}
+
+fn native_horizontal_scrollbar_chrome_height(
+    ui_scale: f64,
+    native_terminal_active: bool,
+    wrap_enabled: bool,
+) -> f64 {
+    if !native_terminal_active || wrap_enabled {
+        return 0.0;
+    }
+
+    (NATIVE_SCROLLBAR_WIDTH_PX * ui_scale) + (NATIVE_SCROLLBAR_GAP_PX * ui_scale)
 }

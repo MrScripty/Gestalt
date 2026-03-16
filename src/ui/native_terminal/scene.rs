@@ -105,6 +105,10 @@ pub(crate) fn scaled_cell_height_px(ui_scale: f64) -> f64 {
     f64::from(scaled_cell_extent(CELL_HEIGHT_PX, ui_scale as f32).max(1))
 }
 
+pub(crate) fn scaled_cell_width_px(ui_scale: f64) -> f64 {
+    f64::from(scaled_cell_extent(CELL_WIDTH_PX, ui_scale as f32).max(1))
+}
+
 fn cursor_instance(
     cursor: NativeTerminalCursor,
     cell_width: f32,
