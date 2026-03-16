@@ -182,19 +182,18 @@ impl InteractionLocation for NativeClickData {
         ClientPoint::new(self.0.x as _, self.0.y as _)
     }
 
-    // these require blitz to pass them along, or a dom rect
     fn screen_coordinates(&self) -> ScreenPoint {
-        unimplemented!()
+        ScreenPoint::new(self.0.x as _, self.0.y as _)
     }
 
     fn page_coordinates(&self) -> PagePoint {
-        unimplemented!()
+        PagePoint::new(self.0.x as _, self.0.y as _)
     }
 }
 
 impl InteractionElementOffset for NativeClickData {
     fn element_coordinates(&self) -> ElementPoint {
-        unimplemented!()
+        ElementPoint::new(self.0.x as _, self.0.y as _)
     }
 }
 
@@ -234,17 +233,17 @@ impl InteractionLocation for NativeWheelData {
     }
 
     fn screen_coordinates(&self) -> ScreenPoint {
-        unimplemented!()
+        ScreenPoint::new(self.0.x as _, self.0.y as _)
     }
 
     fn page_coordinates(&self) -> PagePoint {
-        unimplemented!()
+        PagePoint::new(self.0.x as _, self.0.y as _)
     }
 }
 
 impl InteractionElementOffset for NativeWheelData {
     fn element_coordinates(&self) -> ElementPoint {
-        unimplemented!()
+        ElementPoint::new(self.0.x as _, self.0.y as _)
     }
 }
 
