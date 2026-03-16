@@ -658,7 +658,8 @@ fn WorkspaceTerminalCard(
         .session_cwd(session_id)
         .unwrap_or_else(|| pane.cwd.clone());
     let cwd = format_cwd_for_display(&cwd_source, active_path.as_str());
-    let terminal_manager_for_input = terminal_manager_for_runtime;
+    let terminal_manager_for_input = terminal_manager_for_runtime.clone();
+    let terminal_manager_for_wrap_toggle = terminal_manager_for_runtime;
     let emily_bridge_for_history = emily_bridge.read().clone();
     let renaming_header_id = *renaming_header.read();
     let rename_header_draft_value = rename_header_draft.read().clone();
@@ -681,6 +682,11 @@ fn WorkspaceTerminalCard(
     } else {
         "Enable word wrap"
     };
+    let viewport_size_for_wrap_toggle = interaction
+        .terminal_viewport_sizes
+        .read()
+        .get(&session_id)
+        .copied();
 
     rsx! {
         article {
@@ -763,6 +769,36 @@ fn WorkspaceTerminalCard(
                             .write()
                             .terminal_wrap_by_session
                             .insert(session_id, next);
+                        interaction
+                            .native_terminal_horizontal_offsets
+                            .write()
+                            .remove(&session_id);
+                        if let Some((rows, viewport_cols)) = viewport_size_for_wrap_toggle {
+                            let target_cols = if next {
+                                viewport_cols.max(24)
+                            } else {
+                                const WRAP_DISABLED_MAX_COLS: usize = 400;
+                                terminal_manager_for_wrap_toggle
+                                    .snapshot_shared(session_id)
+                                    .map(|snapshot| {
+                                        let widest_line = snapshot
+                                            .lines
+                                            .iter()
+                                            .map(|line| line.chars().count())
+                                            .max()
+                                            .unwrap_or(usize::from(snapshot.cols));
+                                        u16::try_from(widest_line.min(WRAP_DISABLED_MAX_COLS))
+                                            .unwrap_or(u16::MAX)
+                                            .max(viewport_cols.max(24))
+                                    })
+                                    .unwrap_or_else(|| viewport_cols.max(24))
+                            };
+                            let _ = terminal_manager_for_wrap_toggle.resize_session(
+                                session_id,
+                                rows.max(1),
+                                target_cols,
+                            );
+                        }
                     },
                     if wrap_enabled {
                         "Wrap On"

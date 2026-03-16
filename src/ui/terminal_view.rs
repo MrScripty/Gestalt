@@ -111,7 +111,7 @@ pub(crate) fn terminal_shell(
     };
     #[cfg(feature = "native-renderer")]
     let native_terminal_active =
-        native_terminal_pilot_active_for_pane(terminal_is_selected) && !crt_enabled;
+        native_terminal_pilot_active_for_pane(terminal_is_selected) && !crt_enabled && !wrap_enabled;
     #[cfg(not(feature = "native-renderer"))]
     let native_terminal_active = false;
     let body_class = if crt_enabled {

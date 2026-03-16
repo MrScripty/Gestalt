@@ -452,6 +452,18 @@
   overflow-wrap: anywhere;
 }
 
+.terminal-body.terminal-wrap-enabled:not(.native-terminal-active) .terminal-grid {
+  width: 100%;
+  min-width: 0;
+}
+
+.terminal-body.terminal-wrap-enabled:not(.native-terminal-active) .terminal-line {
+  height: auto;
+  min-height: var(--term-line-height);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .terminal-body.terminal-wrap-disabled:not(.native-terminal-active) {
   white-space: pre;
 }

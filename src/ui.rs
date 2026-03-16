@@ -368,6 +368,12 @@ pub fn App() -> Element {
                     for session_id in active_session_ids {
                         let (body_mount, native_viewport_mount, native_surface_cells, ui_scale, native_terminal_active, wrap_enabled) = {
                             let state = app_state.read();
+                            let wrap_enabled = ui_state
+                                .read()
+                                .terminal_wrap_by_session
+                                .get(&session_id)
+                                .copied()
+                                .unwrap_or(true);
                             (
                                 terminal_body_mounts.read().get(&session_id).cloned(),
                                 native_terminal_viewport_mounts
@@ -379,13 +385,10 @@ pub fn App() -> Element {
                                     .get(&session_id)
                                     .copied(),
                                 state.ui_scale(),
-                                cfg!(feature = "native-renderer") && !state.crt_enabled(),
-                                ui_state
-                                    .read()
-                                    .terminal_wrap_by_session
-                                    .get(&session_id)
-                                    .copied()
-                                    .unwrap_or(true),
+                                cfg!(feature = "native-renderer")
+                                    && !state.crt_enabled()
+                                    && !wrap_enabled,
+                                wrap_enabled,
                             )
                         };
                         let measured = if native_terminal_active {
