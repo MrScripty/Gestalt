@@ -46,6 +46,8 @@ and terminal runtime ownership remain unchanged.
     terminal viewport node through layout
 - The native viewport itself should stay visually pinned inside the pane; only displayed terminal
   content and scrollbar state should move during scrollback interaction.
+- Native panes expose scroll position with dedicated scrollbar chrome in `terminal_view`; the
+  scrollbar reflects backend history metadata rather than DOM content height.
 
 ## Scroll Pipeline
 1. PTY output is ingested by `terminal_native::session`.
@@ -60,7 +62,8 @@ and terminal runtime ownership remain unchanged.
    DOM layout.
 
 The native pane body may host scrollbar chrome, but DOM scrolling is not the source of truth for
-native terminal history.
+native terminal history. The viewport stays pinned while the scrollbar thumb and frame content are
+driven by backend `display_offset` changes.
 
 ## Usage Examples
 ```bash
