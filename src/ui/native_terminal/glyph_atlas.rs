@@ -5,7 +5,7 @@ use ab_glyph::{Font, FontArc, PxScale, ScaleFont, point};
 use super::constants::ATLAS_TEXTURE_SIZE_PX;
 
 const FONT_BYTES: &[u8] = include_bytes!("../../../assets/terminal-native/DejaVuSansMono.ttf");
-const GLYPH_SCALE_HEIGHT_RATIO: f32 = 0.82;
+const GLYPH_SCALE_HEIGHT_RATIO: f32 = 0.92;
 const ASCII_CACHE_LEN: usize = 128;
 
 #[derive(Clone, Copy, Debug)]
