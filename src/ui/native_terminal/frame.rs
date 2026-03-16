@@ -33,10 +33,15 @@ impl NativeTerminalFrame {
         self.cells.iter().all(|cell| cell.codepoint == ' ')
     }
 
-    pub(crate) fn from_snapshot(snapshot: &TerminalSnapshot, show_cursor: bool) -> Self {
-        let rows = snapshot.rows.max(1);
+    pub(crate) fn from_snapshot(
+        snapshot: &TerminalSnapshot,
+        show_cursor: bool,
+        visible_rows: u16,
+        local_scroll_offset: u16,
+    ) -> Self {
+        let rows = visible_rows.max(1).min(snapshot.rows.max(1));
         let cols = snapshot.cols.max(1);
-        let visible_lines = visible_window(snapshot, rows);
+        let visible_lines = visible_window(snapshot, rows, local_scroll_offset);
         let mut cells = vec![NativeTerminalCell::default(); usize::from(rows) * usize::from(cols)];
 
         for (row_index, line) in visible_lines.iter().enumerate() {
@@ -47,7 +52,7 @@ impl NativeTerminalFrame {
         }
 
         let cursor = show_cursor.then(|| {
-            let window_start = snapshot.lines.len().saturating_sub(usize::from(rows));
+            let window_start = visible_window_start(snapshot, rows, local_scroll_offset);
             let cursor_row = usize::from(snapshot.cursor_row).saturating_sub(window_start);
             NativeTerminalCursor {
                 row: u16::try_from(cursor_row)
@@ -70,17 +75,26 @@ impl NativeTerminalFrame {
         self.cells.get(index).copied().unwrap_or_default()
     }
 
-    pub(crate) fn from_native_frame(frame: &TerminalFrame, show_cursor: bool) -> Self {
-        let rows = frame.rows.max(1);
+    pub(crate) fn from_native_frame(
+        frame: &TerminalFrame,
+        show_cursor: bool,
+        visible_rows: u16,
+        local_scroll_offset: u16,
+    ) -> Self {
+        let rows = visible_rows.max(1).min(frame.rows.max(1));
         let cols = frame.cols.max(1);
         let mut cells = vec![NativeTerminalCell::default(); usize::from(rows) * usize::from(cols)];
+        let frame_row_offset = usize::from(frame.rows.max(rows) - rows) - usize::from(local_scroll_offset.min(frame.rows.saturating_sub(rows)));
 
         if let Some(full_cells) = full_cells(frame) {
             for row in 0..rows {
+                let source_row = usize::from(row) + frame_row_offset;
+                let source_row_offset = source_row * usize::from(cols);
                 let row_offset = usize::from(row) * usize::from(cols);
                 for col in 0..cols {
+                    let source_index = source_row_offset + usize::from(col);
                     let index = row_offset + usize::from(col);
-                    if let Some(cell) = full_cells.get(index) {
+                    if let Some(cell) = full_cells.get(source_index) {
                         cells[index] = NativeTerminalCell {
                             codepoint: native_codepoint(cell),
                         };
@@ -92,9 +106,18 @@ impl NativeTerminalFrame {
         let cursor = show_cursor
             .then_some(frame.cursor)
             .filter(|cursor| !matches!(cursor.shape, TerminalCursorShape::Hidden))
-            .map(|cursor| NativeTerminalCursor {
-                row: cursor.row.min(rows.saturating_sub(1)),
-                col: cursor.col.min(cols.saturating_sub(1)),
+            .and_then(|cursor| {
+                let top_row = frame_row_offset as u16;
+                if cursor.row < top_row {
+                    return None;
+                }
+                Some(NativeTerminalCursor {
+                    row: cursor
+                        .row
+                        .saturating_sub(top_row)
+                        .min(rows.saturating_sub(1)),
+                    col: cursor.col.min(cols.saturating_sub(1)),
+                })
             });
 
         Self {
@@ -109,19 +132,25 @@ impl NativeTerminalFrame {
         frame: &TerminalFrame,
         snapshot: &TerminalSnapshot,
         show_cursor: bool,
+        visible_rows: u16,
+        local_scroll_offset: u16,
     ) -> Self {
-        let native = Self::from_native_frame(frame, show_cursor);
+        let native = Self::from_native_frame(frame, show_cursor, visible_rows, local_scroll_offset);
         if native.is_visibly_blank() && snapshot.lines.iter().any(|line| !line.is_empty()) {
-            return Self::from_snapshot(snapshot, show_cursor);
+            return Self::from_snapshot(snapshot, show_cursor, visible_rows, local_scroll_offset);
         }
         native
     }
 }
 
-fn visible_window(snapshot: &TerminalSnapshot, rows: u16) -> &[String] {
-    let line_count = snapshot.lines.len();
-    let window_start = line_count.saturating_sub(usize::from(rows));
+fn visible_window(snapshot: &TerminalSnapshot, rows: u16, local_scroll_offset: u16) -> &[String] {
+    let window_start = visible_window_start(snapshot, rows, local_scroll_offset);
     &snapshot.lines[window_start..]
+}
+
+fn visible_window_start(snapshot: &TerminalSnapshot, rows: u16, local_scroll_offset: u16) -> usize {
+    let bottom_start = snapshot.lines.len().saturating_sub(usize::from(rows));
+    bottom_start.saturating_sub(usize::from(local_scroll_offset))
 }
 
 fn full_cells(frame: &TerminalFrame) -> Option<&[TerminalCell]> {

@@ -5,6 +5,7 @@ use parking_lot::Mutex;
 
 use super::frame::NativeTerminalFrame;
 use super::renderer::NativeTerminalGpuRenderer;
+use super::scene::surface_cells;
 
 #[derive(Clone)]
 pub(crate) struct NativeTerminalPaintBridge {
@@ -16,6 +17,7 @@ struct PaintState {
     revision: u64,
     frame: NativeTerminalFrame,
     ui_scale: f32,
+    surface_cells: Option<(u16, u16)>,
 }
 
 pub(crate) struct NativeTerminalPaintSource {
@@ -35,6 +37,7 @@ impl NativeTerminalPaintBridge {
                 revision: 1,
                 frame,
                 ui_scale,
+                surface_cells: None,
             })),
         }
     }
@@ -50,6 +53,15 @@ impl NativeTerminalPaintBridge {
 
     fn snapshot(&self) -> PaintState {
         self.inner.lock().clone()
+    }
+
+    pub(crate) fn update_surface_cells(&self, rows: u16, cols: u16) {
+        let mut state = self.inner.lock();
+        state.surface_cells = Some((rows, cols));
+    }
+
+    pub(crate) fn surface_cells(&self) -> Option<(u16, u16)> {
+        self.inner.lock().surface_cells
     }
 }
 
@@ -84,6 +96,8 @@ impl CustomPaintSource for NativeTerminalPaintSource {
         };
 
         let snapshot = self.bridge.snapshot();
+        let (rows, cols) = surface_cells(width, height, snapshot.ui_scale);
+        self.bridge.update_surface_cells(rows, cols);
         if let Some(handle) = renderer.cached_handle_if_unchanged(snapshot.revision, width, height)
         {
             return Some(handle);

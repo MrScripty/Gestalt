@@ -43,6 +43,9 @@ pub(crate) struct TerminalInteractionSignals {
     pub app_state: Signal<AppState>,
     pub ui_state: Signal<UiState>,
     pub terminal_body_mounts: Signal<HashMap<SessionId, Rc<MountedData>>>,
+    pub native_terminal_viewport_mounts: Signal<HashMap<SessionId, Rc<MountedData>>>,
+    pub native_terminal_surface_cells: Signal<HashMap<SessionId, (u16, u16)>>,
+    pub native_terminal_local_offsets: Signal<HashMap<SessionId, usize>>,
     pub terminal_body_stick_bottom: Signal<HashMap<SessionId, bool>>,
     pub terminal_viewport_sizes: Signal<HashMap<SessionId, (u16, u16)>>,
     pub native_hovered_terminal: Signal<Option<SessionId>>,
@@ -63,6 +66,9 @@ pub(crate) fn terminal_shell(
     let app_state = interaction.app_state;
     let mut ui_state = interaction.ui_state;
     let mut terminal_body_mounts = interaction.terminal_body_mounts;
+    let mut native_terminal_viewport_mounts = interaction.native_terminal_viewport_mounts;
+    let native_terminal_surface_cells = interaction.native_terminal_surface_cells;
+    let mut native_terminal_local_offsets = interaction.native_terminal_local_offsets;
     let mut terminal_body_stick_bottom = interaction.terminal_body_stick_bottom;
     let terminal_viewport_sizes = interaction.terminal_viewport_sizes;
     let mut native_hovered_terminal = interaction.native_hovered_terminal;
@@ -197,8 +203,28 @@ pub(crate) fn terminal_shell(
         .read()
         .get(&session_id)
         .map(|(rows, _)| *rows)
+        .or_else(|| {
+            native_terminal_surface_cells
+                .read()
+                .get(&session_id)
+                .map(|(rows, _)| *rows)
+        })
         .unwrap_or(terminal.rows)
         .max(1);
+    #[cfg(feature = "native-renderer")]
+    let native_frame_rows = native_frame
+        .as_ref()
+        .map(|frame| frame.rows.max(1))
+        .unwrap_or(terminal.rows.max(1));
+    #[cfg(feature = "native-renderer")]
+    let native_hidden_rows = usize::from(native_frame_rows.saturating_sub(native_visible_rows));
+    #[cfg(feature = "native-renderer")]
+    let native_local_offset = native_terminal_local_offsets
+        .read()
+        .get(&session_id)
+        .copied()
+        .unwrap_or(0)
+        .min(native_hidden_rows);
     #[cfg(feature = "native-renderer")]
     let native_history_size = native_frame
         .as_ref()
@@ -210,10 +236,29 @@ pub(crate) fn terminal_shell(
         .map(|frame| frame.display_offset)
         .unwrap_or(0);
     #[cfg(feature = "native-renderer")]
+    let native_total_scroll_range = native_history_size + native_hidden_rows;
+    #[cfg(feature = "native-renderer")]
+    let native_effective_offset = native_display_offset + native_local_offset;
+    #[cfg(feature = "native-renderer")]
+    if native_terminal_active && native_terminal_scroll_debug_enabled() {
+        eprintln!(
+            "[native-scroll] viewport session={} visible_rows={} frame_rows={} hidden_rows={} history_size={} display_offset={} local_offset={} effective_offset={} total_range={}",
+            session_id,
+            native_visible_rows,
+            native_frame_rows,
+            native_hidden_rows,
+            native_history_size,
+            native_display_offset,
+            native_local_offset,
+            native_effective_offset,
+            native_total_scroll_range
+        );
+    }
+    #[cfg(feature = "native-renderer")]
     let (native_thumb_top_pct, native_thumb_height_pct) = native_scrollbar_thumb_metrics(
         native_visible_rows,
-        native_history_size,
-        native_display_offset,
+        native_total_scroll_range,
+        native_effective_offset,
     );
     #[cfg(feature = "native-renderer")]
     let mut native_input_buffer = use_signal(String::new);
@@ -270,12 +315,21 @@ pub(crate) fn terminal_shell(
     #[cfg(feature = "native-renderer")]
     let native_terminal_body = rsx! {
         NativeTerminalBody {
+            session_id: session_id,
             key: "native-terminal-{session_id}",
             terminal: terminal.clone(),
             native_frame: native_frame.clone(),
             show_caret: show_caret,
             ui_scale: ui_scale,
+            visible_rows: native_visible_rows,
+            local_scroll_offset: native_local_offset as u16,
+            native_terminal_surface_cells: native_terminal_surface_cells,
             input_value: native_input_value.clone(),
+            onviewportmounted: move |mount: Rc<MountedData>| {
+                native_terminal_viewport_mounts
+                    .write()
+                    .insert(session_id, mount);
+            },
             onclick: move |event| {
                 handle_terminal_click(
                     event,
@@ -303,8 +357,16 @@ pub(crate) fn terminal_shell(
                 if let Some(delta_lines) = page_scroll_delta(&event, native_visible_rows) {
                     event.prevent_default();
                     event.stop_propagation();
-                    let _ = native_terminal_manager_for_page_scroll
-                        .scroll_viewport(session_id, delta_lines);
+                    apply_native_scroll_delta(
+                        session_id,
+                        delta_lines,
+                        native_hidden_rows,
+                        native_history_size,
+                        native_display_offset,
+                        native_local_offset,
+                        &mut native_terminal_local_offsets,
+                        &native_terminal_manager_for_page_scroll,
+                    );
                     return;
                 }
                 handle_terminal_keydown(
@@ -378,8 +440,16 @@ pub(crate) fn terminal_shell(
                     }
                     event.prevent_default();
                     event.stop_propagation();
-                    let _ = native_terminal_manager_for_pane_wheel
-                        .scroll_viewport(session_id, delta_lines);
+                    apply_native_scroll_delta(
+                        session_id,
+                        delta_lines,
+                        native_hidden_rows,
+                        native_history_size,
+                        native_display_offset,
+                        native_local_offset,
+                        &mut native_terminal_local_offsets,
+                        &native_terminal_manager_for_pane_wheel,
+                    );
                 }
             },
             onmouseenter: move |_| {
@@ -395,7 +465,7 @@ pub(crate) fn terminal_shell(
     #[cfg(not(feature = "native-renderer"))]
     let native_terminal_body = rsx! { div {} };
     #[cfg(feature = "native-renderer")]
-    let native_scrollbar = if native_terminal_active && native_history_size > 0 {
+    let native_scrollbar = if native_terminal_active && native_total_scroll_range > 0 {
         let thumb_style = format!(
             "top: {:.4}%; height: {:.4}%;",
             native_thumb_top_pct, native_thumb_height_pct
@@ -433,10 +503,39 @@ pub(crate) fn terminal_shell(
                                 track_mount,
                                 client_y,
                                 session_id,
+                                native_hidden_rows,
+                                native_history_size,
+                                native_display_offset,
+                                native_local_offset,
+                                native_terminal_local_offsets,
                                 terminal_manager,
                             )
                             .await;
                         }
+                    });
+                },
+                onmousemove: move |event| {
+                    if !*native_scroll_dragging.read() {
+                        return;
+                    }
+                    let Some(track_mount) = native_scrollbar_mount.read().clone() else {
+                        return;
+                    };
+                    let client_y = event.data().client_coordinates().y;
+                    let terminal_manager = native_terminal_manager_for_scrollbar.clone();
+                    spawn(async move {
+                        let _ = scroll_native_terminal_from_track(
+                            track_mount,
+                            client_y,
+                            session_id,
+                            native_hidden_rows,
+                            native_history_size,
+                            native_display_offset,
+                            native_local_offset,
+                            native_terminal_local_offsets,
+                            terminal_manager,
+                        )
+                        .await;
                     });
                 },
                 onmouseup: move |_| {
@@ -670,7 +769,8 @@ pub(crate) fn terminal_shell(
                         .insert(session_id, true);
                 },
                 if native_terminal_active {
-                    div { class: "terminal-native-pane",
+                    div {
+                        class: "terminal-native-pane",
                         {native_terminal_body}
                     }
                     {native_scrollbar}
@@ -1225,6 +1325,11 @@ pub(crate) async fn scroll_native_terminal_from_track(
     track_mount: Rc<MountedData>,
     client_y: f64,
     session_id: SessionId,
+    hidden_rows: usize,
+    history_size: usize,
+    display_offset: usize,
+    local_offset: usize,
+    mut local_offsets: Signal<HashMap<SessionId, usize>>,
     terminal_manager: Arc<TerminalManager>,
 ) -> bool {
     let client_rect = match track_mount.get_client_rect().await {
@@ -1234,18 +1339,11 @@ pub(crate) async fn scroll_native_terminal_from_track(
     let height = client_rect.size.height.max(1.0);
     let relative_y = (client_y - client_rect.origin.y).clamp(0.0, height);
     let fraction = 1.0 - (relative_y / height);
-    let history_size = terminal_manager
-        .native_frame_shared(session_id)
-        .map(|frame| frame.history_size)
-        .unwrap_or(0);
-    let desired_offset = (fraction * history_size as f64)
+    let total_scroll_range = history_size + hidden_rows;
+    let desired_offset = (fraction * total_scroll_range as f64)
         .round()
-        .clamp(0.0, history_size as f64) as i32;
-    let current_offset = terminal_manager
-        .native_frame_shared(session_id)
-        .map(|frame| frame.display_offset as i32)
-        .unwrap_or(0);
-    let delta_lines = desired_offset - current_offset;
+        .clamp(0.0, total_scroll_range as f64) as i32;
+    let current_offset = (display_offset + local_offset) as i32;
     if native_terminal_scroll_debug_enabled() {
         eprintln!(
             "[native-scroll] track session={} client_y={:.1} fraction={:.3} desired_offset={} current_offset={} delta={}",
@@ -1254,30 +1352,34 @@ pub(crate) async fn scroll_native_terminal_from_track(
             fraction,
             desired_offset,
             current_offset,
-            delta_lines
+            desired_offset - current_offset
         );
     }
-    if delta_lines == 0 {
-        return false;
-    }
-    terminal_manager
-        .scroll_viewport(session_id, delta_lines)
-        .is_ok()
+    apply_native_scroll_to(
+        session_id,
+        desired_offset.max(0) as usize,
+        hidden_rows,
+        history_size,
+        display_offset,
+        local_offset,
+        &mut local_offsets,
+        &terminal_manager,
+    )
 }
 
 fn native_scrollbar_thumb_metrics(
     visible_rows: u16,
-    history_size: usize,
-    display_offset: usize,
+    total_scroll_range: usize,
+    effective_offset: usize,
 ) -> (f64, f64) {
-    if history_size == 0 {
+    if total_scroll_range == 0 {
         return (0.0, 100.0);
     }
 
-    let total_rows = history_size as f64 + f64::from(visible_rows.max(1));
+    let total_rows = total_scroll_range as f64 + f64::from(visible_rows.max(1));
     let thumb_height = (f64::from(visible_rows.max(1)) / total_rows * 100.0).clamp(8.0, 100.0);
     let track_travel = 100.0 - thumb_height;
-    let progress = (display_offset as f64 / history_size as f64).clamp(0.0, 1.0);
+    let progress = (effective_offset as f64 / total_scroll_range as f64).clamp(0.0, 1.0);
     let thumb_top = track_travel * (1.0 - progress);
     (thumb_top, thumb_height)
 }
@@ -1285,6 +1387,64 @@ fn native_scrollbar_thumb_metrics(
 fn page_scroll_step(visible_rows: u16) -> i32 {
     (i32::from(visible_rows.max(1))) / 2
         .max(1)
+}
+
+#[cfg(feature = "terminal-native-spike")]
+pub(crate) fn apply_native_scroll_delta(
+    session_id: SessionId,
+    delta_lines: i32,
+    hidden_rows: usize,
+    history_size: usize,
+    display_offset: usize,
+    local_offset: usize,
+    local_offsets: &mut Signal<HashMap<SessionId, usize>>,
+    terminal_manager: &Arc<TerminalManager>,
+) {
+    let current = display_offset + local_offset;
+    let max_offset = history_size + hidden_rows;
+    let desired = if delta_lines >= 0 {
+        current.saturating_add(delta_lines as usize)
+    } else {
+        current.saturating_sub(delta_lines.unsigned_abs() as usize)
+    }
+    .min(max_offset);
+    let _ = apply_native_scroll_to(
+        session_id,
+        desired,
+        hidden_rows,
+        history_size,
+        display_offset,
+        local_offset,
+        local_offsets,
+        terminal_manager,
+    );
+}
+
+#[cfg(feature = "terminal-native-spike")]
+fn apply_native_scroll_to(
+    session_id: SessionId,
+    desired_effective_offset: usize,
+    hidden_rows: usize,
+    history_size: usize,
+    display_offset: usize,
+    local_offset: usize,
+    local_offsets: &mut Signal<HashMap<SessionId, usize>>,
+    terminal_manager: &Arc<TerminalManager>,
+) -> bool {
+    let max_effective_offset = history_size + hidden_rows;
+    let desired_effective_offset = desired_effective_offset.min(max_effective_offset);
+    let desired_local = desired_effective_offset.min(hidden_rows);
+    let desired_backend = desired_effective_offset.saturating_sub(desired_local);
+    let backend_delta = desired_backend as i32 - display_offset as i32;
+    if backend_delta != 0 && terminal_manager.scroll_viewport(session_id, backend_delta).is_err() {
+        return false;
+    }
+    if desired_local == 0 {
+        local_offsets.write().remove(&session_id);
+    } else {
+        local_offsets.write().insert(session_id, desired_local);
+    }
+    backend_delta != 0 || desired_local != local_offset
 }
 
 #[cfg(feature = "terminal-native-spike")]

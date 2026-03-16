@@ -93,6 +93,14 @@ pub(crate) fn build_scene(
     }
 }
 
+pub(crate) fn surface_cells(width: u32, height: u32, ui_scale: f32) -> (u16, u16) {
+    let cell_width = scaled_cell_extent(CELL_WIDTH_PX, ui_scale).max(1);
+    let cell_height = scaled_cell_extent(CELL_HEIGHT_PX, ui_scale).max(1);
+    let cols = (width / cell_width).max(1) as u16;
+    let rows = (height / cell_height).max(1) as u16;
+    (rows, cols)
+}
+
 fn cursor_instance(
     cursor: NativeTerminalCursor,
     cell_width: f32,

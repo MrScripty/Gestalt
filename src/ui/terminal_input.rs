@@ -238,6 +238,24 @@ pub(crate) async fn measure_terminal_viewport(
     Some((rows, cols))
 }
 
+#[cfg(feature = "native-renderer")]
+pub(crate) async fn measure_native_terminal_viewport(
+    viewport_mount: Rc<MountedData>,
+    ui_scale: f64,
+) -> Option<(u16, u16)> {
+    let client_rect = viewport_mount.get_client_rect().await.ok()?;
+    let viewport_width = client_rect.size.width.max(0.0);
+    let viewport_height = client_rect.size.height.max(0.0);
+    let cols = (viewport_width / term_char_width(ui_scale))
+        .floor()
+        .max(8.0) as u16;
+    let rows = (viewport_height / term_line_height(ui_scale))
+        .floor()
+        .max(2.0) as u16;
+    let rows = rows.saturating_sub(1).max(2);
+    Some((rows, cols))
+}
+
 pub(crate) fn terminal_line_height_px(ui_scale: f64) -> f64 {
     term_line_height(ui_scale)
 }

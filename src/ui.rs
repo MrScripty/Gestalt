@@ -38,7 +38,11 @@ use crate::terminal::{PersistedTerminalState, TerminalManager, TerminalMemorySin
 use crate::ui::git_refresh::use_git_refresh_coordinator;
 use crate::ui::tab_rail::TabRail;
 use crate::ui::terminal_input::{key_event_to_bytes, measure_terminal_viewport};
-use crate::ui::terminal_view::{NativeTerminalScrollDrag, scroll_native_terminal_from_track};
+#[cfg(feature = "native-renderer")]
+use crate::ui::terminal_input::measure_native_terminal_viewport;
+use crate::ui::terminal_view::{
+    NativeTerminalScrollDrag, apply_native_scroll_delta, scroll_native_terminal_from_track,
+};
 use crate::ui::workspace::WorkspaceMain;
 use dioxus::document;
 #[cfg(feature = "terminal-native-spike")]
@@ -141,6 +145,9 @@ pub fn App() -> Element {
     let new_group_path = use_signal(String::new);
     let ui_state = use_signal(UiState::default);
     let terminal_body_mounts = use_signal(|| HashMap::<SessionId, Rc<MountedData>>::new());
+    let native_terminal_viewport_mounts = use_signal(|| HashMap::<SessionId, Rc<MountedData>>::new());
+    let native_terminal_surface_cells = use_signal(|| HashMap::<SessionId, (u16, u16)>::new());
+    let mut native_terminal_local_offsets = use_signal(|| HashMap::<SessionId, usize>::new());
     let terminal_body_stick_bottom = use_signal(|| HashMap::<SessionId, bool>::new());
     let terminal_viewport_sizes = use_signal(|| HashMap::<SessionId, (u16, u16)>::new());
     let native_hovered_terminal = use_signal(|| None::<SessionId>);
@@ -311,6 +318,8 @@ pub fn App() -> Element {
     {
         let terminal_manager = terminal_manager.read().clone();
         let terminal_body_mounts = terminal_body_mounts;
+        let mut native_terminal_viewport_mounts = native_terminal_viewport_mounts;
+        let mut native_terminal_surface_cells = native_terminal_surface_cells;
         let mut terminal_viewport_sizes = terminal_viewport_sizes;
         use_future(move || {
             let terminal_manager = terminal_manager.clone();
@@ -335,29 +344,61 @@ pub fn App() -> Element {
                     let active_session_set: HashSet<SessionId> =
                         active_session_ids.iter().copied().collect();
                     last_sizes.retain(|session_id, _| active_session_set.contains(session_id));
+                    native_terminal_viewport_mounts
+                        .write()
+                        .retain(|session_id, _| active_session_set.contains(session_id));
+                    native_terminal_surface_cells
+                        .write()
+                        .retain(|session_id, _| active_session_set.contains(session_id));
                     terminal_viewport_sizes
                         .write()
                         .retain(|session_id, _| active_session_set.contains(session_id));
 
                     for session_id in active_session_ids {
-                        let (body_mount, ui_scale, native_terminal_active) = {
+                        let (body_mount, native_viewport_mount, native_surface_cells, ui_scale, native_terminal_active) = {
                             let state = app_state.read();
                             (
                                 terminal_body_mounts.read().get(&session_id).cloned(),
+                                native_terminal_viewport_mounts
+                                    .read()
+                                    .get(&session_id)
+                                    .cloned(),
+                                native_terminal_surface_cells
+                                    .read()
+                                    .get(&session_id)
+                                    .copied(),
                                 state.ui_scale(),
                                 cfg!(feature = "native-renderer") && !state.crt_enabled(),
                             )
                         };
-                        let Some(body_mount) = body_mount else {
-                            continue;
+                        let measured = if native_terminal_active {
+                            if let Some(surface_cells) = native_surface_cells {
+                                Some(surface_cells)
+                            } else if let Some(body_mount) = body_mount {
+                                measure_terminal_viewport(body_mount, ui_scale, native_terminal_active)
+                                    .await
+                            } else {
+                                #[cfg(feature = "native-renderer")]
+                                {
+                                    if let Some(native_viewport_mount) = native_viewport_mount {
+                                        measure_native_terminal_viewport(native_viewport_mount, ui_scale)
+                                            .await
+                                    } else {
+                                        None
+                                    }
+                                }
+                                #[cfg(not(feature = "native-renderer"))]
+                                {
+                                    None
+                                }
+                            }
+                        } else if let Some(body_mount) = body_mount {
+                            measure_terminal_viewport(body_mount, ui_scale, native_terminal_active)
+                                .await
+                        } else {
+                            None
                         };
-                        let Some((rows, cols)) = measure_terminal_viewport(
-                            body_mount,
-                            ui_scale,
-                            native_terminal_active,
-                        )
-                        .await
-                        else {
+                        let Some((rows, cols)) = measured else {
                             continue;
                         };
                         terminal_viewport_sizes.write().insert(session_id, (rows, cols));
@@ -592,6 +633,9 @@ pub fn App() -> Element {
         app_state: app_state,
         ui_state: ui_state,
         terminal_body_mounts: terminal_body_mounts,
+        native_terminal_viewport_mounts: native_terminal_viewport_mounts,
+        native_terminal_surface_cells: native_terminal_surface_cells,
+        native_terminal_local_offsets: native_terminal_local_offsets,
         terminal_body_stick_bottom: terminal_body_stick_bottom,
         terminal_viewport_sizes: terminal_viewport_sizes,
         native_hovered_terminal: native_hovered_terminal,
@@ -665,7 +709,36 @@ pub fn App() -> Element {
                         if let Some(delta_lines) = root_page_scroll_delta(&event, visible_rows) {
                             event.prevent_default();
                             event.stop_propagation();
-                            let _ = terminal_manager.scroll_viewport(session_id, delta_lines);
+                            let (hidden_rows, history_size, display_offset, local_offset) =
+                                terminal_manager
+                                    .native_frame_shared(session_id)
+                                    .map(|frame| {
+                                        let hidden_rows =
+                                            usize::from(frame.rows.saturating_sub(visible_rows));
+                                        let local_offset = native_terminal_local_offsets
+                                            .read()
+                                            .get(&session_id)
+                                            .copied()
+                                            .unwrap_or(0)
+                                            .min(hidden_rows);
+                                        (
+                                            hidden_rows,
+                                            frame.history_size,
+                                            frame.display_offset,
+                                            local_offset,
+                                        )
+                                    })
+                                    .unwrap_or((0, 0, 0, 0));
+                            apply_native_scroll_delta(
+                                session_id,
+                                delta_lines,
+                                hidden_rows,
+                                history_size,
+                                display_offset,
+                                local_offset,
+                                &mut native_terminal_local_offsets,
+                                &terminal_manager,
+                            );
                             return;
                         }
                     }
@@ -680,11 +753,42 @@ pub fn App() -> Element {
                 if let Some(drag) = native_scroll_drag.read().clone() {
                     let client_y = event.data().client_coordinates().y;
                     let terminal_manager = terminal_manager.read().clone();
+                    let (hidden_rows, history_size, display_offset, local_offset) = terminal_manager
+                        .native_frame_shared(drag.session_id)
+                        .map(|frame| {
+                            let visible_rows = terminal_viewport_sizes
+                                .read()
+                                .get(&drag.session_id)
+                                .map(|(rows, _)| *rows)
+                                .unwrap_or(frame.rows)
+                                .max(1);
+                            let hidden_rows =
+                                usize::from(frame.rows.saturating_sub(visible_rows));
+                            let local_offset = native_terminal_local_offsets
+                                .read()
+                                .get(&drag.session_id)
+                                .copied()
+                                .unwrap_or(0)
+                                .min(hidden_rows);
+                            (
+                                hidden_rows,
+                                frame.history_size,
+                                frame.display_offset,
+                                local_offset,
+                            )
+                        })
+                        .unwrap_or((0, 0, 0, 0));
+                    let local_offsets = native_terminal_local_offsets;
                     spawn(async move {
                         let _ = scroll_native_terminal_from_track(
                             drag.track_mount,
                             client_y,
                             drag.session_id,
+                            hidden_rows,
+                            history_size,
+                            display_offset,
+                            local_offset,
+                            local_offsets,
                             terminal_manager,
                         )
                         .await;
