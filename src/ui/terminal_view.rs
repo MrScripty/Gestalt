@@ -230,6 +230,7 @@ pub(crate) fn terminal_shell(
     let native_terminal_manager_for_input = native_terminal_manager_for_keydown.clone();
     let native_terminal_manager_for_page_scroll = native_terminal_manager_for_keydown.clone();
     let native_terminal_manager_for_wheel = native_terminal_manager_for_keydown.clone();
+    let native_terminal_manager_for_pane_wheel = native_terminal_manager_for_keydown.clone();
     let native_terminal_manager_for_scrollbar = native_terminal_manager_for_keydown.clone();
     let shell_terminal_manager_for_paste_shortcut = terminal_manager_for_paste_shortcut.clone();
     let native_terminal_manager_for_paste_shortcut =
@@ -343,13 +344,19 @@ pub(crate) fn terminal_shell(
                 );
             },
             onwheel: move |event: WheelEvent| {
-                if native_terminal_scroll_debug_enabled() {
-                    eprintln!(
-                        "[native-scroll] pane-wheel session={} rows={} delta={:?}",
-                        session_id,
-                        native_visible_rows,
-                        event.data().delta()
-                    );
+                if let Some(delta_lines) = wheel_delta_lines(&event, native_visible_rows) {
+                    if native_terminal_scroll_debug_enabled() {
+                        eprintln!(
+                            "[native-scroll] pane-wheel session={} rows={} delta_lines={}",
+                            session_id,
+                            native_visible_rows,
+                            delta_lines
+                        );
+                    }
+                    event.prevent_default();
+                    event.stop_propagation();
+                    let _ = native_terminal_manager_for_pane_wheel
+                        .scroll_viewport(session_id, delta_lines);
                 }
             },
         }
@@ -391,7 +398,7 @@ pub(crate) fn terminal_shell(
                     });
                 },
                 onmousemove: move |event| {
-                    if !*native_scroll_dragging.read() || event.data().held_buttons().is_empty() {
+                    if !*native_scroll_dragging.read() {
                         return;
                     }
                     let client_y = event.data().client_coordinates().y;
