@@ -101,6 +101,10 @@ pub(crate) fn surface_cells(width: u32, height: u32, ui_scale: f32) -> (u16, u16
     (rows, cols)
 }
 
+pub(crate) fn scaled_cell_height_px(ui_scale: f64) -> f64 {
+    f64::from(scaled_cell_extent(CELL_HEIGHT_PX, ui_scale as f32).max(1))
+}
+
 fn cursor_instance(
     cursor: NativeTerminalCursor,
     cell_width: f32,

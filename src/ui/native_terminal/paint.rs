@@ -18,6 +18,7 @@ struct PaintState {
     frame: NativeTerminalFrame,
     ui_scale: f32,
     surface_cells: Option<(u16, u16)>,
+    surface_size_px: Option<(f64, f64)>,
 }
 
 pub(crate) struct NativeTerminalPaintSource {
@@ -38,6 +39,7 @@ impl NativeTerminalPaintBridge {
                 frame,
                 ui_scale,
                 surface_cells: None,
+                surface_size_px: None,
             })),
         }
     }
@@ -62,6 +64,15 @@ impl NativeTerminalPaintBridge {
 
     pub(crate) fn surface_cells(&self) -> Option<(u16, u16)> {
         self.inner.lock().surface_cells
+    }
+
+    pub(crate) fn update_surface_size_px(&self, width: f64, height: f64) {
+        let mut state = self.inner.lock();
+        state.surface_size_px = Some((width, height));
+    }
+
+    pub(crate) fn surface_size_px(&self) -> Option<(f64, f64)> {
+        self.inner.lock().surface_size_px
     }
 }
 
@@ -89,7 +100,7 @@ impl CustomPaintSource for NativeTerminalPaintSource {
         mut ctx: CustomPaintCtx<'_>,
         width: u32,
         height: u32,
-        _scale: f64,
+        scale: f64,
     ) -> Option<TextureHandle> {
         let RendererState::Active(renderer) = &mut self.state else {
             return None;
@@ -98,6 +109,8 @@ impl CustomPaintSource for NativeTerminalPaintSource {
         let snapshot = self.bridge.snapshot();
         let (rows, cols) = surface_cells(width, height, snapshot.ui_scale);
         self.bridge.update_surface_cells(rows, cols);
+        let logical_scale = scale.max(0.1);
+        self.bridge.update_surface_size_px(width as f64 / logical_scale, height as f64 / logical_scale);
         if let Some(handle) = renderer.cached_handle_if_unchanged(snapshot.revision, width, height)
         {
             return Some(handle);

@@ -23,6 +23,7 @@ fn NativeTerminalPaintHost(
     visible_rows: u16,
     local_scroll_offset: u16,
     native_terminal_surface_cells: Signal<HashMap<SessionId, (u16, u16)>>,
+    native_terminal_surface_sizes: Signal<HashMap<SessionId, (f64, f64)>>,
 ) -> Element {
     let initial_frame = native_frame
         .as_ref()
@@ -73,22 +74,33 @@ fn NativeTerminalPaintHost(
     {
         let bridge = bridge.clone();
         let mut native_terminal_surface_cells = native_terminal_surface_cells;
+        let mut native_terminal_surface_sizes = native_terminal_surface_sizes;
         use_future(move || {
             let bridge = bridge.clone();
             async move {
                 let mut last_surface_cells = None;
+                let mut last_surface_size = None;
                 loop {
                     tokio::time::sleep(Duration::from_millis(120)).await;
                     let next_surface_cells = bridge.surface_cells();
-                    if next_surface_cells == last_surface_cells {
-                        continue;
+                    if next_surface_cells != last_surface_cells {
+                        last_surface_cells = next_surface_cells;
+                        let mut surface_cells = native_terminal_surface_cells.write();
+                        if let Some(cells) = next_surface_cells {
+                            surface_cells.insert(session_id, cells);
+                        } else {
+                            surface_cells.remove(&session_id);
+                        }
                     }
-                    last_surface_cells = next_surface_cells;
-                    let mut surface_cells = native_terminal_surface_cells.write();
-                    if let Some(cells) = next_surface_cells {
-                        surface_cells.insert(session_id, cells);
-                    } else {
-                        surface_cells.remove(&session_id);
+                    let next_surface_size = bridge.surface_size_px();
+                    if next_surface_size != last_surface_size {
+                        last_surface_size = next_surface_size;
+                        let mut surface_sizes = native_terminal_surface_sizes.write();
+                        if let Some(size) = next_surface_size {
+                            surface_sizes.insert(session_id, size);
+                        } else {
+                            surface_sizes.remove(&session_id);
+                        }
                     }
                 }
             }
@@ -113,6 +125,7 @@ pub(crate) fn NativeTerminalBody(
     visible_rows: u16,
     local_scroll_offset: u16,
     native_terminal_surface_cells: Signal<HashMap<SessionId, (u16, u16)>>,
+    native_terminal_surface_sizes: Signal<HashMap<SessionId, (f64, f64)>>,
     input_value: String,
     onviewportmounted: EventHandler<Rc<MountedData>>,
     onclick: EventHandler<MouseEvent>,
@@ -145,8 +158,10 @@ pub(crate) fn NativeTerminalBody(
 
     {
         let mut native_terminal_surface_cells = native_terminal_surface_cells;
+        let mut native_terminal_surface_sizes = native_terminal_surface_sizes;
         use_drop(move || {
             native_terminal_surface_cells.write().remove(&session_id);
+            native_terminal_surface_sizes.write().remove(&session_id);
         });
     }
 
@@ -173,6 +188,7 @@ pub(crate) fn NativeTerminalBody(
                 visible_rows: visible_rows,
                 local_scroll_offset: local_scroll_offset,
                 native_terminal_surface_cells: native_terminal_surface_cells,
+                native_terminal_surface_sizes: native_terminal_surface_sizes,
             }
             input {
                 r#type: "text",

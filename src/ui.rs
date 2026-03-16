@@ -40,9 +40,7 @@ use crate::ui::tab_rail::TabRail;
 use crate::ui::terminal_input::{key_event_to_bytes, measure_terminal_viewport};
 #[cfg(feature = "native-renderer")]
 use crate::ui::terminal_input::measure_native_terminal_viewport;
-use crate::ui::terminal_view::{
-    NativeTerminalScrollDrag, apply_native_scroll_delta, scroll_native_terminal_from_track,
-};
+use crate::ui::terminal_view::{NativeTerminalScrollDrag, apply_native_scroll_delta};
 use crate::ui::workspace::WorkspaceMain;
 use dioxus::document;
 #[cfg(feature = "terminal-native-spike")]
@@ -147,6 +145,7 @@ pub fn App() -> Element {
     let terminal_body_mounts = use_signal(|| HashMap::<SessionId, Rc<MountedData>>::new());
     let native_terminal_viewport_mounts = use_signal(|| HashMap::<SessionId, Rc<MountedData>>::new());
     let native_terminal_surface_cells = use_signal(|| HashMap::<SessionId, (u16, u16)>::new());
+    let native_terminal_surface_sizes = use_signal(|| HashMap::<SessionId, (f64, f64)>::new());
     let mut native_terminal_local_offsets = use_signal(|| HashMap::<SessionId, usize>::new());
     let terminal_body_stick_bottom = use_signal(|| HashMap::<SessionId, bool>::new());
     let terminal_viewport_sizes = use_signal(|| HashMap::<SessionId, (u16, u16)>::new());
@@ -320,6 +319,7 @@ pub fn App() -> Element {
         let terminal_body_mounts = terminal_body_mounts;
         let mut native_terminal_viewport_mounts = native_terminal_viewport_mounts;
         let mut native_terminal_surface_cells = native_terminal_surface_cells;
+        let mut native_terminal_surface_sizes = native_terminal_surface_sizes;
         let mut terminal_viewport_sizes = terminal_viewport_sizes;
         use_future(move || {
             let terminal_manager = terminal_manager.clone();
@@ -348,6 +348,9 @@ pub fn App() -> Element {
                         .write()
                         .retain(|session_id, _| active_session_set.contains(session_id));
                     native_terminal_surface_cells
+                        .write()
+                        .retain(|session_id, _| active_session_set.contains(session_id));
+                    native_terminal_surface_sizes
                         .write()
                         .retain(|session_id, _| active_session_set.contains(session_id));
                     terminal_viewport_sizes
@@ -635,6 +638,7 @@ pub fn App() -> Element {
         terminal_body_mounts: terminal_body_mounts,
         native_terminal_viewport_mounts: native_terminal_viewport_mounts,
         native_terminal_surface_cells: native_terminal_surface_cells,
+        native_terminal_surface_sizes: native_terminal_surface_sizes,
         native_terminal_local_offsets: native_terminal_local_offsets,
         terminal_body_stick_bottom: terminal_body_stick_bottom,
         terminal_viewport_sizes: terminal_viewport_sizes,
@@ -751,7 +755,6 @@ pub fn App() -> Element {
             },
             onmousemove: move |event| {
                 if let Some(drag) = native_scroll_drag.read().clone() {
-                    let client_y = event.data().client_coordinates().y;
                     let terminal_manager = terminal_manager.read().clone();
                     let (hidden_rows, history_size, display_offset, local_offset) = terminal_manager
                         .native_frame_shared(drag.session_id)
@@ -778,21 +781,32 @@ pub fn App() -> Element {
                             )
                         })
                         .unwrap_or((0, 0, 0, 0));
-                    let local_offsets = native_terminal_local_offsets;
-                    spawn(async move {
-                        let _ = scroll_native_terminal_from_track(
-                            drag.track_mount,
-                            client_y,
+                    let total_scroll_range = history_size + hidden_rows;
+                    if total_scroll_range > 0 {
+                        let delta_offset = ((drag.start_client_y
+                            - event.data().client_coordinates().y)
+                            / drag.thumb_travel_px.max(1.0)
+                            * total_scroll_range as f64)
+                            .round() as i32;
+                        let desired_offset = if delta_offset >= 0 {
+                            drag.start_effective_offset
+                                .saturating_add(delta_offset as usize)
+                        } else {
+                            drag.start_effective_offset
+                                .saturating_sub(delta_offset.unsigned_abs() as usize)
+                        }
+                        .min(total_scroll_range);
+                        let _ = crate::ui::terminal_view::apply_native_scroll_to(
                             drag.session_id,
+                            desired_offset,
                             hidden_rows,
                             history_size,
                             display_offset,
                             local_offset,
-                            local_offsets,
-                            terminal_manager,
-                        )
-                        .await;
-                    });
+                            &mut native_terminal_local_offsets,
+                            &terminal_manager,
+                        );
+                    }
                 }
                 if rail_drag_start.read().is_some() && event.data().held_buttons().is_empty() {
                     rail_drag_start.set(None);
