@@ -637,6 +637,7 @@ fn WorkspaceTerminalCard(
     rename_header_draft: Signal<String>,
 ) -> Element {
     let _ = *refresh_tick.read();
+    let mut ui_state = interaction.ui_state;
     let session_id = pane.session.id;
     let pane_class = if pane.is_selected {
         format!("terminal-card {role_class} selected")
@@ -659,6 +660,22 @@ fn WorkspaceTerminalCard(
     let is_renaming_header = renaming_header_id == Some(session_id);
     let title_for_header_start = pane.session.title.clone();
     let rename_header_aria = format!("Rename terminal {}", pane.session.title);
+    let wrap_enabled = ui_state
+        .read()
+        .terminal_wrap_by_session
+        .get(&session_id)
+        .copied()
+        .unwrap_or(true);
+    let wrap_button_class = if wrap_enabled {
+        "terminal-wrap-toggle active"
+    } else {
+        "terminal-wrap-toggle"
+    };
+    let wrap_button_label = if wrap_enabled {
+        "Disable word wrap"
+    } else {
+        "Enable word wrap"
+    };
 
     rsx! {
         article {
@@ -724,6 +741,29 @@ fn WorkspaceTerminalCard(
                         }
                     }
                     p { class: "terminal-meta", "cwd: {cwd}" }
+                }
+                button {
+                    class: "{wrap_button_class}",
+                    r#type: "button",
+                    aria_label: "{wrap_button_label}",
+                    onclick: move |event| {
+                        event.stop_propagation();
+                        let next = !ui_state
+                            .read()
+                            .terminal_wrap_by_session
+                            .get(&session_id)
+                            .copied()
+                            .unwrap_or(true);
+                        ui_state
+                            .write()
+                            .terminal_wrap_by_session
+                            .insert(session_id, next);
+                    },
+                    if wrap_enabled {
+                        "Wrap On"
+                    } else {
+                        "Wrap Off"
+                    }
                 }
             }
 

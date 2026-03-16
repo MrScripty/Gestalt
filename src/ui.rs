@@ -358,7 +358,7 @@ pub fn App() -> Element {
                         .retain(|session_id, _| active_session_set.contains(session_id));
 
                     for session_id in active_session_ids {
-                        let (body_mount, native_viewport_mount, native_surface_cells, ui_scale, native_terminal_active) = {
+                        let (body_mount, native_viewport_mount, native_surface_cells, ui_scale, native_terminal_active, wrap_enabled) = {
                             let state = app_state.read();
                             (
                                 terminal_body_mounts.read().get(&session_id).cloned(),
@@ -372,6 +372,12 @@ pub fn App() -> Element {
                                     .copied(),
                                 state.ui_scale(),
                                 cfg!(feature = "native-renderer") && !state.crt_enabled(),
+                                ui_state
+                                    .read()
+                                    .terminal_wrap_by_session
+                                    .get(&session_id)
+                                    .copied()
+                                    .unwrap_or(true),
                             )
                         };
                         let measured = if native_terminal_active {
@@ -405,7 +411,15 @@ pub fn App() -> Element {
                             continue;
                         };
                         terminal_viewport_sizes.write().insert(session_id, (rows, cols));
-                        let cols = cols.max(TERMINAL_MIN_RESIZE_COLS);
+                        let cols = if native_terminal_active && !wrap_enabled {
+                            terminal_manager
+                                .snapshot_shared(session_id)
+                                .map(|snapshot| snapshot.cols.max(cols))
+                                .unwrap_or(cols)
+                                .max(TERMINAL_MIN_RESIZE_COLS)
+                        } else {
+                            cols.max(TERMINAL_MIN_RESIZE_COLS)
+                        };
 
                         if last_sizes.get(&session_id).copied() == Some((rows, cols)) {
                             continue;

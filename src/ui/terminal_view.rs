@@ -84,6 +84,12 @@ pub(crate) fn terminal_shell(
     #[cfg(not(feature = "native-renderer"))]
     let _ = terminal_is_selected;
     let crt_enabled = app_state.read().crt_enabled();
+    let wrap_enabled = ui_state
+        .read()
+        .terminal_wrap_by_session
+        .get(&session_id)
+        .copied()
+        .unwrap_or(true);
     let shell_class = match (terminal_is_focused, crt_enabled) {
         (true, true) => "terminal-shell focused crt-enabled",
         (true, false) => "terminal-shell focused",
@@ -96,11 +102,23 @@ pub(crate) fn terminal_shell(
     #[cfg(not(feature = "native-renderer"))]
     let native_terminal_active = false;
     let body_class = if crt_enabled {
-        "terminal-body crt-enabled"
+        if wrap_enabled {
+            "terminal-body crt-enabled terminal-wrap-enabled"
+        } else {
+            "terminal-body crt-enabled terminal-wrap-disabled"
+        }
     } else if native_terminal_active {
-        "terminal-body native-terminal-active"
+        if wrap_enabled {
+            "terminal-body native-terminal-active terminal-wrap-enabled"
+        } else {
+            "terminal-body native-terminal-active terminal-wrap-disabled"
+        }
     } else {
-        "terminal-body"
+        if wrap_enabled {
+            "terminal-body terminal-wrap-enabled"
+        } else {
+            "terminal-body terminal-wrap-disabled"
+        }
     };
     let body_style = format!(
         "--term-rows: {}; --term-cols: {};",

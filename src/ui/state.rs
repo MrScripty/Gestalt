@@ -20,6 +20,7 @@ pub(crate) struct UiState {
     pub sidebar_open: bool,
     pub insert_mode_state: Option<InsertModeState>,
     pub terminal_history_by_session: HashMap<SessionId, TerminalHistoryState>,
+    pub terminal_wrap_by_session: HashMap<SessionId, bool>,
 }
 
 impl Default for UiState {
@@ -33,6 +34,7 @@ impl Default for UiState {
             sidebar_open: true,
             insert_mode_state: None,
             terminal_history_by_session: HashMap::new(),
+            terminal_wrap_by_session: HashMap::new(),
         }
     }
 }
