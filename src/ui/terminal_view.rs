@@ -204,6 +204,7 @@ pub(crate) fn terminal_shell(
     let native_terminal_manager_for_keydown = shell_terminal_manager_for_keydown.clone();
     let native_terminal_manager_for_input = native_terminal_manager_for_keydown.clone();
     let native_terminal_manager_for_wheel = native_terminal_manager_for_keydown.clone();
+    let native_terminal_manager_for_body_wheel = native_terminal_manager_for_keydown.clone();
     let native_terminal_manager_for_page_scroll = native_terminal_manager_for_keydown.clone();
     let shell_terminal_manager_for_paste_shortcut = terminal_manager_for_paste_shortcut.clone();
     let native_terminal_manager_for_paste_shortcut =
@@ -407,6 +408,17 @@ pub(crate) fn terminal_shell(
                 class: "{body_class}",
                 id: "{terminal_body_id}",
                 style: "{body_style}",
+                onwheel: move |event| {
+                    if !native_terminal_active {
+                        return;
+                    }
+                    if let Some(delta_lines) = wheel_delta_lines(&event, native_visible_rows) {
+                        event.prevent_default();
+                        event.stop_propagation();
+                        let _ = native_terminal_manager_for_body_wheel
+                            .scroll_viewport(session_id, delta_lines);
+                    }
+                },
                 onscroll: move |event| {
                     if native_terminal_active {
                         return;
