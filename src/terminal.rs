@@ -586,6 +586,36 @@ impl TerminalManager {
         }
     }
 
+    #[cfg(feature = "terminal-native-spike")]
+    pub fn scroll_viewport(&self, session_id: SessionId, delta_lines: i32) -> Result<(), TerminalError> {
+        let runtime = self
+            .session_runtime(session_id)
+            .ok_or(TerminalError::SessionMissing)?;
+
+        match &runtime.backend {
+            TerminalRuntimeBackend::Legacy(_) => Ok(()),
+            TerminalRuntimeBackend::Native(runtime_backend) => {
+                if !runtime_backend.session.scroll_display_delta(delta_lines) {
+                    return Ok(());
+                }
+
+                let full_frame = materialize_native_frame(
+                    runtime_backend.frame_cache.read().as_ref(),
+                    runtime_backend.session.current_frame(),
+                );
+                *runtime_backend.frame_cache.write() = Arc::clone(&full_frame);
+                *runtime.snapshot_cache.write() =
+                    Arc::new(compatibility_snapshot_from_native_frame(&full_frame, &[]));
+                runtime.snapshot_revision.fetch_add(1, Ordering::Relaxed);
+                self.publish_event(TerminalEvent {
+                    session_id,
+                    kind: TerminalEventKind::SnapshotChanged,
+                });
+                Ok(())
+            }
+        }
+    }
+
     /// Returns a persistence-friendly snapshot for the given session.
     /// History lines are intentionally omitted; Emily is the source of truth.
     pub fn snapshot_for_persist(&self, session_id: SessionId) -> Option<PersistedTerminalState> {

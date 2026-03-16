@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use alacritty_terminal::event::VoidListener;
+use alacritty_terminal::grid::Scroll;
 use alacritty_terminal::grid::{Dimensions, Grid};
 use alacritty_terminal::index::{Column, Point};
 use alacritty_terminal::term::cell::{Cell, Flags};
@@ -99,6 +100,17 @@ impl AlacrittyEmulator {
             .resize(self.size.cell_count(), TerminalCell::default());
         self.shared_full_cells = None;
         true
+    }
+
+    pub fn scroll_display_delta(&mut self, delta_lines: i32) -> bool {
+        if delta_lines == 0 {
+            return false;
+        }
+
+        let before = self.term.grid().display_offset();
+        self.term.scroll_display(Scroll::Delta(delta_lines));
+        let after = self.term.grid().display_offset();
+        before != after
     }
 
     pub fn snapshot(&mut self) -> TerminalFrame {

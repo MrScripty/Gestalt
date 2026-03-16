@@ -87,6 +87,22 @@ fn partial_updates_preserve_undamaged_cells() {
     assert!(matches!(frame.damage, TerminalDamage::Partial(_)));
 }
 
+#[test]
+fn scrolling_display_changes_visible_offset() {
+    let mut emulator = emulator(3, 4);
+
+    let _ = emulator.snapshot();
+    emulator.ingest(b"1\r\n2\r\n3\r\n4\r\n5\r\n");
+    let _ = emulator.snapshot();
+
+    assert!(emulator.scroll_display_delta(2));
+    let frame = emulator.snapshot();
+
+    assert_eq!(frame.display_offset, 2);
+    assert!(matches!(frame.damage, TerminalDamage::Full));
+    assert_eq!(frame.cell(0, 0).unwrap().codepoint, '2');
+}
+
 fn changed_cells(frame: &TerminalFrame) -> Vec<(u16, u16, gestalt::terminal_native::TerminalCell)> {
     let Some(changes) = frame.changed_spans() else {
         return Vec::new();

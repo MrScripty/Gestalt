@@ -202,6 +202,15 @@ impl NativeTerminalSession {
 
         Ok(changed)
     }
+
+    pub fn scroll_display_delta(&self, delta_lines: i32) -> bool {
+        let mut emulator = self.shared.emulator.lock();
+        let changed = emulator.scroll_display_delta(delta_lines);
+        if changed {
+            publish_frame(&self.shared, emulator.snapshot());
+        }
+        changed
+    }
 }
 
 impl Drop for NativeTerminalSession {
