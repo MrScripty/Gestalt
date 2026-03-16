@@ -48,6 +48,9 @@ and terminal runtime ownership remain unchanged.
   content and scrollbar state should move during scrollback interaction.
 - Native panes expose scroll position with dedicated scrollbar chrome in `terminal_view`; the
   scrollbar reflects backend history metadata rather than DOM content height.
+- Native mouse-wheel delivery in the `native-renderer` path depends on the vendored
+  `blitz-*` / `dioxus-native-dom` wheel-event bridge under `vendor/`; Gestalt should rely on
+  native pane/body `onwheel` handlers instead of shell-root fallbacks.
 
 ## Scroll Pipeline
 1. PTY output is ingested by `terminal_native::session`.
@@ -116,6 +119,11 @@ GESTALT_NATIVE_TERMINAL_PILOT=1 GESTALT_NATIVE_TERMINAL_BACKEND=1 \
   - Interpretation: real integrated visible-pane cost is now measurable separately from the legacy
     shell path, and the remaining native work is still dominated by near-full-frame scene rebuilds
     across the visible pane set.
+- 2026-03-15 native wheel bridge:
+  - vendored `blitz-traits`, `blitz-dom`, `blitz-shell`, and `dioxus-native-dom` now dispatch
+    real `wheel` events through the `dioxus_native` stack
+  - shell-level wheel fallback for Gestalt native panes was removed once pane/body `onwheel`
+    became a real event path
 - Interpretation: the selected-pane pilot launched successfully and did not materially change
   process memory in a no-interaction 10-second workspace run. This is only a launch-path sanity
   check, not a full interactive performance benchmark.
