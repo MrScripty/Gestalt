@@ -25,6 +25,8 @@ const MIN_COLS: u16 = 8;
 const MAX_PERSISTED_HISTORY_LINES: usize = 20_000;
 #[cfg(feature = "terminal-native-spike")]
 const NATIVE_TERMINAL_BACKEND_ENV_VAR: &str = "GESTALT_NATIVE_TERMINAL_BACKEND";
+#[cfg(feature = "terminal-native-spike")]
+const NATIVE_TERMINAL_SCROLL_DEBUG_ENV_VAR: &str = "GESTALT_NATIVE_TERMINAL_SCROLL_DEBUG";
 
 /// Render-ready terminal frame data extracted from VT state.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -595,7 +597,16 @@ impl TerminalManager {
         match &runtime.backend {
             TerminalRuntimeBackend::Legacy(_) => Ok(()),
             TerminalRuntimeBackend::Native(runtime_backend) => {
+                let before_offset = runtime_backend.frame_cache.read().display_offset;
                 if !runtime_backend.session.scroll_display_delta(delta_lines) {
+                    if native_terminal_scroll_debug_enabled() {
+                        eprintln!(
+                            "[native-scroll] session={} delta_lines={} changed=false before_offset={}",
+                            session_id,
+                            delta_lines,
+                            before_offset
+                        );
+                    }
                     return Ok(());
                 }
 
@@ -603,6 +614,15 @@ impl TerminalManager {
                     runtime_backend.frame_cache.read().as_ref(),
                     runtime_backend.session.current_frame(),
                 );
+                if native_terminal_scroll_debug_enabled() {
+                    eprintln!(
+                        "[native-scroll] session={} delta_lines={} changed=true before_offset={} after_offset={}",
+                        session_id,
+                        delta_lines,
+                        before_offset,
+                        full_frame.display_offset
+                    );
+                }
                 *runtime_backend.frame_cache.write() = Arc::clone(&full_frame);
                 *runtime.snapshot_cache.write() =
                     Arc::new(compatibility_snapshot_from_native_frame(&full_frame, &[]));
@@ -859,6 +879,19 @@ impl Drop for TerminalManager {
 #[cfg(feature = "terminal-native-spike")]
 fn native_terminal_backend_enabled() -> bool {
     std::env::var(NATIVE_TERMINAL_BACKEND_ENV_VAR)
+        .ok()
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
+
+#[cfg(feature = "terminal-native-spike")]
+fn native_terminal_scroll_debug_enabled() -> bool {
+    std::env::var(NATIVE_TERMINAL_SCROLL_DEBUG_ENV_VAR)
         .ok()
         .map(|value| {
             matches!(

@@ -15,8 +15,10 @@ use crate::ui::terminal_input::{
     write_clipboard_text,
 };
 use crate::ui::{EMILY_HISTORY_BACKFILL_PAGE_LINES, TerminalHistoryState, UiState};
-use dioxus::prelude::*;
+#[cfg(feature = "terminal-native-spike")]
+use dioxus::html::Code;
 use dioxus::html::geometry::WheelDelta;
+use dioxus::prelude::*;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -320,6 +322,14 @@ pub(crate) fn terminal_shell(
             },
             onwheel: move |event| {
                 if let Some(delta_lines) = wheel_delta_lines(&event, native_visible_rows) {
+                    if native_terminal_scroll_debug_enabled() {
+                        eprintln!(
+                            "[native-scroll] pane-wheel session={} rows={} delta_lines={}",
+                            session_id,
+                            native_visible_rows,
+                            delta_lines
+                        );
+                    }
                     event.prevent_default();
                     event.stop_propagation();
                     let _ = native_terminal_manager_for_wheel
@@ -413,6 +423,14 @@ pub(crate) fn terminal_shell(
                         return;
                     }
                     if let Some(delta_lines) = wheel_delta_lines(&event, native_visible_rows) {
+                        if native_terminal_scroll_debug_enabled() {
+                            eprintln!(
+                                "[native-scroll] body-wheel session={} rows={} delta_lines={}",
+                                session_id,
+                                native_visible_rows,
+                                delta_lines
+                            );
+                        }
                         event.prevent_default();
                         event.stop_propagation();
                         let _ = native_terminal_manager_for_body_wheel
@@ -1073,17 +1091,51 @@ fn wheel_delta_lines(event: &WheelEvent, visible_rows: u16) -> Option<i32> {
     Some(-delta)
 }
 
+#[cfg(feature = "terminal-native-spike")]
+fn native_terminal_scroll_debug_enabled() -> bool {
+    std::env::var("GESTALT_NATIVE_TERMINAL_SCROLL_DEBUG")
+        .ok()
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
+
+#[cfg(not(feature = "terminal-native-spike"))]
+fn native_terminal_scroll_debug_enabled() -> bool {
+    false
+}
+
 fn page_scroll_delta(event: &KeyboardEvent, visible_rows: u16) -> Option<i32> {
     let modifiers = event.data().modifiers();
     if modifiers.ctrl() || modifiers.alt() || modifiers.shift() || modifiers.meta() {
         return None;
     }
 
-    match event.data().key() {
+    let delta = match event.data().key() {
         Key::PageUp => Some(i32::from(visible_rows.max(1))),
         Key::PageDown => Some(-i32::from(visible_rows.max(1))),
-        _ => None,
+        _ => match event.data().code() {
+            Code::PageUp => Some(i32::from(visible_rows.max(1))),
+            Code::PageDown => Some(-i32::from(visible_rows.max(1))),
+            _ => None,
+        },
+    };
+
+    if native_terminal_scroll_debug_enabled() {
+        eprintln!(
+            "[native-scroll] key={:?} code={:?} rows={} delta={:?}",
+            event.data().key(),
+            event.data().code(),
+            visible_rows,
+            delta
+        );
     }
+
+    delta
 }
 
 fn paste_clipboard_into_terminal(
