@@ -15,6 +15,7 @@ pub(crate) struct NativeTerminalPaintBridge {
 struct PaintState {
     revision: u64,
     frame: NativeTerminalFrame,
+    ui_scale: f32,
 }
 
 pub(crate) struct NativeTerminalPaintSource {
@@ -28,17 +29,22 @@ enum RendererState {
 }
 
 impl NativeTerminalPaintBridge {
-    pub(crate) fn new(frame: NativeTerminalFrame) -> Self {
+    pub(crate) fn new(frame: NativeTerminalFrame, ui_scale: f32) -> Self {
         Self {
-            inner: Arc::new(Mutex::new(PaintState { revision: 1, frame })),
+            inner: Arc::new(Mutex::new(PaintState {
+                revision: 1,
+                frame,
+                ui_scale,
+            })),
         }
     }
 
-    pub(crate) fn update_frame(&self, frame: NativeTerminalFrame) {
+    pub(crate) fn update_frame(&self, frame: NativeTerminalFrame, ui_scale: f32) {
         let mut state = self.inner.lock();
-        if state.frame != frame {
+        if state.frame != frame || state.ui_scale != ui_scale {
             state.revision = state.revision.saturating_add(1);
             state.frame = frame;
+            state.ui_scale = ui_scale;
         }
     }
 
@@ -83,6 +89,13 @@ impl CustomPaintSource for NativeTerminalPaintSource {
             return Some(handle);
         }
 
-        renderer.render(&mut ctx, &snapshot.frame, snapshot.revision, width, height)
+        renderer.render(
+            &mut ctx,
+            &snapshot.frame,
+            snapshot.revision,
+            width,
+            height,
+            snapshot.ui_scale,
+        )
     }
 }

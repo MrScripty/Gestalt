@@ -15,6 +15,7 @@ fn NativeTerminalPaintHost(
     terminal: Arc<TerminalSnapshot>,
     native_frame: Option<Arc<TerminalFrame>>,
     show_caret: bool,
+    ui_scale: f64,
 ) -> Element {
     let initial_frame = native_frame
         .as_ref()
@@ -22,7 +23,8 @@ fn NativeTerminalPaintHost(
             NativeTerminalFrame::from_native_or_snapshot(frame.as_ref(), &terminal, show_caret)
         })
         .unwrap_or_else(|| NativeTerminalFrame::from_snapshot(&terminal, show_caret));
-    let bridge = use_hook(move || NativeTerminalPaintBridge::new(initial_frame.clone()));
+    let bridge =
+        use_hook(move || NativeTerminalPaintBridge::new(initial_frame.clone(), ui_scale as f32));
     let paint_source = {
         let bridge = bridge.clone();
         use_wgpu(move || NativeTerminalPaintSource::new(bridge.clone()))
@@ -31,7 +33,7 @@ fn NativeTerminalPaintHost(
         .as_ref()
         .map(|frame| NativeTerminalFrame::from_native_or_snapshot(frame.as_ref(), &terminal, show_caret))
         .unwrap_or_else(|| NativeTerminalFrame::from_snapshot(&terminal, show_caret));
-    bridge.update_frame(next_frame);
+    bridge.update_frame(next_frame, ui_scale as f32);
 
     rsx! {
         canvas {
@@ -46,6 +48,7 @@ pub(crate) fn NativeTerminalBody(
     terminal: Arc<TerminalSnapshot>,
     native_frame: Option<Arc<TerminalFrame>>,
     show_caret: bool,
+    ui_scale: f64,
     input_value: String,
     onclick: EventHandler<MouseEvent>,
     onfocus: EventHandler<FocusEvent>,
@@ -87,6 +90,7 @@ pub(crate) fn NativeTerminalBody(
                 terminal: terminal.clone(),
                 native_frame: native_frame.clone(),
                 show_caret: show_caret,
+                ui_scale: ui_scale,
             }
             input {
                 r#type: "text",

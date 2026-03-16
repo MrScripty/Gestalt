@@ -1,3 +1,4 @@
+use super::constants::{CELL_HEIGHT_PX, CELL_WIDTH_PX};
 use bytemuck::{Pod, Zeroable};
 
 use super::frame::{NativeTerminalCell, NativeTerminalCursor, NativeTerminalFrame};
@@ -44,9 +45,10 @@ pub(crate) fn build_scene(
     atlas: &mut GlyphAtlas,
     width: u32,
     height: u32,
+    ui_scale: f32,
 ) -> NativeTerminalScene {
-    let cell_width = cell_extent(width, frame.cols);
-    let cell_height = cell_extent(height, frame.rows);
+    let cell_width = scaled_cell_extent(CELL_WIDTH_PX, ui_scale);
+    let cell_height = scaled_cell_extent(CELL_HEIGHT_PX, ui_scale);
     atlas.set_cell_size(cell_width, cell_height);
 
     let cell_width = cell_width as f32;
@@ -107,8 +109,8 @@ fn cursor_instance(
     )
 }
 
-fn cell_extent(surface_extent: u32, cells: u16) -> u32 {
-    (surface_extent / u32::from(cells.max(1))).max(1)
+fn scaled_cell_extent(base_extent: f32, ui_scale: f32) -> u32 {
+    (base_extent * ui_scale.max(0.1)).round().max(1.0) as u32
 }
 
 fn is_blank(cell: NativeTerminalCell) -> bool {

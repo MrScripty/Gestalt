@@ -229,6 +229,7 @@ pub(crate) fn terminal_shell(
             terminal: terminal.clone(),
             native_frame: native_frame.clone(),
             show_caret: show_caret,
+            ui_scale: ui_scale,
             input_value: native_input_value.clone(),
             onclick: move |event| {
                 handle_terminal_click(

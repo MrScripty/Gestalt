@@ -5,3 +5,5 @@ pub(crate) const GLYPH_SHADER_LABEL: &str = "gestalt-native-terminal-shader";
 pub(crate) const INSTANCE_BUFFER_LABEL: &str = "gestalt-native-terminal-instance-buffer";
 pub(crate) const TEXTURE_LABEL: &str = "gestalt-native-terminal-output";
 pub(crate) const UNIFORM_BUFFER_LABEL: &str = "gestalt-native-terminal-uniforms";
+pub(crate) const CELL_WIDTH_PX: f32 = 11.4;
+pub(crate) const CELL_HEIGHT_PX: f32 = 21.0;

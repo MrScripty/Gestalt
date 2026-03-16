@@ -222,12 +222,13 @@ impl NativeTerminalGpuRenderer {
         revision: u64,
         width: u32,
         height: u32,
+        ui_scale: f32,
     ) -> Option<TextureHandle> {
         if width == 0 || height == 0 {
             return None;
         }
 
-        let scene = build_scene(frame, &mut self.atlas, width, height);
+        let scene = build_scene(frame, &mut self.atlas, width, height, ui_scale);
         if self.atlas.is_dirty() {
             self.queue.write_texture(
                 TexelCopyTextureInfo {
