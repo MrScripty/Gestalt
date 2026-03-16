@@ -38,6 +38,7 @@ pub(crate) struct TerminalInteractionSignals {
     pub ui_state: Signal<UiState>,
     pub terminal_body_mounts: Signal<HashMap<SessionId, Rc<MountedData>>>,
     pub terminal_body_stick_bottom: Signal<HashMap<SessionId, bool>>,
+    pub terminal_viewport_sizes: Signal<HashMap<SessionId, (u16, u16)>>,
     pub snippet_hotkey_state: Signal<Option<SnippetHotkeyState>>,
 }
 
@@ -55,6 +56,7 @@ pub(crate) fn terminal_shell(
     let mut ui_state = interaction.ui_state;
     let mut terminal_body_mounts = interaction.terminal_body_mounts;
     let mut terminal_body_stick_bottom = interaction.terminal_body_stick_bottom;
+    let terminal_viewport_sizes = interaction.terminal_viewport_sizes;
     let snippet_hotkey_state = interaction.snippet_hotkey_state;
     let mut shell_mount = use_signal(|| None::<Rc<MountedData>>);
     #[cfg(not(feature = "native-renderer"))]
@@ -181,7 +183,12 @@ pub(crate) fn terminal_shell(
         None
     };
     #[cfg(feature = "native-renderer")]
-    let native_visible_rows = terminal.rows;
+    let native_visible_rows = terminal_viewport_sizes
+        .read()
+        .get(&session_id)
+        .map(|(rows, _)| *rows)
+        .unwrap_or(terminal.rows)
+        .max(1);
     #[cfg(feature = "native-renderer")]
     let native_history_size = native_frame
         .as_ref()

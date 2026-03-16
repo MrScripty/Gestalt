@@ -15,6 +15,10 @@ const TERM_CHAR_WIDTH_PX: f64 = 11.4;
 const TERM_CHAR_WIDTH_PX: f64 = 8.4;
 const TERM_PAD_X_PX: f64 = 12.0;
 const TERM_PAD_Y_PX: f64 = 12.0;
+#[cfg(feature = "native-renderer")]
+const NATIVE_SCROLLBAR_WIDTH_PX: f64 = 12.0;
+#[cfg(feature = "native-renderer")]
+const NATIVE_SCROLLBAR_GAP_PX: f64 = 8.0;
 
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct TerminalSelectionSnapshot {
@@ -217,9 +221,13 @@ return JSON.stringify({{
 pub(crate) async fn measure_terminal_viewport(
     terminal_body: Rc<MountedData>,
     ui_scale: f64,
+    native_terminal_active: bool,
 ) -> Option<(u16, u16)> {
     let client_rect = terminal_body.get_client_rect().await.ok()?;
-    let viewport_width = (client_rect.size.width - (term_pad_x(ui_scale) * 2.0)).max(0.0);
+    let viewport_width = (client_rect.size.width
+        - (term_pad_x(ui_scale) * 2.0)
+        - native_scrollbar_chrome_width(ui_scale, native_terminal_active))
+        .max(0.0);
     let viewport_height = (client_rect.size.height - (term_pad_y(ui_scale) * 2.0)).max(0.0);
     let cols = (viewport_width / term_char_width(ui_scale))
         .floor()
@@ -351,4 +359,16 @@ fn term_pad_x(ui_scale: f64) -> f64 {
 
 fn term_pad_y(ui_scale: f64) -> f64 {
     TERM_PAD_Y_PX * ui_scale
+}
+
+fn native_scrollbar_chrome_width(ui_scale: f64, native_terminal_active: bool) -> f64 {
+    #[cfg(feature = "native-renderer")]
+    {
+        if native_terminal_active {
+            return (NATIVE_SCROLLBAR_WIDTH_PX + NATIVE_SCROLLBAR_GAP_PX) * ui_scale;
+        }
+    }
+
+    let _ = (ui_scale, native_terminal_active);
+    0.0
 }

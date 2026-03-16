@@ -40,6 +40,7 @@ pub(crate) fn WorkspaceMain(
     ui_state: Signal<UiState>,
     terminal_body_mounts: Signal<HashMap<SessionId, Rc<MountedData>>>,
     terminal_body_stick_bottom: Signal<HashMap<SessionId, bool>>,
+    terminal_viewport_sizes: Signal<HashMap<SessionId, (u16, u16)>>,
     emily_bridge: Signal<Arc<EmilyBridge>>,
     vectorization_status: Signal<VectorizationStatus>,
     terminal_manager: Signal<Arc<TerminalManager>>,
@@ -219,6 +220,7 @@ pub(crate) fn WorkspaceMain(
         ui_state,
         terminal_body_mounts,
         terminal_body_stick_bottom,
+        terminal_viewport_sizes,
         snippet_hotkey_state,
     };
     let workspace_class = if runner_drag_start.read().is_some()

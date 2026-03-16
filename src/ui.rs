@@ -141,6 +141,7 @@ pub fn App() -> Element {
     let ui_state = use_signal(UiState::default);
     let terminal_body_mounts = use_signal(|| HashMap::<SessionId, Rc<MountedData>>::new());
     let terminal_body_stick_bottom = use_signal(|| HashMap::<SessionId, bool>::new());
+    let terminal_viewport_sizes = use_signal(|| HashMap::<SessionId, (u16, u16)>::new());
     let autosave_dirty_notify = use_signal(|| Arc::new(tokio::sync::Notify::new()));
     let git_refresh_notify = use_signal(|| Arc::new(tokio::sync::Notify::new()));
     let refresh_tick = use_signal(|| 0_u64);
@@ -307,6 +308,7 @@ pub fn App() -> Element {
     {
         let terminal_manager = terminal_manager.read().clone();
         let terminal_body_mounts = terminal_body_mounts;
+        let mut terminal_viewport_sizes = terminal_viewport_sizes;
         use_future(move || {
             let terminal_manager = terminal_manager.clone();
             async move {
@@ -323,29 +325,39 @@ pub fn App() -> Element {
                     };
                     let Some(active_session_ids) = active_session_ids else {
                         last_sizes.clear();
+                        terminal_viewport_sizes.write().clear();
                         continue;
                     };
 
                     let active_session_set: HashSet<SessionId> =
                         active_session_ids.iter().copied().collect();
                     last_sizes.retain(|session_id, _| active_session_set.contains(session_id));
+                    terminal_viewport_sizes
+                        .write()
+                        .retain(|session_id, _| active_session_set.contains(session_id));
 
                     for session_id in active_session_ids {
-                        let (body_mount, ui_scale) = {
+                        let (body_mount, ui_scale, native_terminal_active) = {
                             let state = app_state.read();
                             (
                                 terminal_body_mounts.read().get(&session_id).cloned(),
                                 state.ui_scale(),
+                                cfg!(feature = "native-renderer") && !state.crt_enabled(),
                             )
                         };
                         let Some(body_mount) = body_mount else {
                             continue;
                         };
-                        let Some((rows, cols)) =
-                            measure_terminal_viewport(body_mount, ui_scale).await
+                        let Some((rows, cols)) = measure_terminal_viewport(
+                            body_mount,
+                            ui_scale,
+                            native_terminal_active,
+                        )
+                        .await
                         else {
                             continue;
                         };
+                        terminal_viewport_sizes.write().insert(session_id, (rows, cols));
                         let cols = cols.max(TERMINAL_MIN_RESIZE_COLS);
 
                         if last_sizes.get(&session_id).copied() == Some((rows, cols)) {
@@ -578,6 +590,7 @@ pub fn App() -> Element {
         ui_state: ui_state,
         terminal_body_mounts: terminal_body_mounts,
         terminal_body_stick_bottom: terminal_body_stick_bottom,
+        terminal_viewport_sizes: terminal_viewport_sizes,
         emily_bridge: emily_bridge,
         vectorization_status: vectorization_status,
         terminal_manager: terminal_manager,
@@ -639,9 +652,10 @@ pub fn App() -> Element {
                     let terminal_manager = terminal_manager.read().clone();
                     #[cfg(feature = "terminal-native-spike")]
                     if terminal_manager.native_frame_shared(session_id).is_some() {
-                        let visible_rows = terminal_manager
-                            .snapshot_shared(session_id)
-                            .map(|snapshot| snapshot.rows)
+                        let visible_rows = terminal_viewport_sizes
+                            .read()
+                            .get(&session_id)
+                            .map(|(rows, _)| *rows)
                             .unwrap_or(1);
                         if let Some(delta_lines) = root_page_scroll_delta(&event, visible_rows) {
                             event.prevent_default();
