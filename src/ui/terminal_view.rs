@@ -12,12 +12,12 @@ use crate::ui::native_terminal::{NativeTerminalBody, native_terminal_pilot_activ
 use crate::ui::terminal_input::{
     cursor_move_bytes, key_event_to_bytes, map_click_to_terminal_cell, read_clipboard_text,
     read_terminal_selection, scroll_terminal_to_bottom, select_terminal_round,
-    write_clipboard_text,
+    terminal_line_height_px, write_clipboard_text,
 };
 use crate::ui::{EMILY_HISTORY_BACKFILL_PAGE_LINES, TerminalHistoryState, UiState};
 #[cfg(feature = "terminal-native-spike")]
 use dioxus::html::Code;
-use dioxus::html::geometry::WheelDelta;
+use dioxus::html::geometry::PixelsVector2D;
 use dioxus::prelude::*;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -182,6 +182,20 @@ pub(crate) fn terminal_shell(
         None
     };
     #[cfg(feature = "native-renderer")]
+    let native_history_size = native_frame
+        .as_ref()
+        .map(|frame| frame.history_size)
+        .unwrap_or(0);
+    #[cfg(feature = "native-renderer")]
+    let native_display_offset = native_frame
+        .as_ref()
+        .map(|frame| frame.display_offset)
+        .unwrap_or(0);
+    #[cfg(feature = "native-renderer")]
+    let native_line_height_px = terminal_line_height_px(ui_scale);
+    #[cfg(feature = "native-renderer")]
+    let native_scroll_extent_px = native_history_size as f64 * native_line_height_px;
+    #[cfg(feature = "native-renderer")]
     let mut native_input_buffer = use_signal(String::new);
     #[cfg(feature = "native-renderer")]
     let native_input_value = native_input_buffer.read().clone();
@@ -190,7 +204,7 @@ pub(crate) fn terminal_shell(
         let body_mount = body_mount.clone();
         let rendered_line_count = rendered_lines.len();
         use_effect(move || {
-            if !stick_to_bottom || rendered_line_count == 0 {
+            if native_terminal_active || !stick_to_bottom || rendered_line_count == 0 {
                 return;
             }
             let Some(body_mount) = body_mount.clone() else {
@@ -202,12 +216,32 @@ pub(crate) fn terminal_shell(
         });
     }
 
+    #[cfg(feature = "native-renderer")]
+    {
+        let body_mount = body_mount.clone();
+        use_effect(move || {
+            if !native_terminal_active {
+                return;
+            }
+            let Some(body_mount) = body_mount.clone() else {
+                return;
+            };
+            let target_scroll_top = native_scroll_top_for_offset(
+                native_scroll_extent_px,
+                native_line_height_px,
+                native_display_offset,
+            );
+            spawn(async move {
+                let _ = scroll_terminal_to_offset(body_mount, target_scroll_top).await;
+            });
+        });
+    }
+
     let shell_terminal_manager_for_keydown = terminal_manager_for_keydown.clone();
     let native_terminal_manager_for_keydown = shell_terminal_manager_for_keydown.clone();
     let native_terminal_manager_for_input = native_terminal_manager_for_keydown.clone();
-    let native_terminal_manager_for_wheel = native_terminal_manager_for_keydown.clone();
-    let native_terminal_manager_for_body_wheel = native_terminal_manager_for_keydown.clone();
     let native_terminal_manager_for_page_scroll = native_terminal_manager_for_keydown.clone();
+    let native_terminal_manager_for_body_scroll = native_terminal_manager_for_keydown.clone();
     let shell_terminal_manager_for_paste_shortcut = terminal_manager_for_paste_shortcut.clone();
     let native_terminal_manager_for_paste_shortcut =
         shell_terminal_manager_for_paste_shortcut.clone();
@@ -320,20 +354,14 @@ pub(crate) fn terminal_shell(
                     bracketed_paste,
                 );
             },
-            onwheel: move |event| {
-                if let Some(delta_lines) = wheel_delta_lines(&event, native_visible_rows) {
-                    if native_terminal_scroll_debug_enabled() {
-                        eprintln!(
-                            "[native-scroll] pane-wheel session={} rows={} delta_lines={}",
-                            session_id,
-                            native_visible_rows,
-                            delta_lines
-                        );
-                    }
-                    event.prevent_default();
-                    event.stop_propagation();
-                    let _ = native_terminal_manager_for_wheel
-                        .scroll_viewport(session_id, delta_lines);
+            onwheel: move |event: WheelEvent| {
+                if native_terminal_scroll_debug_enabled() {
+                    eprintln!(
+                        "[native-scroll] pane-wheel session={} rows={} delta={:?}",
+                        session_id,
+                        native_visible_rows,
+                        event.data().delta()
+                    );
                 }
             },
         }
@@ -418,27 +446,44 @@ pub(crate) fn terminal_shell(
                 class: "{body_class}",
                 id: "{terminal_body_id}",
                 style: "{body_style}",
-                onwheel: move |event| {
-                    if !native_terminal_active {
-                        return;
-                    }
-                    if let Some(delta_lines) = wheel_delta_lines(&event, native_visible_rows) {
-                        if native_terminal_scroll_debug_enabled() {
-                            eprintln!(
-                                "[native-scroll] body-wheel session={} rows={} delta_lines={}",
-                                session_id,
-                                native_visible_rows,
-                                delta_lines
-                            );
-                        }
-                        event.prevent_default();
-                        event.stop_propagation();
-                        let _ = native_terminal_manager_for_body_wheel
-                            .scroll_viewport(session_id, delta_lines);
+                onwheel: move |event: WheelEvent| {
+                    if native_terminal_active && native_terminal_scroll_debug_enabled() {
+                        eprintln!(
+                            "[native-scroll] body-wheel session={} rows={} delta={:?}",
+                            session_id,
+                            native_visible_rows,
+                            event.data().delta()
+                        );
                     }
                 },
                 onscroll: move |event| {
                     if native_terminal_active {
+                        let scroll = event.data();
+                        let desired_offset = scroll_top_to_native_offset(
+                            scroll.scroll_top(),
+                            native_scroll_extent_px,
+                            native_line_height_px,
+                            native_history_size,
+                        );
+                        terminal_body_stick_bottom
+                            .write()
+                            .insert(session_id, desired_offset == 0);
+                        let delta_lines = desired_offset - native_display_offset as i32;
+                        if native_terminal_scroll_debug_enabled() {
+                            eprintln!(
+                                "[native-scroll] body-scroll session={} top={:.1} extent={:.1} desired_offset={} current_offset={} delta={}",
+                                session_id,
+                                scroll.scroll_top(),
+                                native_scroll_extent_px,
+                                desired_offset,
+                                native_display_offset,
+                                delta_lines
+                            );
+                        }
+                        if delta_lines != 0 {
+                            let _ = native_terminal_manager_for_body_scroll
+                                .scroll_viewport(session_id, delta_lines);
+                        }
                         return;
                     }
                     let scroll = event.data();
@@ -542,10 +587,18 @@ pub(crate) fn terminal_shell(
                     terminal_body_mounts
                         .write()
                         .insert(session_id, event.data());
-                    terminal_body_stick_bottom.write().insert(session_id, true);
+                    terminal_body_stick_bottom
+                        .write()
+                        .insert(session_id, !native_terminal_active || native_display_offset == 0);
                 },
                 if native_terminal_active {
-                    {native_terminal_body}
+                    div { class: "terminal-native-sticky-host",
+                        {native_terminal_body}
+                    }
+                    div {
+                        class: "terminal-native-scroll-spacer",
+                        style: "height: {native_scroll_extent_px}px;",
+                    }
                 } else {
                     div { class: "terminal-grid",
                         for row_idx in 0..rendered_lines.len() {
@@ -1071,24 +1124,46 @@ fn handle_terminal_paste(
     paste_clipboard_into_terminal(terminal_manager, app_state, session_id, bracketed_paste);
 }
 
-fn wheel_delta_lines(event: &WheelEvent, visible_rows: u16) -> Option<i32> {
-    let delta = match event.data().delta() {
-        WheelDelta::Pixels(pixels) => {
-            let y = pixels.y;
-            if y.abs() < 1.0 {
-                return None;
-            }
-            (y / 48.0).round() as i32
-        }
-        WheelDelta::Lines(lines) => lines.y.round() as i32,
-        WheelDelta::Pages(pages) => (pages.y * f64::from(visible_rows.max(1))).round() as i32,
-    };
+async fn scroll_terminal_to_offset(terminal_body: Rc<MountedData>, scroll_top: f64) -> bool {
+    terminal_body
+        .scroll(
+            PixelsVector2D::new(0.0, scroll_top.max(0.0)),
+            ScrollBehavior::Instant,
+        )
+        .await
+        .is_ok()
+}
 
-    if delta == 0 {
-        return None;
+fn native_scroll_top_for_offset(
+    scroll_extent_px: f64,
+    line_height_px: f64,
+    display_offset: usize,
+) -> f64 {
+    if line_height_px <= 0.0 {
+        return 0.0;
     }
+    let scrolled_lines = display_offset as f64 * line_height_px;
+    (scroll_extent_px - scrolled_lines).clamp(0.0, scroll_extent_px)
+}
 
-    Some(-delta)
+fn scroll_top_to_native_offset(
+    scroll_top: f64,
+    scroll_extent_px: f64,
+    line_height_px: f64,
+    history_size: usize,
+) -> i32 {
+    if line_height_px <= 0.0 {
+        return 0;
+    }
+    let remaining_px = (scroll_extent_px - scroll_top).clamp(0.0, scroll_extent_px);
+    (remaining_px / line_height_px)
+        .round()
+        .clamp(0.0, history_size as f64) as i32
+}
+
+fn page_scroll_step(visible_rows: u16) -> i32 {
+    (i32::from(visible_rows.max(1))) / 2
+        .max(1)
 }
 
 #[cfg(feature = "terminal-native-spike")]
@@ -1116,11 +1191,11 @@ fn page_scroll_delta(event: &KeyboardEvent, visible_rows: u16) -> Option<i32> {
     }
 
     let delta = match event.data().key() {
-        Key::PageUp => Some(i32::from(visible_rows.max(1))),
-        Key::PageDown => Some(-i32::from(visible_rows.max(1))),
+        Key::PageUp => Some(page_scroll_step(visible_rows)),
+        Key::PageDown => Some(-page_scroll_step(visible_rows)),
         _ => match event.data().code() {
-            Code::PageUp => Some(i32::from(visible_rows.max(1))),
-            Code::PageDown => Some(-i32::from(visible_rows.max(1))),
+            Code::PageUp => Some(page_scroll_step(visible_rows)),
+            Code::PageDown => Some(-page_scroll_step(visible_rows)),
             _ => None,
         },
     };

@@ -147,6 +147,7 @@ impl AlacrittyEmulator {
         );
         let projection_update_us = projection_update_started.elapsed().as_micros();
         let bracketed_paste = self.term.mode().contains(TermMode::BRACKETED_PASTE);
+        let history_size = self.term.history_size();
 
         let publication_build_started = Instant::now();
         let publication = self.build_publication(&damage);
@@ -159,6 +160,7 @@ impl AlacrittyEmulator {
             TerminalFrame {
                 rows: self.size.rows,
                 cols: self.size.cols,
+                history_size,
                 cursor,
                 bracketed_paste,
                 display_offset,

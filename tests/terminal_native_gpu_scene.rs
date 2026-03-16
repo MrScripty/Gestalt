@@ -144,6 +144,7 @@ fn frame_with_cursor_shape(
     TerminalFrame {
         rows: TEST_ROWS,
         cols: TEST_COLS,
+        history_size: 0,
         cursor: TerminalCursor {
             row: cursor_row,
             col: cursor_col,
@@ -160,6 +161,7 @@ fn partial_frame(spans: Vec<TerminalCellSpanUpdate>, cells: Vec<TerminalCell>) -
     TerminalFrame {
         rows: TEST_ROWS,
         cols: TEST_COLS,
+        history_size: 0,
         cursor: TerminalCursor {
             row: 0,
             col: 0,

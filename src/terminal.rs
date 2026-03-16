@@ -368,6 +368,7 @@ impl TerminalManager {
         let initial_frame = Arc::new(TerminalFrame {
             rows,
             cols,
+            history_size: 0,
             cursor: crate::terminal_native::TerminalCursor {
                 row: 0,
                 col: 0,
@@ -958,6 +959,7 @@ fn materialize_native_frame(
     Arc::new(TerminalFrame {
         rows: next.rows,
         cols: next.cols,
+        history_size: next.history_size,
         cursor: next.cursor,
         bracketed_paste: next.bracketed_paste,
         display_offset: next.display_offset,
@@ -1353,6 +1355,7 @@ mod tests {
         let previous = Arc::new(TerminalFrame {
             rows: 1,
             cols: 2,
+            history_size: 0,
             cursor: TerminalCursor {
                 row: 0,
                 col: 0,
@@ -1366,6 +1369,7 @@ mod tests {
         let next = Arc::new(TerminalFrame {
             rows: 1,
             cols: 2,
+            history_size: 0,
             cursor: TerminalCursor {
                 row: 0,
                 col: 1,
@@ -1397,6 +1401,7 @@ mod tests {
         let frame = TerminalFrame {
             rows: 2,
             cols: 4,
+            history_size: 0,
             cursor: TerminalCursor {
                 row: 0,
                 col: 0,

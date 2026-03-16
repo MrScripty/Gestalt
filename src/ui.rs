@@ -987,14 +987,19 @@ fn root_page_scroll_delta(event: &KeyboardEvent, visible_rows: u16) -> Option<i3
     }
 
     match event.data().key() {
-        Key::PageUp => Some(i32::from(visible_rows.max(1))),
-        Key::PageDown => Some(-i32::from(visible_rows.max(1))),
+        Key::PageUp => Some(root_page_scroll_step(visible_rows)),
+        Key::PageDown => Some(-root_page_scroll_step(visible_rows)),
         _ => match event.data().code() {
-            Code::PageUp => Some(i32::from(visible_rows.max(1))),
-            Code::PageDown => Some(-i32::from(visible_rows.max(1))),
+            Code::PageUp => Some(root_page_scroll_step(visible_rows)),
+            Code::PageDown => Some(-root_page_scroll_step(visible_rows)),
             _ => None,
         },
     }
+}
+
+#[cfg(feature = "terminal-native-spike")]
+fn root_page_scroll_step(visible_rows: u16) -> i32 {
+    (i32::from(visible_rows.max(1)) / 2).max(1)
 }
 
 fn initialize_emily_bridge() -> EmilyBridge {

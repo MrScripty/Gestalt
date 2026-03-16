@@ -230,6 +230,10 @@ pub(crate) async fn measure_terminal_viewport(
     Some((rows, cols))
 }
 
+pub(crate) fn terminal_line_height_px(ui_scale: f64) -> f64 {
+    term_line_height(ui_scale)
+}
+
 pub(crate) fn cursor_move_bytes(
     from_row: u16,
     from_col: u16,

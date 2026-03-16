@@ -5,6 +5,7 @@ use std::sync::Arc;
 pub struct TerminalFrame {
     pub rows: u16,
     pub cols: u16,
+    pub history_size: usize,
     pub cursor: TerminalCursor,
     pub bracketed_paste: bool,
     pub display_offset: usize,

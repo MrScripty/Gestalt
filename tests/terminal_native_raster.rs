@@ -48,6 +48,7 @@ fn frame(chars: [char; (TEST_ROWS as usize) * (TEST_COLS as usize)]) -> Terminal
     TerminalFrame {
         rows: TEST_ROWS,
         cols: TEST_COLS,
+        history_size: 0,
         cursor: TerminalCursor {
             row: 0,
             col: 0,

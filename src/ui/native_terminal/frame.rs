@@ -197,6 +197,7 @@ mod tests {
         let frame = TerminalFrame {
             rows: 2,
             cols: 3,
+            history_size: 0,
             cursor: TerminalCursor {
                 row: 1,
                 col: 2,

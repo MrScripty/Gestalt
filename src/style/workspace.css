@@ -480,6 +480,19 @@
   cursor: text;
 }
 
+.terminal-native-sticky-host {
+  position: sticky;
+  top: 0;
+  height: 100%;
+}
+
+.terminal-native-scroll-spacer {
+  width: 1px;
+  min-width: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
 .terminal-native-canvas {
   display: block;
   width: 100%;
