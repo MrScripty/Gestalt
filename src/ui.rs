@@ -38,9 +38,7 @@ use crate::terminal::{PersistedTerminalState, TerminalManager, TerminalMemorySin
 use crate::ui::git_refresh::use_git_refresh_coordinator;
 use crate::ui::tab_rail::TabRail;
 use crate::ui::terminal_input::{key_event_to_bytes, measure_terminal_viewport};
-use crate::ui::terminal_view::{
-    NativeTerminalScrollDrag, scroll_native_terminal_from_track, wheel_delta_lines,
-};
+use crate::ui::terminal_view::{NativeTerminalScrollDrag, scroll_native_terminal_from_track};
 use crate::ui::workspace::WorkspaceMain;
 use dioxus::document;
 #[cfg(feature = "terminal-native-spike")]
@@ -676,28 +674,6 @@ pub fn App() -> Element {
                         event.stop_propagation();
                         let _ = terminal_manager.send_input(session_id, &input);
                     }
-                }
-            },
-            onwheel: move |event: WheelEvent| {
-                let session_id = native_hovered_terminal
-                    .read()
-                    .or(ui_state.read().focused_terminal);
-                let Some(session_id) = session_id else {
-                    return;
-                };
-                let terminal_manager = terminal_manager.read().clone();
-                if terminal_manager.native_frame_shared(session_id).is_none() {
-                    return;
-                }
-                let visible_rows = terminal_viewport_sizes
-                    .read()
-                    .get(&session_id)
-                    .map(|(rows, _)| *rows)
-                    .unwrap_or(1);
-                if let Some(delta_lines) = wheel_delta_lines(&event, visible_rows) {
-                    event.prevent_default();
-                    event.stop_propagation();
-                    let _ = terminal_manager.scroll_viewport(session_id, delta_lines);
                 }
             },
             onmousemove: move |event| {
