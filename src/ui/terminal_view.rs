@@ -344,6 +344,14 @@ pub(crate) fn terminal_shell(
                 );
             },
             onwheel: move |event: WheelEvent| {
+                if native_terminal_scroll_debug_enabled() {
+                    eprintln!(
+                        "[native-scroll] pane-wheel-raw session={} rows={} delta={:?}",
+                        session_id,
+                        native_visible_rows,
+                        event.data().delta()
+                    );
+                }
                 if let Some(delta_lines) = wheel_delta_lines(&event, native_visible_rows) {
                     if native_terminal_scroll_debug_enabled() {
                         eprintln!(
@@ -378,6 +386,13 @@ pub(crate) fn terminal_shell(
                 class: "terminal-native-scrollbar",
                 onmounted: move |event| native_scrollbar_mount.set(Some(event.data())),
                 onmousedown: move |event| {
+                    if native_terminal_scroll_debug_enabled() {
+                        eprintln!(
+                            "[native-scroll] thumb-down session={} client_y={:.1}",
+                            session_id,
+                            event.data().client_coordinates().y
+                        );
+                    }
                     event.prevent_default();
                     event.stop_propagation();
                     native_scroll_dragging.set(true);
@@ -401,6 +416,13 @@ pub(crate) fn terminal_shell(
                     if !*native_scroll_dragging.read() {
                         return;
                     }
+                    if native_terminal_scroll_debug_enabled() {
+                        eprintln!(
+                            "[native-scroll] thumb-move session={} client_y={:.1}",
+                            session_id,
+                            event.data().client_coordinates().y
+                        );
+                    }
                     let client_y = event.data().client_coordinates().y;
                     let track_mount = native_scrollbar_mount.read().clone();
                     let terminal_manager = native_terminal_manager_for_scrollbar_move.clone();
@@ -417,8 +439,18 @@ pub(crate) fn terminal_shell(
                         }
                     });
                 },
-                onmouseup: move |_| native_scroll_dragging.set(false),
-                onmouseleave: move |_| native_scroll_dragging.set(false),
+                onmouseup: move |_| {
+                    if native_terminal_scroll_debug_enabled() {
+                        eprintln!("[native-scroll] thumb-up session={}", session_id);
+                    }
+                    native_scroll_dragging.set(false);
+                },
+                onmouseleave: move |_| {
+                    if native_terminal_scroll_debug_enabled() {
+                        eprintln!("[native-scroll] thumb-leave session={}", session_id);
+                    }
+                    native_scroll_dragging.set(false);
+                },
                 div { class: "terminal-native-scrollbar-track" }
                 div {
                     class: "terminal-native-scrollbar-thumb",
@@ -511,6 +543,14 @@ pub(crate) fn terminal_shell(
                 style: "{body_style}",
                 onwheel: move |event: WheelEvent| {
                     if native_terminal_active {
+                        if native_terminal_scroll_debug_enabled() {
+                            eprintln!(
+                                "[native-scroll] body-wheel-raw session={} rows={} delta={:?}",
+                                session_id,
+                                native_visible_rows,
+                                event.data().delta()
+                            );
+                        }
                         if let Some(delta_lines) = wheel_delta_lines(&event, native_visible_rows) {
                             if native_terminal_scroll_debug_enabled() {
                                 eprintln!(
