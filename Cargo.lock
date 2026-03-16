@@ -965,8 +965,6 @@ dependencies = [
 [[package]]
 name = "blitz-dom"
 version = "0.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c81d0f520bad6798a54cc4360bcabd245dc0aba2ce5917217d1d82ac5ee6bfed"
 dependencies = [
  "accesskit",
  "app_units",
@@ -1049,8 +1047,6 @@ dependencies = [
 [[package]]
 name = "blitz-shell"
 version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61ecda230035f39b13383f08e0cfc7159c92d194650ac8d57871a207ea0e52b7"
 dependencies = [
  "accesskit",
  "accesskit_winit",
@@ -1069,8 +1065,6 @@ dependencies = [
 [[package]]
 name = "blitz-traits"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6cd87a5b7bc1bc3d546aeb28d0867ff3191e9c4e85452e1808931200a4bc49d4"
 dependencies = [
  "bitflags 2.11.0",
  "bytes",
@@ -2573,8 +2567,6 @@ dependencies = [
 [[package]]
 name = "dioxus-native-dom"
 version = "0.7.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "55a5e039c7a531b82b343f943c6e9a70fcbac79a5e24bd05c7bc370632fb29a7"
 dependencies = [
  "blitz-dom",
  "blitz-traits",

@@ -52,6 +52,10 @@ pulldown-cmark = "0.12"
 
 [patch.crates-io]
 wgpu_context = { path = "vendor/wgpu_context" }
+blitz-traits = { path = "vendor/blitz-traits" }
+blitz-dom = { path = "vendor/blitz-dom" }
+blitz-shell = { path = "vendor/blitz-shell" }
+dioxus-native-dom = { path = "vendor/dioxus-native-dom" }
 
 [[bin]]
 name = "terminal_native_spike"
