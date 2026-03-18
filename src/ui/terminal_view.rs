@@ -86,7 +86,7 @@ pub(crate) fn terminal_shell(
     let native_terminal_surface_cells = interaction.native_terminal_surface_cells;
     let native_terminal_surface_sizes = interaction.native_terminal_surface_sizes;
     let mut native_terminal_local_offsets = interaction.native_terminal_local_offsets;
-    let native_terminal_horizontal_offsets = interaction.native_terminal_horizontal_offsets;
+    let mut native_terminal_horizontal_offsets = interaction.native_terminal_horizontal_offsets;
     let mut terminal_body_stick_bottom = interaction.terminal_body_stick_bottom;
     let terminal_viewport_sizes = interaction.terminal_viewport_sizes;
     let mut native_hovered_terminal = interaction.native_hovered_terminal;
@@ -534,6 +534,7 @@ pub(crate) fn terminal_shell(
     let native_terminal_body = rsx! { div {} };
     #[cfg(feature = "native-renderer")]
     let native_scrollbar = if native_terminal_active && native_total_scroll_range > 0 {
+        let native_terminal_manager_for_track = native_terminal_manager_for_wheel.clone();
         let thumb_style = format!(
             "top: {:.4}%; height: {:.4}%;",
             native_thumb_top_pct, native_thumb_height_pct
@@ -558,7 +559,36 @@ pub(crate) fn terminal_shell(
                     }
                     native_scroll_drag.set(None);
                 },
-                div { class: "terminal-native-scrollbar-track" }
+                div {
+                    class: "terminal-native-scrollbar-track",
+                    onmousedown: move |event| {
+                        event.prevent_default();
+                        event.stop_propagation();
+                        let click_y = event.data().element_coordinates().y;
+                        let desired_offset = native_offset_from_vertical_track(
+                            click_y,
+                            native_track_height_px,
+                            native_thumb_height_px,
+                            native_total_scroll_range,
+                        );
+                        let _ = apply_native_scroll_to(
+                            session_id,
+                            desired_offset,
+                            native_hidden_rows,
+                            native_history_size,
+                            native_display_offset,
+                            native_local_offset,
+                            &mut native_terminal_local_offsets,
+                            &native_terminal_manager_for_track,
+                        );
+                        native_scroll_drag.set(Some(NativeTerminalScrollDrag {
+                            session_id,
+                            start_client_y: event.data().client_coordinates().y,
+                            start_effective_offset: desired_offset,
+                            thumb_travel_px: native_thumb_travel_px,
+                        }));
+                    },
+                }
                 div {
                     class: "terminal-native-scrollbar-thumb",
                     style: "{thumb_style}",
@@ -615,7 +645,35 @@ pub(crate) fn terminal_shell(
                     onmouseup: move |_| {
                         native_horizontal_scroll_drag.set(None);
                     },
-                    div { class: "terminal-native-hscrollbar-track" }
+                    div {
+                        class: "terminal-native-hscrollbar-track",
+                        onmousedown: move |event| {
+                            event.prevent_default();
+                            event.stop_propagation();
+                            let click_x = event.data().element_coordinates().x;
+                            let desired_offset = native_offset_from_horizontal_track(
+                                click_x,
+                                native_track_width_px,
+                                native_thumb_width_px,
+                                native_hidden_cols,
+                            );
+                            if desired_offset == 0 {
+                                native_terminal_horizontal_offsets.write().remove(&session_id);
+                            } else {
+                                native_terminal_horizontal_offsets
+                                    .write()
+                                    .insert(session_id, desired_offset);
+                            }
+                            native_horizontal_scroll_drag.set(Some(
+                                NativeTerminalHorizontalScrollDrag {
+                                    session_id,
+                                    start_client_x: event.data().client_coordinates().x,
+                                    start_offset: desired_offset,
+                                    thumb_travel_px: native_thumb_travel_px,
+                                }
+                            ));
+                        },
+                    }
                     div {
                         class: "terminal-native-hscrollbar-thumb",
                         style: "{thumb_style}",
@@ -1443,6 +1501,42 @@ fn native_horizontal_scrollbar_thumb_metrics(
 
 fn native_scroll_track_height_px(visible_rows: u16, ui_scale: f64) -> f64 {
     f64::from(visible_rows.max(1)) * scaled_cell_height_px(ui_scale)
+}
+
+fn native_offset_from_vertical_track(
+    click_y: f64,
+    track_height_px: f64,
+    thumb_height_px: f64,
+    total_scroll_range: usize,
+) -> usize {
+    if total_scroll_range == 0 {
+        return 0;
+    }
+
+    let thumb_travel = (track_height_px - thumb_height_px).max(1.0);
+    let thumb_top = (click_y - (thumb_height_px / 2.0)).clamp(0.0, thumb_travel);
+    let progress = 1.0 - (thumb_top / thumb_travel);
+    (progress * total_scroll_range as f64)
+        .round()
+        .clamp(0.0, total_scroll_range as f64) as usize
+}
+
+fn native_offset_from_horizontal_track(
+    click_x: f64,
+    track_width_px: f64,
+    thumb_width_px: f64,
+    total_scroll_range: usize,
+) -> usize {
+    if total_scroll_range == 0 {
+        return 0;
+    }
+
+    let thumb_travel = (track_width_px - thumb_width_px).max(1.0);
+    let thumb_left = (click_x - (thumb_width_px / 2.0)).clamp(0.0, thumb_travel);
+    let progress = thumb_left / thumb_travel;
+    (progress * total_scroll_range as f64)
+        .round()
+        .clamp(0.0, total_scroll_range as f64) as usize
 }
 
 fn page_scroll_step(visible_rows: u16) -> i32 {
