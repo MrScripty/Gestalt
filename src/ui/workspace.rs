@@ -682,6 +682,11 @@ fn WorkspaceTerminalCard(
     } else {
         "Enable word wrap"
     };
+    let wrap_button_text = if wrap_enabled {
+        "Wrap: On"
+    } else {
+        "Wrap: Off"
+    };
     let viewport_size_for_wrap_toggle = interaction
         .terminal_viewport_sizes
         .read()
@@ -757,6 +762,8 @@ fn WorkspaceTerminalCard(
                     class: "{wrap_button_class}",
                     r#type: "button",
                     aria_label: "{wrap_button_label}",
+                    aria_pressed: wrap_enabled,
+                    title: "{wrap_button_label}",
                     onclick: move |event| {
                         event.stop_propagation();
                         let next = !ui_state
@@ -800,11 +807,7 @@ fn WorkspaceTerminalCard(
                             );
                         }
                     },
-                    if wrap_enabled {
-                        "Wrap On"
-                    } else {
-                        "Wrap Off"
-                    }
+                    "{wrap_button_text}"
                 }
             }
 
