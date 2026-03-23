@@ -57,6 +57,10 @@ Managed state:
   GESTALT_LAUNCHER_STATE_ROOT=PATH   Override the repo-local launcher state root
   GESTALT_LAUNCHER_SMOKE_SECONDS=N   Override release smoke duration (default: 5)
 
+Native terminal defaults:
+  --build/--build-release            Compile with Cargo feature: ${NATIVE_RENDERER_FEATURE}
+  --run/--run-release                Export GESTALT_NATIVE_TERMINAL_BACKEND=1 before launch
+
 Exit codes:
   0 success
   1 operation failed
