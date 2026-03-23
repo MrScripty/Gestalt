@@ -1,7 +1,10 @@
 use crate::emily_bridge::EmilyBridge;
 use crate::orchestrator::{self, GroupOrchestratorSnapshot, TerminalPaneProjection};
 use crate::resource_monitor::ResourceSnapshot;
-use crate::state::{AppState, AuxiliaryPanelKind, SessionId, WorkspaceState};
+use crate::state::{
+    AppState, AuxiliaryPanelKind, GROUP_RUNNER_WIDTH_MAX_PX, GROUP_RUNNER_WIDTH_MIN_PX,
+    GROUP_SIDE_PANEL_WIDTH_MAX_PX, GROUP_SIDE_PANEL_WIDTH_MIN_PX, SessionId, WorkspaceState,
+};
 use crate::terminal::TerminalManager;
 use crate::ui::UiState;
 #[cfg(feature = "native-renderer")]
@@ -20,10 +23,8 @@ use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
 
-const RUNNER_WIDTH_MIN_PX: i32 = 260;
-const RUNNER_WIDTH_MAX_PX: i32 = 760;
 const RUNNER_WIDTH_STEP_PX: i32 = 16;
-const SIDE_PANEL_WIDTH_PX: i32 = 380;
+const SIDE_PANEL_WIDTH_STEP_PX: i32 = 16;
 const STACK_SPLIT_STEP_RATIO: f64 = 0.03;
 const STACK_SPLIT_MIN_RATIO: f64 = 0.28;
 const STACK_SPLIT_MAX_RATIO: f64 = 0.72;
@@ -199,6 +200,7 @@ pub(crate) fn WorkspaceMain(
     let mut runner_drag_start = use_signal(|| None::<(f64, i32)>);
     let mut agent_drag_start = use_signal(|| None::<(f64, f64)>);
     let mut sidebar_drag_start = use_signal(|| None::<(f64, f64)>);
+    let mut side_panel_width_drag_start = use_signal(|| None::<(f64, i32)>);
     let renaming_header = use_signal(|| None::<SessionId>);
     let rename_header_draft = use_signal(String::new);
     let snippet_hotkey_state = use_signal(|| None::<SnippetHotkeyState>);
@@ -210,7 +212,10 @@ pub(crate) fn WorkspaceMain(
         .unwrap_or_default();
     let runner_width = active_layout
         .runner_width_px
-        .clamp(RUNNER_WIDTH_MIN_PX, RUNNER_WIDTH_MAX_PX);
+        .clamp(GROUP_RUNNER_WIDTH_MIN_PX, GROUP_RUNNER_WIDTH_MAX_PX);
+    let side_panel_width = active_layout
+        .side_panel_width_px
+        .clamp(GROUP_SIDE_PANEL_WIDTH_MIN_PX, GROUP_SIDE_PANEL_WIDTH_MAX_PX);
     let agent_ratio = active_layout
         .agent_top_ratio
         .clamp(STACK_SPLIT_MIN_RATIO, STACK_SPLIT_MAX_RATIO);
@@ -218,7 +223,7 @@ pub(crate) fn WorkspaceMain(
         .runner_top_ratio
         .clamp(STACK_SPLIT_MIN_RATIO, STACK_SPLIT_MAX_RATIO);
     let workspace_layout_style =
-        format!("--runner-width: {runner_width}px; --side-panel-width: {SIDE_PANEL_WIDTH_PX}px;");
+        format!("--runner-width: {runner_width}px; --side-panel-width: {side_panel_width}px;");
     let sidebar_open_value = ui_state.read().sidebar_open;
     let crt_enabled = snapshot.crt_enabled();
     let workspace_layout_class = if sidebar_open_value {
@@ -247,6 +252,7 @@ pub(crate) fn WorkspaceMain(
     let workspace_class = if runner_drag_start.read().is_some()
         || agent_drag_start.read().is_some()
         || sidebar_drag_start.read().is_some()
+        || side_panel_width_drag_start.read().is_some()
     {
         "workspace resizing"
     } else {
@@ -261,6 +267,7 @@ pub(crate) fn WorkspaceMain(
                     runner_drag_start.set(None);
                     agent_drag_start.set(None);
                     sidebar_drag_start.set(None);
+                    side_panel_width_drag_start.set(None);
                     return;
                 }
 
@@ -297,11 +304,22 @@ pub(crate) fn WorkspaceMain(
                             .set_group_runner_top_ratio(group_id, next_ratio);
                     }
                 }
+
+                if let Some((start_x, start_width)) = *side_panel_width_drag_start.read() {
+                    let delta_x = pointer.x - start_x;
+                    let next_width = (f64::from(start_width) - delta_x).round() as i32;
+                    if let Some(group_id) = active_group_id {
+                        app_state
+                            .write()
+                            .set_group_side_panel_width_px(group_id, next_width);
+                    }
+                }
             },
             onmouseup: move |_| {
                 runner_drag_start.set(None);
                 agent_drag_start.set(None);
                 sidebar_drag_start.set(None);
+                side_panel_width_drag_start.set(None);
             },
             onmouseleave: move |_| {
                 if cfg!(feature = "native-renderer") {
@@ -310,6 +328,7 @@ pub(crate) fn WorkspaceMain(
                 runner_drag_start.set(None);
                 agent_drag_start.set(None);
                 sidebar_drag_start.set(None);
+                side_panel_width_drag_start.set(None);
             },
             header { class: "workspace-head",
                 div {
@@ -599,7 +618,48 @@ pub(crate) fn WorkspaceMain(
                             }
 
                             if sidebar_open_value {
-                                div { class: "workspace-divider workspace-divider-static", aria_hidden: "true" }
+                                button {
+                                    class: "panel-splitter panel-splitter-vertical workspace-divider",
+                                    r#type: "button",
+                                    aria_label: "Resize side panels",
+                                    onmousedown: move |event| {
+                                        event.prevent_default();
+                                        let start_x = event.data().client_coordinates().x;
+                                        let start_width = app_state
+                                            .read()
+                                            .group_layout(group_id)
+                                            .side_panel_width_px;
+                                        side_panel_width_drag_start
+                                            .set(Some((start_x, start_width)));
+                                    },
+                                    onkeydown: move |event| {
+                                        match event.key() {
+                                            Key::ArrowLeft => {
+                                                event.prevent_default();
+                                                let next = app_state
+                                                    .read()
+                                                    .group_layout(group_id)
+                                                    .side_panel_width_px
+                                                    + SIDE_PANEL_WIDTH_STEP_PX;
+                                                app_state
+                                                    .write()
+                                                    .set_group_side_panel_width_px(group_id, next);
+                                            }
+                                            Key::ArrowRight => {
+                                                event.prevent_default();
+                                                let next = app_state
+                                                    .read()
+                                                    .group_layout(group_id)
+                                                    .side_panel_width_px
+                                                    - SIDE_PANEL_WIDTH_STEP_PX;
+                                                app_state
+                                                    .write()
+                                                    .set_group_side_panel_width_px(group_id, next);
+                                            }
+                                            _ => {}
+                                        }
+                                    },
+                                }
 
                                 aside { id: "workspace-right-panel", class: "workspace-side-panel",
                                     SidebarPanelHost {

@@ -536,6 +536,7 @@ fn group_layout_updates_are_scoped_per_group() {
     let (second_group, _) = state.create_group_with_defaults("/tmp/group-layout".to_string());
 
     state.set_group_runner_width_px(first_group, 640);
+    state.set_group_side_panel_width_px(first_group, 520);
     state.set_group_agent_top_ratio(first_group, 0.63);
     state.set_group_runner_top_ratio(first_group, 0.41);
 
@@ -543,9 +544,11 @@ fn group_layout_updates_are_scoped_per_group() {
     let second_layout = state.group_layout(second_group);
 
     assert_eq!(first_layout.runner_width_px, 640);
+    assert_eq!(first_layout.side_panel_width_px, 520);
     assert_eq!(first_layout.agent_top_ratio, 0.63);
     assert_eq!(first_layout.runner_top_ratio, 0.41);
     assert_eq!(second_layout.runner_width_px, 340);
+    assert_eq!(second_layout.side_panel_width_px, 380);
     assert_eq!(second_layout.agent_top_ratio, 0.5);
     assert_eq!(second_layout.runner_top_ratio, 0.5);
 }
@@ -556,21 +559,25 @@ fn group_layout_values_are_clamped_and_restored_safely() {
     let group_id = state.groups()[0].id;
 
     state.set_group_runner_width_px(group_id, 10_000);
+    state.set_group_side_panel_width_px(group_id, -500);
     state.set_group_agent_top_ratio(group_id, 99.0);
     state.set_group_runner_top_ratio(group_id, f64::NAN);
     let clamped = state.group_layout(group_id);
     assert_eq!(clamped.runner_width_px, 760);
+    assert_eq!(clamped.side_panel_width_px, 280);
     assert_eq!(clamped.agent_top_ratio, 0.72);
     assert_eq!(clamped.runner_top_ratio, 0.5);
 
     let mut payload = serde_json::to_value(&state).expect("serialize state");
     payload["groups"][0]["layout"]["runner_width_px"] = Value::from(-100);
+    payload["groups"][0]["layout"]["side_panel_width_px"] = Value::from(10_000);
     payload["groups"][0]["layout"]["agent_top_ratio"] = Value::from(-1.0);
     payload["groups"][0]["layout"]["runner_top_ratio"] = Value::from(900.0);
     let restored: AppState = serde_json::from_value(payload).expect("deserialize state");
     let restored = restored.into_restored();
     let restored_layout = restored.group_layout(group_id);
     assert_eq!(restored_layout.runner_width_px, 260);
+    assert_eq!(restored_layout.side_panel_width_px, 760);
     assert_eq!(restored_layout.agent_top_ratio, 0.28);
     assert_eq!(restored_layout.runner_top_ratio, 0.72);
 }
@@ -594,6 +601,7 @@ fn group_layout_defaults_when_loading_legacy_groups_without_layout() {
     let group_id = restored.groups()[0].id;
     let layout = restored.group_layout(group_id);
     assert_eq!(layout.runner_width_px, 340);
+    assert_eq!(layout.side_panel_width_px, 380);
     assert_eq!(layout.agent_top_ratio, 0.5);
     assert_eq!(layout.runner_top_ratio, 0.5);
 }

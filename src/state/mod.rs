@@ -91,10 +91,13 @@ pub const UI_SCALE_DEFAULT: f64 = 1.0;
 pub const UI_SCALE_MIN: f64 = 0.7;
 pub const UI_SCALE_MAX: f64 = 1.8;
 pub const GROUP_RUNNER_WIDTH_DEFAULT_PX: i32 = 340;
+pub const GROUP_RUNNER_WIDTH_MIN_PX: i32 = 260;
+pub const GROUP_RUNNER_WIDTH_MAX_PX: i32 = 760;
+pub const GROUP_SIDE_PANEL_WIDTH_DEFAULT_PX: i32 = 380;
+pub const GROUP_SIDE_PANEL_WIDTH_MIN_PX: i32 = 280;
+pub const GROUP_SIDE_PANEL_WIDTH_MAX_PX: i32 = 760;
 pub const GROUP_SPLIT_RATIO_DEFAULT: f64 = 0.5;
 
-const GROUP_RUNNER_WIDTH_MIN_PX: i32 = 260;
-const GROUP_RUNNER_WIDTH_MAX_PX: i32 = 760;
 const GROUP_SPLIT_MIN_RATIO: f64 = 0.28;
 const GROUP_SPLIT_MAX_RATIO: f64 = 0.72;
 
@@ -110,6 +113,10 @@ pub(crate) fn clamp_group_runner_width_px(width: i32) -> i32 {
     width.clamp(GROUP_RUNNER_WIDTH_MIN_PX, GROUP_RUNNER_WIDTH_MAX_PX)
 }
 
+pub(crate) fn clamp_group_side_panel_width_px(width: i32) -> i32 {
+    width.clamp(GROUP_SIDE_PANEL_WIDTH_MIN_PX, GROUP_SIDE_PANEL_WIDTH_MAX_PX)
+}
+
 pub(crate) fn clamp_group_split_ratio(ratio: f64) -> f64 {
     if !ratio.is_finite() {
         return GROUP_SPLIT_RATIO_DEFAULT;
@@ -120,6 +127,10 @@ pub(crate) fn clamp_group_split_ratio(ratio: f64) -> f64 {
 
 pub(crate) fn default_group_runner_width_px() -> i32 {
     GROUP_RUNNER_WIDTH_DEFAULT_PX
+}
+
+pub(crate) fn default_group_side_panel_width_px() -> i32 {
+    GROUP_SIDE_PANEL_WIDTH_DEFAULT_PX
 }
 
 pub(crate) fn default_group_split_ratio() -> f64 {
@@ -229,6 +240,8 @@ pub struct NewSnippet {
 pub struct GroupLayout {
     #[serde(default = "default_group_runner_width_px")]
     pub runner_width_px: i32,
+    #[serde(default = "default_group_side_panel_width_px")]
+    pub side_panel_width_px: i32,
     #[serde(default = "default_group_split_ratio")]
     pub agent_top_ratio: f64,
     #[serde(default = "default_group_split_ratio")]
@@ -239,6 +252,7 @@ impl Default for GroupLayout {
     fn default() -> Self {
         Self {
             runner_width_px: GROUP_RUNNER_WIDTH_DEFAULT_PX,
+            side_panel_width_px: GROUP_SIDE_PANEL_WIDTH_DEFAULT_PX,
             agent_top_ratio: GROUP_SPLIT_RATIO_DEFAULT,
             runner_top_ratio: GROUP_SPLIT_RATIO_DEFAULT,
         }
@@ -249,6 +263,7 @@ impl GroupLayout {
     pub(crate) fn normalized(self) -> Self {
         Self {
             runner_width_px: clamp_group_runner_width_px(self.runner_width_px),
+            side_panel_width_px: clamp_group_side_panel_width_px(self.side_panel_width_px),
             agent_top_ratio: clamp_group_split_ratio(self.agent_top_ratio),
             runner_top_ratio: clamp_group_split_ratio(self.runner_top_ratio),
         }

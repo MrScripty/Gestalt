@@ -510,6 +510,11 @@ impl WorkspaceState {
         self.update_group_layout(group_id, |layout| layout.runner_width_px = next)
     }
 
+    pub fn set_group_side_panel_width_px(&mut self, group_id: GroupId, width: i32) -> bool {
+        let next = clamp_group_side_panel_width_px(width);
+        self.update_group_layout(group_id, |layout| layout.side_panel_width_px = next)
+    }
+
     pub fn set_group_agent_top_ratio(&mut self, group_id: GroupId, ratio: f64) -> bool {
         let next = clamp_group_split_ratio(ratio);
         self.update_group_layout(group_id, |layout| layout.agent_top_ratio = next)
@@ -772,6 +777,13 @@ impl AppState {
     /// Updates the run sidebar width for a group.
     pub fn set_group_runner_width_px(&mut self, group_id: GroupId, width: i32) {
         if self.workspace.set_group_runner_width_px(group_id, width) {
+            self.mark_dirty();
+        }
+    }
+
+    /// Updates the right-side auxiliary panel width for a group.
+    pub fn set_group_side_panel_width_px(&mut self, group_id: GroupId, width: i32) {
+        if self.workspace.set_group_side_panel_width_px(group_id, width) {
             self.mark_dirty();
         }
     }
