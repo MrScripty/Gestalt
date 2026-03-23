@@ -6,6 +6,7 @@ mod paint;
 mod renderer;
 mod scene;
 mod scroll;
+mod surface_sync;
 mod viewport;
 mod wrap_policy;
 

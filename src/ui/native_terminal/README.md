@@ -1,41 +1,48 @@
 # native_terminal
 
 ## Purpose
-`native_terminal` owns the native-renderer pilot integration for workspace terminal panes. It keeps
-the pilot behind a narrow presentation-edge adapter so workspace layout, orchestrator projection,
-and terminal runtime ownership remain unchanged.
+`native_terminal` owns the WGPU terminal presentation layer for workspace panes under the
+`native-renderer` feature. It keeps rendering, viewport projection, and surface-metric
+publication behind a narrow UI adapter so workspace layout and PTY/session ownership stay in the
+existing app state and terminal runtime.
 
 ## Contents
 | File | Description |
 | ---- | ----------- |
-| `mod.rs` | Public pilot gate helpers and native terminal body exports |
-| `component.rs` | Dioxus terminal body component for the pilot canvas |
-| `frame.rs` | Snapshot/native-frame adapter used by the pilot canvas |
+| `mod.rs` | Native terminal module surface and shared helper exports |
+| `component.rs` | Dioxus terminal body component for the WGPU canvas path |
+| `frame.rs` | Snapshot/native-frame adapter used by the canvas renderer |
 | `glyph_atlas.rs` | Monospace glyph atlas cache for the pilot renderer |
 | `paint.rs` | Custom paint bridge and paint-source lifecycle |
 | `renderer.rs` | WGPU pipeline, buffers, and output texture management |
+| `scroll.rs` | Shared native scroll offset and scrollbar helper math |
 | `scene.rs` | Renderer-facing quad scene construction |
+| `surface_sync.rs` | Surface metric polling boundary between WGPU and Dioxus signals |
+| `viewport.rs` | Visible viewport/content metrics derived from frame or snapshot data |
+| `wrap_policy.rs` | Shared wrap-disabled width policy helpers |
 
 ## Constraints
 - Must remain a presentation/infrastructure seam only.
 - Must not become a second owner for PTY/session lifecycle.
-- Must keep the legacy `terminal_view` DOM path available as fallback.
-- The pilot defaults to the selected pane when `GESTALT_NATIVE_TERMINAL_PILOT`
-  is enabled under the `native-renderer` feature, and may be widened to all visible panes with
-  `GESTALT_NATIVE_TERMINAL_PILOT_SCOPE=visible`.
-- The first pilot renders the active viewport only and falls back to the legacy path when CRT is
-  enabled.
+- Must keep terminal selection, focus state, and wrap state owned by the existing UI modules.
+- Must keep the legacy DOM terminal path available only where the native path is intentionally
+  inactive, such as CRT mode or non-`native-renderer` builds.
+- Must not assume Dioxus-native can push canvas resize metrics directly into signals; the current
+  renderer bridge boundary is sampled rather than event-driven.
 
 ## Invariants
-- `TerminalManager` remains the app-facing runtime owner for pilot panes.
+- `TerminalManager` remains the app-facing runtime owner for native panes.
 - Workspace and orchestrator modules decide which panes exist and which session is selected.
-- When `GESTALT_NATIVE_TERMINAL_BACKEND=1` is enabled, `TerminalManager` may route the selected
-  session through the imported `terminal_native` backend while still publishing compatibility
-  snapshots for legacy consumers.
+- When `GESTALT_NATIVE_TERMINAL_BACKEND=1` is enabled, `TerminalManager` may route sessions
+  through the imported `terminal_native` backend while still publishing compatibility snapshots
+  for legacy consumers.
 - Native terminal components prefer immutable native frames when available and fall back to
   immutable terminal snapshots otherwise.
 - Native pane text entry is captured through a transparent input overlay above the canvas so
   keyboard ownership stays in `terminal_view` instead of moving into the renderer path.
+- `surface_sync.rs` owns publication of surface cell counts and pixel sizes into UI signals.
+  It currently polls the paint bridge because `use_wgpu` exposes sampled bridge state but not a
+  push callback for canvas resize events.
 - `glyph_atlas.rs` owns glyph baseline preservation by rasterizing outlined glyphs at their pixel
   bounds inside each tile; `scene.rs` should keep treating glyph quads as full-cell consumers of
   those atlas tiles instead of layering extra vertical offsets on top.
@@ -68,14 +75,23 @@ The native pane body may host scrollbar chrome, but DOM scrolling is not the sou
 native terminal history. The viewport stays pinned while the scrollbar thumb and frame content are
 driven by backend `display_offset` changes.
 
+## Surface Metric Boundary
+1. `paint.rs` updates the shared `NativeTerminalPaintBridge` with the latest canvas size and
+   derived terminal cell grid.
+2. `surface_sync.rs` samples that bridge on a fixed interval and mirrors only changed values into
+   `native_terminal_surface_cells` and `native_terminal_surface_sizes`.
+3. `ui.rs` consumes those signals when measuring resize targets for native panes.
+
+This polling boundary is intentional for now. The renderer path has a sampled bridge but no push
+callback into Dioxus signals, so the polling loop is isolated instead of being spread through
+`component.rs`.
+
 ## Usage Examples
 ```bash
 cargo run --features native-renderer --bin gestalt
-GESTALT_NATIVE_TERMINAL_PILOT=1 cargo run --features native-renderer --bin gestalt
-GESTALT_NATIVE_TERMINAL_PILOT=1 GESTALT_NATIVE_TERMINAL_PILOT_SCOPE=visible \
-  cargo run --features native-renderer --bin gestalt
-GESTALT_NATIVE_TERMINAL_PILOT=1 GESTALT_NATIVE_TERMINAL_BACKEND=1 \
-  cargo run --features native-renderer --bin gestalt
+GESTALT_NATIVE_TERMINAL_BACKEND=1 cargo run --features native-renderer --bin gestalt
+./launcher.sh --run
+./launcher.sh --run-release
 ```
 
 ## Validation Notes

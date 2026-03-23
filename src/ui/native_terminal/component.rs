@@ -6,10 +6,10 @@ use dioxus_native::use_wgpu;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::Duration;
 
 use super::frame::NativeTerminalFrame;
 use super::paint::{NativeTerminalPaintBridge, NativeTerminalPaintSource};
+use super::surface_sync::use_native_surface_metric_sync;
 
 const INPUT_SINK_STYLE: &str = "position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; background: transparent; color: transparent; caret-color: transparent; border: none; outline: none;";
 
@@ -81,41 +81,12 @@ fn NativeTerminalPaintHost(
         });
     bridge.update_frame(next_frame, ui_scale as f32);
 
-    {
-        let bridge = bridge.clone();
-        let mut native_terminal_surface_cells = native_terminal_surface_cells;
-        let mut native_terminal_surface_sizes = native_terminal_surface_sizes;
-        use_future(move || {
-            let bridge = bridge.clone();
-            async move {
-                let mut last_surface_cells = None;
-                let mut last_surface_size = None;
-                loop {
-                    tokio::time::sleep(Duration::from_millis(120)).await;
-                    let next_surface_cells = bridge.surface_cells();
-                    if next_surface_cells != last_surface_cells {
-                        last_surface_cells = next_surface_cells;
-                        let mut surface_cells = native_terminal_surface_cells.write();
-                        if let Some(cells) = next_surface_cells {
-                            surface_cells.insert(session_id, cells);
-                        } else {
-                            surface_cells.remove(&session_id);
-                        }
-                    }
-                    let next_surface_size = bridge.surface_size_px();
-                    if next_surface_size != last_surface_size {
-                        last_surface_size = next_surface_size;
-                        let mut surface_sizes = native_terminal_surface_sizes.write();
-                        if let Some(size) = next_surface_size {
-                            surface_sizes.insert(session_id, size);
-                        } else {
-                            surface_sizes.remove(&session_id);
-                        }
-                    }
-                }
-            }
-        });
-    }
+    use_native_surface_metric_sync(
+        session_id,
+        bridge.clone(),
+        native_terminal_surface_cells,
+        native_terminal_surface_sizes,
+    );
 
     rsx! {
         canvas {
@@ -172,15 +143,6 @@ pub(crate) fn NativeTerminalBody(
                     let _ = layer_mount.set_focus(true).await;
                 });
             }
-        });
-    }
-
-    {
-        let mut native_terminal_surface_cells = native_terminal_surface_cells;
-        let mut native_terminal_surface_sizes = native_terminal_surface_sizes;
-        use_drop(move || {
-            native_terminal_surface_cells.write().remove(&session_id);
-            native_terminal_surface_sizes.write().remove(&session_id);
         });
     }
 
