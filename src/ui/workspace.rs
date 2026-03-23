@@ -4,6 +4,8 @@ use crate::resource_monitor::ResourceSnapshot;
 use crate::state::{AppState, AuxiliaryPanelKind, SessionId, WorkspaceState};
 use crate::terminal::TerminalManager;
 use crate::ui::UiState;
+#[cfg(feature = "native-renderer")]
+use crate::ui::native_terminal::default_unwrapped_terminal_cols;
 use crate::ui::run_sidebar_panel_host::RunSidebarPanelHost;
 use crate::ui::sidebar_panel_host::SidebarPanelHost;
 use crate::ui::terminal_view::{
@@ -766,40 +768,57 @@ fn WorkspaceTerminalCard(
                     title: "{wrap_button_label}",
                     onclick: move |event| {
                         event.stop_propagation();
-                        let next = !ui_state
-                            .read()
-                            .terminal_wrap_by_session
-                            .get(&session_id)
-                            .copied()
-                            .unwrap_or(true);
-                        ui_state
-                            .write()
-                            .terminal_wrap_by_session
-                            .insert(session_id, next);
+                        let (next, restored_unwrapped_cols) = {
+                            let state = ui_state.read();
+                            (
+                                !state
+                                    .terminal_wrap_by_session
+                                    .get(&session_id)
+                                    .copied()
+                                    .unwrap_or(true),
+                                state
+                                    .terminal_unwrapped_cols_by_session
+                                    .get(&session_id)
+                                    .copied(),
+                            )
+                        };
+                        let snapshot_cols = terminal_manager_for_wrap_toggle
+                            .snapshot_shared(session_id)
+                            .map(|snapshot| snapshot.cols);
+                        {
+                            let mut state = ui_state.write();
+                            state.terminal_wrap_by_session.insert(session_id, next);
+                            if next {
+                                if let Some(snapshot_cols) = snapshot_cols {
+                                    state
+                                        .terminal_unwrapped_cols_by_session
+                                        .entry(session_id)
+                                        .and_modify(|stored| *stored = (*stored).max(snapshot_cols))
+                                        .or_insert(snapshot_cols);
+                                }
+                            }
+                        }
                         interaction
                             .native_terminal_horizontal_offsets
                             .write()
                             .remove(&session_id);
                         if let Some((rows, viewport_cols)) = viewport_size_for_wrap_toggle {
+                            let default_unwrapped_cols =
+                                default_unwrapped_terminal_cols(viewport_cols);
                             let target_cols = if next {
                                 viewport_cols.max(24)
                             } else {
-                                const WRAP_DISABLED_MAX_COLS: usize = 400;
-                                terminal_manager_for_wrap_toggle
-                                    .snapshot_shared(session_id)
-                                    .map(|snapshot| {
-                                        let widest_line = snapshot
-                                            .lines
-                                            .iter()
-                                            .map(|line| line.chars().count())
-                                            .max()
-                                            .unwrap_or(usize::from(snapshot.cols));
-                                        u16::try_from(widest_line.min(WRAP_DISABLED_MAX_COLS))
-                                            .unwrap_or(u16::MAX)
-                                            .max(viewport_cols.max(24))
-                                    })
-                                    .unwrap_or_else(|| viewport_cols.max(24))
+                                restored_unwrapped_cols
+                                    .or(snapshot_cols)
+                                    .map(|cols| cols.max(default_unwrapped_cols))
+                                    .unwrap_or(default_unwrapped_cols)
                             };
+                            if !next {
+                                ui_state
+                                    .write()
+                                    .terminal_unwrapped_cols_by_session
+                                    .insert(session_id, target_cols);
+                            }
                             let _ = terminal_manager_for_wrap_toggle.resize_session(
                                 session_id,
                                 rows.max(1),

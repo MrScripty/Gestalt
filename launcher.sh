@@ -6,6 +6,7 @@ SCRIPT_NAME="$(basename "$0")"
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEPENDENCIES=("rustup" "cargo")
 APP_BIN_NAME="gestalt"
+NATIVE_RENDERER_FEATURE="native-renderer"
 LAUNCHER_STATE_ROOT="${GESTALT_LAUNCHER_STATE_ROOT:-${PROJECT_ROOT}/.launcher-state}"
 ISOLATE_STATE="${GESTALT_LAUNCHER_ISOLATE_STATE:-1}"
 SMOKE_SECONDS="${GESTALT_LAUNCHER_SMOKE_SECONDS:-5}"
@@ -106,6 +107,12 @@ release_bin_path() {
   fi
 
   printf '%s\n' "${PROJECT_ROOT}/target/release/${APP_BIN_NAME}"
+}
+
+run_native_terminal_command() {
+  env \
+    GESTALT_NATIVE_TERMINAL_BACKEND=1 \
+    "$@"
 }
 
 persistent_state_dir() {
@@ -309,11 +316,11 @@ build_app() {
   case "$mode" in
     debug)
       log "[build] compiling debug binary: $APP_BIN_NAME"
-      cargo build --bin "$APP_BIN_NAME"
+      cargo build --features "$NATIVE_RENDERER_FEATURE" --bin "$APP_BIN_NAME"
       ;;
     release)
       log "[build] compiling release binary: $APP_BIN_NAME"
-      cargo build --release --bin "$APP_BIN_NAME"
+      cargo build --release --features "$NATIVE_RENDERER_FEATURE" --bin "$APP_BIN_NAME"
       ;;
     *)
       die_usage "invalid build mode: $mode"
@@ -327,7 +334,9 @@ run_app() {
 
   ensure_runtime_dependencies
   configure_managed_state "dev" "persistent"
-  exec cargo run --bin "$APP_BIN_NAME" -- "${run_args[@]}"
+  exec env \
+    GESTALT_NATIVE_TERMINAL_BACKEND=1 \
+    cargo run --features "$NATIVE_RENDERER_FEATURE" --bin "$APP_BIN_NAME" -- "${run_args[@]}"
 }
 
 run_release_app() {
@@ -345,7 +354,9 @@ run_release_app() {
   fi
 
   configure_managed_state "release" "persistent"
-  exec "$release_bin" "${run_args[@]}"
+  exec env \
+    GESTALT_NATIVE_TERMINAL_BACKEND=1 \
+    "$release_bin" "${run_args[@]}"
 }
 
 run_tests() {
@@ -383,7 +394,7 @@ run_release_smoke() {
   configure_managed_state "release-smoke" "temp"
   state_dir="$MANAGED_STATE_DIR"
   log "[smoke] starting release binary for ${SMOKE_SECONDS}s"
-  "$release_bin" "${run_args[@]}" &
+  run_native_terminal_command "$release_bin" "${run_args[@]}" &
   pid=$!
 
   for ((i = 0; i < SMOKE_SECONDS * 10; i++)); do

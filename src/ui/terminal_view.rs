@@ -9,8 +9,8 @@ use crate::ui::insert_command_mode::{
 };
 #[cfg(feature = "native-renderer")]
 use crate::ui::native_terminal::{
-    NativeTerminalBody, native_terminal_pilot_active_for_pane, scaled_cell_height_px,
-    scaled_cell_width_px,
+    NativeTerminalBody, native_frame_content_cols, scaled_cell_height_px, scaled_cell_width_px,
+    snapshot_content_cols,
 };
 use crate::ui::terminal_input::{
     cursor_move_bytes, key_event_to_bytes, map_click_to_terminal_cell, read_clipboard_text,
@@ -73,7 +73,7 @@ pub(crate) fn terminal_shell(
     session_id: SessionId,
     source_cwd: String,
     terminal_is_focused: bool,
-    terminal_is_selected: bool,
+    _terminal_is_selected: bool,
     terminal: Arc<TerminalSnapshot>,
     terminal_manager: Arc<TerminalManager>,
     emily_bridge: Arc<EmilyBridge>,
@@ -94,8 +94,8 @@ pub(crate) fn terminal_shell(
     let mut native_horizontal_scroll_drag = interaction.native_horizontal_scroll_drag;
     let snippet_hotkey_state = interaction.snippet_hotkey_state;
     let mut shell_mount = use_signal(|| None::<Rc<MountedData>>);
-    #[cfg(not(feature = "native-renderer"))]
-    let _ = terminal_is_selected;
+    #[cfg(feature = "native-renderer")]
+    let mut wrapped_native_input_mount = use_signal(|| None::<Rc<MountedData>>);
     let crt_enabled = app_state.read().crt_enabled();
     let wrap_enabled = ui_state
         .read()
@@ -110,8 +110,7 @@ pub(crate) fn terminal_shell(
         (false, false) => "terminal-shell",
     };
     #[cfg(feature = "native-renderer")]
-    let native_terminal_active =
-        native_terminal_pilot_active_for_pane(terminal_is_selected) && !crt_enabled && !wrap_enabled;
+    let native_terminal_active = !crt_enabled;
     #[cfg(not(feature = "native-renderer"))]
     let native_terminal_active = false;
     let body_class = if crt_enabled {
@@ -267,11 +266,6 @@ pub(crate) fn terminal_shell(
         .map(|frame| frame.rows.max(1))
         .unwrap_or(terminal.rows.max(1));
     #[cfg(feature = "native-renderer")]
-    let native_frame_cols = native_frame
-        .as_ref()
-        .map(|frame| frame.cols.max(1))
-        .unwrap_or(terminal.cols.max(1));
-    #[cfg(feature = "native-renderer")]
     let native_hidden_rows = usize::from(native_frame_rows.saturating_sub(native_visible_rows));
     #[cfg(feature = "native-renderer")]
     let native_local_offset = native_terminal_local_offsets
@@ -280,6 +274,16 @@ pub(crate) fn terminal_shell(
         .copied()
         .unwrap_or(0)
         .min(native_hidden_rows);
+    #[cfg(feature = "native-renderer")]
+    let native_content_cols = native_frame
+        .as_ref()
+        .map(|frame| {
+            native_frame_content_cols(frame.as_ref(), native_visible_rows, native_local_offset as u16)
+        })
+        .unwrap_or_else(|| {
+            snapshot_content_cols(&terminal, native_visible_rows, native_local_offset as u16)
+        })
+        .max(1);
     #[cfg(feature = "native-renderer")]
     let native_history_size = native_frame
         .as_ref()
@@ -295,7 +299,7 @@ pub(crate) fn terminal_shell(
     #[cfg(feature = "native-renderer")]
     let native_effective_offset = native_display_offset + native_local_offset;
     #[cfg(feature = "native-renderer")]
-    let native_hidden_cols = usize::from(native_frame_cols.saturating_sub(native_visible_cols));
+    let native_hidden_cols = usize::from(native_content_cols.saturating_sub(native_visible_cols));
     #[cfg(feature = "native-renderer")]
     let native_horizontal_offset = native_terminal_horizontal_offsets
         .read()
@@ -376,7 +380,43 @@ pub(crate) fn terminal_shell(
     let native_body_id_for_copy = shell_body_id_for_copy.clone();
     let shell_terminal_manager_for_click = terminal_manager_for_click.clone();
     let body_terminal_manager_for_click = terminal_manager_for_click.clone();
+    #[cfg(feature = "native-renderer")]
+    let wrapped_shell_terminal_manager_for_keydown = shell_terminal_manager_for_keydown.clone();
+    #[cfg(feature = "native-renderer")]
+    let wrapped_shell_terminal_manager_for_paste_shortcut =
+        shell_terminal_manager_for_paste_shortcut.clone();
+    #[cfg(feature = "native-renderer")]
+    let wrapped_shell_emily_bridge_for_snippet = shell_emily_bridge_for_snippet.clone();
+    #[cfg(feature = "native-renderer")]
+    let wrapped_shell_terminal_snapshot = shell_terminal_snapshot.clone();
+    #[cfg(feature = "native-renderer")]
+    let wrapped_shell_source_cwd = shell_source_cwd.clone();
+    #[cfg(feature = "native-renderer")]
+    let wrapped_shell_body_id_for_snippet_capture = shell_body_id_for_snippet_capture.clone();
+    #[cfg(feature = "native-renderer")]
+    let wrapped_shell_body_id_for_round_select = shell_body_id_for_round_select.clone();
+    #[cfg(feature = "native-renderer")]
+    let wrapped_shell_body_id_for_copy = shell_body_id_for_copy.clone();
+    #[cfg(feature = "native-renderer")]
+    let wrapped_shell_terminal_manager_for_paste_event =
+        shell_terminal_manager_for_paste_event.clone();
+    #[cfg(not(feature = "native-renderer"))]
     let shell_click_mount = shell_mount;
+    #[cfg(feature = "native-renderer")]
+    {
+        let wrapped_native_input_mount = wrapped_native_input_mount;
+        use_effect(move || {
+            if native_terminal_active || !terminal_is_focused {
+                return;
+            }
+            let Some(input_mount) = wrapped_native_input_mount.read().clone() else {
+                return;
+            };
+            spawn(async move {
+                let _ = input_mount.set_focus(true).await;
+            });
+        });
+    }
     #[cfg(feature = "native-renderer")]
     let native_terminal_body = rsx! {
         NativeTerminalBody {
@@ -416,12 +456,30 @@ pub(crate) fn terminal_shell(
                 );
             },
             onfocus: move |_| {
+                if native_terminal_input_debug_enabled() {
+                    eprintln!("[native-input] focus session={}", session_id);
+                }
                 focus_terminal_session(ui_state, session_id);
             },
             onblur: move |_| {
+                if native_terminal_input_debug_enabled() {
+                    eprintln!("[native-input] blur session={}", session_id);
+                }
                 blur_terminal_session(ui_state, session_id);
             },
             onkeydown: move |event: KeyboardEvent| {
+                if native_terminal_input_debug_enabled() {
+                    eprintln!(
+                        "[native-input] keydown session={} key={:?} code={:?} ctrl={} alt={} shift={} meta={}",
+                        session_id,
+                        event.data().key(),
+                        event.data().code(),
+                        event.data().modifiers().ctrl(),
+                        event.data().modifiers().alt(),
+                        event.data().modifiers().shift(),
+                        event.data().modifiers().meta()
+                    );
+                }
                 if let Some(delta_lines) = page_scroll_delta(&event, native_visible_rows) {
                     event.prevent_default();
                     event.stop_propagation();
@@ -453,10 +511,18 @@ pub(crate) fn terminal_shell(
                     &native_body_id_for_copy,
                     round_anchor_row_global,
                     bracketed_paste,
+                    false,
                 );
             },
             oninput: move |event: FormEvent| {
                 let value = event.value();
+                if native_terminal_input_debug_enabled() {
+                    eprintln!(
+                        "[native-input] input session={} value={:?}",
+                        session_id,
+                        value
+                    );
+                }
                 if value.is_empty() {
                     return;
                 }
@@ -697,6 +763,69 @@ pub(crate) fn terminal_shell(
         };
     #[cfg(not(feature = "native-renderer"))]
     let native_horizontal_scrollbar = rsx! { div {} };
+    #[cfg(feature = "native-renderer")]
+    let wrapped_native_keyboard_sink = if !native_terminal_active {
+        rsx! {
+            input {
+                r#type: "text",
+                tabindex: "0",
+                autofocus: "true",
+                spellcheck: "false",
+                value: "",
+                class: "terminal-native-input-sink",
+                onmounted: move |event| {
+                    let mount = event.data();
+                    wrapped_native_input_mount.set(Some(mount.clone()));
+                    if terminal_is_focused {
+                        spawn(async move {
+                            let _ = mount.set_focus(true).await;
+                        });
+                    }
+                },
+                onfocus: move |_| {
+                    focus_terminal_session(ui_state, session_id);
+                },
+                onblur: move |_| {
+                    blur_terminal_session(ui_state, session_id);
+                },
+                onkeydown: move |event| {
+                        handle_terminal_keydown(
+                            event,
+                            session_id,
+                            app_state,
+                            ui_state,
+                            snippet_hotkey_state,
+                            &wrapped_shell_terminal_manager_for_keydown,
+                            &wrapped_shell_terminal_manager_for_paste_shortcut,
+                            &wrapped_shell_emily_bridge_for_snippet,
+                            &wrapped_shell_terminal_snapshot,
+                            &wrapped_shell_source_cwd,
+                            &wrapped_shell_body_id_for_snippet_capture,
+                            &wrapped_shell_body_id_for_round_select,
+                            &wrapped_shell_body_id_for_copy,
+                            round_anchor_row_global,
+                            bracketed_paste,
+                            false,
+                        );
+                },
+                onpaste: move |event| {
+                        handle_terminal_paste(
+                            event,
+                            session_id,
+                            app_state,
+                            ui_state,
+                            &wrapped_shell_terminal_manager_for_paste_event,
+                            bracketed_paste,
+                        );
+                    },
+                oninput: move |_| {},
+            }
+        }
+    } else {
+        rsx! {}
+    };
+    #[cfg(not(feature = "native-renderer"))]
+    let wrapped_native_keyboard_sink = rsx! {};
 
     rsx! {
         div {
@@ -735,6 +864,15 @@ pub(crate) fn terminal_shell(
                     click_cursor_row,
                     click_cursor_col,
                 );
+                #[cfg(feature = "native-renderer")]
+                if !native_terminal_active
+                    && let Some(input_mount) = wrapped_native_input_mount.read().clone()
+                {
+                    spawn(async move {
+                        let _ = input_mount.set_focus(true).await;
+                    });
+                }
+                #[cfg(not(feature = "native-renderer"))]
                 if let Some(shell_mount) = shell_click_mount.read().clone() {
                     spawn(async move {
                         let _ = shell_mount.set_focus(true).await;
@@ -758,6 +896,7 @@ pub(crate) fn terminal_shell(
                     &shell_body_id_for_copy,
                     round_anchor_row_global,
                     bracketed_paste,
+                    false,
                 );
             },
             onpaste: move |event| {
@@ -970,6 +1109,7 @@ pub(crate) fn terminal_shell(
                     }
                 }
             }
+            {wrapped_native_keyboard_sink}
 
             if let Some(mode) = insert_mode_for_session {
                 InsertCommandPalette {
@@ -1210,6 +1350,7 @@ fn handle_terminal_keydown(
     body_id_for_copy: &str,
     round_anchor_row_global: u16,
     bracketed_paste: bool,
+    defer_plain_text_to_input: bool,
 ) {
     let data = event.data();
     let key = data.key();
@@ -1218,6 +1359,15 @@ fn handle_terminal_keydown(
     let alt = modifiers.alt();
     let shift = modifiers.shift();
     let meta = modifiers.meta();
+
+    if defer_plain_text_to_input
+        && matches!(&key, Key::Character(_))
+        && !ctrl
+        && !alt
+        && !meta
+    {
+        return;
+    }
 
     if crt_toggle_requested(&key, ctrl, alt, shift, meta) {
         event.prevent_default();
@@ -1618,6 +1768,18 @@ fn native_terminal_scroll_debug_enabled() -> bool {
 #[cfg(not(feature = "terminal-native-spike"))]
 fn native_terminal_scroll_debug_enabled() -> bool {
     false
+}
+
+fn native_terminal_input_debug_enabled() -> bool {
+    std::env::var("GESTALT_NATIVE_INPUT_DEBUG")
+        .ok()
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
 }
 
 fn page_scroll_delta(event: &KeyboardEvent, visible_rows: u16) -> Option<i32> {

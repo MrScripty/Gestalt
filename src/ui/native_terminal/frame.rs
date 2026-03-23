@@ -186,6 +186,71 @@ impl NativeTerminalFrame {
     }
 }
 
+pub(crate) fn snapshot_content_cols(
+    snapshot: &TerminalSnapshot,
+    visible_rows: u16,
+    local_scroll_offset: u16,
+) -> u16 {
+    let rows = visible_rows.max(1).min(snapshot.rows.max(1));
+    let window_start = visible_window_start(snapshot, rows, local_scroll_offset);
+    let mut max_cols = visible_window(snapshot, rows, local_scroll_offset)
+        .iter()
+        .map(|line| line.chars().count())
+        .max()
+        .unwrap_or(0);
+    let cursor_row = usize::from(snapshot.cursor_row);
+    if cursor_row >= window_start && cursor_row < window_start.saturating_add(usize::from(rows)) {
+        max_cols = max_cols.max(usize::from(snapshot.cursor_col.saturating_add(1)));
+    }
+    u16::try_from(max_cols)
+        .unwrap_or(u16::MAX)
+        .max(1)
+        .min(snapshot.cols.max(1))
+}
+
+pub(crate) fn native_frame_content_cols(
+    frame: &TerminalFrame,
+    visible_rows: u16,
+    local_scroll_offset: u16,
+) -> u16 {
+    let rows = visible_rows.max(1).min(frame.rows.max(1));
+    let frame_row_offset = usize::from(frame.rows.max(rows) - rows)
+        - usize::from(local_scroll_offset.min(frame.rows.saturating_sub(rows)));
+    let mut max_cols = 0usize;
+
+    if let Some(full_cells) = full_cells(frame) {
+        let width = usize::from(frame.cols);
+        for row in 0..rows {
+            let source_row = usize::from(row) + frame_row_offset;
+            let start = source_row * width;
+            let end = start + width;
+            let row_cells = match full_cells.get(start..end) {
+                Some(row_cells) => row_cells,
+                None => continue,
+            };
+            let occupied_cols = row_cells
+                .iter()
+                .rposition(|cell| native_codepoint(cell) != ' ')
+                .map(|index| index + 1)
+                .unwrap_or(0);
+            max_cols = max_cols.max(occupied_cols);
+        }
+    }
+
+    if !matches!(frame.cursor.shape, TerminalCursorShape::Hidden) {
+        let top_row = frame_row_offset as u16;
+        let bottom_row = top_row.saturating_add(rows);
+        if frame.cursor.row >= top_row && frame.cursor.row < bottom_row {
+            max_cols = max_cols.max(usize::from(frame.cursor.col.saturating_add(1)));
+        }
+    }
+
+    u16::try_from(max_cols)
+        .unwrap_or(u16::MAX)
+        .max(1)
+        .min(frame.cols.max(1))
+}
+
 fn visible_window(snapshot: &TerminalSnapshot, rows: u16, local_scroll_offset: u16) -> &[String] {
     let window_start = visible_window_start(snapshot, rows, local_scroll_offset);
     &snapshot.lines[window_start..]

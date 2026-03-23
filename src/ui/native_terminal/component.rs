@@ -151,20 +151,27 @@ pub(crate) fn NativeTerminalBody(
     onmouseleave: EventHandler<MouseEvent>,
 ) -> Element {
     let _ = &onblur;
+    let mut layer_mount = use_signal(|| None::<Rc<MountedData>>);
     let mut input_mount = use_signal(|| None::<Rc<MountedData>>);
 
     {
-        let input_mount = input_mount.read().clone();
+        let layer_mount = layer_mount;
+        let input_mount = input_mount;
         use_effect(move || {
             if !show_caret {
                 return;
             }
-            let Some(input_mount) = input_mount.clone() else {
+            if let Some(input_mount) = input_mount.read().clone() {
+                spawn(async move {
+                    let _ = input_mount.set_focus(true).await;
+                });
                 return;
-            };
-            spawn(async move {
-                let _ = input_mount.set_focus(true).await;
-            });
+            }
+            if let Some(layer_mount) = layer_mount.read().clone() {
+                spawn(async move {
+                    let _ = layer_mount.set_focus(true).await;
+                });
+            }
         });
     }
 
@@ -180,11 +187,20 @@ pub(crate) fn NativeTerminalBody(
     rsx! {
         div {
             class: "terminal-native-layer",
+            onmounted: move |event| {
+                let mount = event.data();
+                layer_mount.set(Some(mount.clone()));
+                onviewportmounted.call(mount.clone());
+            },
             onclick: move |event| {
                 onclick.call(event);
                 if let Some(input_mount) = input_mount.read().clone() {
                     spawn(async move {
                         let _ = input_mount.set_focus(true).await;
+                    });
+                } else if let Some(layer_mount) = layer_mount.read().clone() {
+                    spawn(async move {
+                        let _ = layer_mount.set_focus(true).await;
                     });
                 }
             },
@@ -207,13 +223,13 @@ pub(crate) fn NativeTerminalBody(
             input {
                 r#type: "text",
                 tabindex: "0",
+                autofocus: "true",
                 spellcheck: "false",
                 value: "{input_value}",
                 style: INPUT_SINK_STYLE,
                 onmounted: move |event| {
                     let mount = event.data();
                     input_mount.set(Some(mount.clone()));
-                    onviewportmounted.call(mount.clone());
                     if show_caret {
                         spawn(async move {
                             let _ = mount.set_focus(true).await;

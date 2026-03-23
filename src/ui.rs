@@ -44,7 +44,8 @@ use crate::ui::terminal_view::{
     NativeTerminalHorizontalScrollDrag, NativeTerminalScrollDrag, apply_native_scroll_delta,
 };
 use crate::ui::workspace::WorkspaceMain;
-use dioxus::document;
+#[cfg(feature = "native-renderer")]
+use crate::ui::native_terminal::default_unwrapped_terminal_cols;
 #[cfg(feature = "terminal-native-spike")]
 use dioxus::html::Code;
 use dioxus::prelude::*;
@@ -54,6 +55,14 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
+const SHELL_CSS: &str = concat!(
+    include_str!("style/base.css"),
+    include_str!("style/workspace.css"),
+    include_str!("style/git_panel.css"),
+    include_str!("style/commands_panel.css"),
+    include_str!("style/file_browser_panel.css"),
+    include_str!("style/run_review_panel.css")
+);
 const TERMINAL_RESIZE_POLL_MS: u64 = 180;
 #[cfg(feature = "native-renderer")]
 const TERMINAL_REFRESH_COALESCE_MS: u64 = 75;
@@ -143,7 +152,7 @@ pub fn App() -> Element {
         })
     };
     let new_group_path = use_signal(String::new);
-    let ui_state = use_signal(UiState::default);
+    let mut ui_state = use_signal(UiState::default);
     let terminal_body_mounts = use_signal(|| HashMap::<SessionId, Rc<MountedData>>::new());
     let native_terminal_viewport_mounts = use_signal(|| HashMap::<SessionId, Rc<MountedData>>::new());
     let native_terminal_surface_cells = use_signal(|| HashMap::<SessionId, (u16, u16)>::new());
@@ -366,10 +375,18 @@ pub fn App() -> Element {
                         .retain(|session_id, _| active_session_set.contains(session_id));
 
                     for session_id in active_session_ids {
-                        let (body_mount, native_viewport_mount, native_surface_cells, ui_scale, native_terminal_active, wrap_enabled) = {
+                        let (
+                            body_mount,
+                            native_viewport_mount,
+                            native_surface_cells,
+                            ui_scale,
+                            native_terminal_active,
+                            wrap_enabled,
+                            preferred_unwrapped_cols,
+                        ) = {
                             let state = app_state.read();
-                            let wrap_enabled = ui_state
-                                .read()
+                            let ui = ui_state.read();
+                            let wrap_enabled = ui
                                 .terminal_wrap_by_session
                                 .get(&session_id)
                                 .copied()
@@ -386,9 +403,11 @@ pub fn App() -> Element {
                                     .copied(),
                                 state.ui_scale(),
                                 cfg!(feature = "native-renderer")
-                                    && !state.crt_enabled()
-                                    && !wrap_enabled,
+                                    && !state.crt_enabled(),
                                 wrap_enabled,
+                                ui.terminal_unwrapped_cols_by_session
+                                    .get(&session_id)
+                                    .copied(),
                             )
                         };
                         let measured = if native_terminal_active {
@@ -431,14 +450,35 @@ pub fn App() -> Element {
                         let Some((rows, cols)) = measured else {
                             continue;
                         };
+                        let measured_cols = cols;
                         if wrap_enabled {
                             native_terminal_horizontal_offsets.write().remove(&session_id);
                         }
                         terminal_viewport_sizes.write().insert(session_id, (rows, cols));
+                        let snapshot_cols = terminal_manager
+                            .snapshot_shared(session_id)
+                            .map(|snapshot| snapshot.cols);
+                        if preferred_unwrapped_cols.is_none()
+                            && let Some(snapshot_cols) = snapshot_cols
+                        {
+                            ui_state
+                                .write()
+                                .terminal_unwrapped_cols_by_session
+                                .entry(session_id)
+                                    .or_insert(
+                                        snapshot_cols
+                                        .max(default_unwrapped_terminal_cols(measured_cols))
+                                        .max(TERMINAL_MIN_RESIZE_COLS),
+                                );
+                        }
                         let cols = if native_terminal_active && !wrap_enabled {
-                            terminal_manager
-                                .snapshot_shared(session_id)
-                                .map(|snapshot| snapshot.cols.max(cols))
+                            preferred_unwrapped_cols
+                                .or(snapshot_cols)
+                                .map(|target| {
+                                    target
+                                        .max(default_unwrapped_terminal_cols(measured_cols))
+                                        .max(cols)
+                                })
                                 .unwrap_or(cols)
                                 .max(TERMINAL_MIN_RESIZE_COLS)
                         } else {
@@ -701,12 +741,7 @@ pub fn App() -> Element {
     });
 
     rsx! {
-        document::Stylesheet { href: asset!("/src/style/base.css") }
-        document::Stylesheet { href: asset!("/src/style/workspace.css") }
-        document::Stylesheet { href: asset!("/src/style/git_panel.css") }
-        document::Stylesheet { href: asset!("/src/style/commands_panel.css") }
-        document::Stylesheet { href: asset!("/src/style/file_browser_panel.css") }
-        document::Stylesheet { href: asset!("/src/style/run_review_panel.css") }
+        style { "{SHELL_CSS}" }
 
         div {
             class: "{shell_class}",
