@@ -283,13 +283,62 @@ fn native_codepoint(cell: &TerminalCell) -> char {
 
 #[cfg(test)]
 mod tests {
-    use super::NativeTerminalFrame;
+    use super::{NativeTerminalFrame, native_frame_content_cols, snapshot_content_cols};
     use crate::terminal::TerminalSnapshot;
     use crate::terminal_native::{
         TerminalCell, TerminalCellFlags, TerminalCellPublication, TerminalCursor,
         TerminalCursorShape, TerminalDamage, TerminalFrame,
     };
     use std::sync::Arc;
+
+    fn snapshot(
+        lines: &[&str],
+        rows: u16,
+        cols: u16,
+        cursor_row: u16,
+        cursor_col: u16,
+    ) -> TerminalSnapshot {
+        TerminalSnapshot {
+            lines: lines.iter().map(|line| (*line).to_string()).collect(),
+            rows,
+            cols,
+            cursor_row,
+            cursor_col,
+            hide_cursor: false,
+            bracketed_paste: false,
+        }
+    }
+
+    fn full_frame(
+        lines: &[&str],
+        rows: u16,
+        cols: u16,
+        cursor_row: u16,
+        cursor_col: u16,
+    ) -> TerminalFrame {
+        let mut cells = vec![TerminalCell::default(); usize::from(rows) * usize::from(cols)];
+        for (row_index, line) in lines.iter().enumerate() {
+            for (col_index, codepoint) in line.chars().enumerate() {
+                let index = row_index * usize::from(cols) + col_index;
+                cells[index].codepoint = codepoint;
+            }
+        }
+
+        TerminalFrame {
+            rows,
+            cols,
+            history_size: 0,
+            cursor: TerminalCursor {
+                row: cursor_row,
+                col: cursor_col,
+                shape: TerminalCursorShape::Block,
+            },
+            bracketed_paste: false,
+            display_offset: 0,
+            damage: TerminalDamage::Full,
+            publication: TerminalCellPublication::Full(Arc::new(cells)),
+        }
+    }
 
     #[test]
     fn frame_uses_last_visible_rows() {
@@ -444,5 +493,33 @@ mod tests {
         assert_eq!(native.cell(0, 0).codepoint, 'c');
         assert_eq!(native.cell(0, 1).codepoint, 'd');
         assert_eq!(native.cursor.unwrap().col, 1);
+    }
+
+    #[test]
+    fn snapshot_content_cols_uses_visible_window_only() {
+        let snapshot = snapshot(&["abcdefghij", "zz", "1234"], 2, 20, 2, 1);
+
+        assert_eq!(snapshot_content_cols(&snapshot, 2, 0), 4);
+    }
+
+    #[test]
+    fn snapshot_content_cols_includes_cursor_beyond_text() {
+        let snapshot = snapshot(&[""], 1, 20, 0, 5);
+
+        assert_eq!(snapshot_content_cols(&snapshot, 1, 0), 6);
+    }
+
+    #[test]
+    fn native_frame_content_cols_uses_visible_rows_only() {
+        let frame = full_frame(&["abcdefghij", "zz", "1234"], 3, 20, 2, 1);
+
+        assert_eq!(native_frame_content_cols(&frame, 2, 0), 4);
+    }
+
+    #[test]
+    fn native_frame_content_cols_includes_cursor_beyond_text() {
+        let frame = full_frame(&[""], 1, 20, 0, 7);
+
+        assert_eq!(native_frame_content_cols(&frame, 1, 0), 8);
     }
 }

@@ -44,7 +44,8 @@ use crate::ui::terminal_view::{NativeTerminalHorizontalScrollDrag, NativeTermina
 use crate::ui::workspace::WorkspaceMain;
 #[cfg(feature = "native-renderer")]
 use crate::ui::native_terminal::{
-    apply_native_scroll_delta, apply_native_scroll_to, default_unwrapped_terminal_cols,
+    apply_native_scroll_delta, apply_native_scroll_to, restore_unwrapped_terminal_cols,
+    seed_unwrapped_terminal_cols,
 };
 #[cfg(feature = "terminal-native-spike")]
 use dioxus::html::Code;
@@ -465,21 +466,18 @@ pub fn App() -> Element {
                                 .write()
                                 .terminal_unwrapped_cols_by_session
                                 .entry(session_id)
-                                    .or_insert(
-                                        snapshot_cols
-                                        .max(default_unwrapped_terminal_cols(measured_cols))
+                                .or_insert(
+                                        seed_unwrapped_terminal_cols(snapshot_cols, measured_cols)
                                         .max(TERMINAL_MIN_RESIZE_COLS),
                                 );
                         }
                         let cols = if native_terminal_active && !wrap_enabled {
-                            preferred_unwrapped_cols
-                                .or(snapshot_cols)
-                                .map(|target| {
-                                    target
-                                        .max(default_unwrapped_terminal_cols(measured_cols))
-                                        .max(cols)
-                                })
-                                .unwrap_or(cols)
+                            restore_unwrapped_terminal_cols(
+                                preferred_unwrapped_cols,
+                                snapshot_cols,
+                                measured_cols,
+                            )
+                            .max(cols)
                                 .max(TERMINAL_MIN_RESIZE_COLS)
                         } else {
                             cols.max(TERMINAL_MIN_RESIZE_COLS)

@@ -18,4 +18,4 @@ pub(crate) use scroll::{
     native_offset_from_vertical_track, native_scroll_track_height_px,
 };
 pub(crate) use viewport::native_terminal_viewport_metrics;
-pub(crate) use wrap_policy::default_unwrapped_terminal_cols;
+pub(crate) use wrap_policy::{restore_unwrapped_terminal_cols, seed_unwrapped_terminal_cols};

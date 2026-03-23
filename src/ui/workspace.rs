@@ -5,7 +5,7 @@ use crate::state::{AppState, AuxiliaryPanelKind, SessionId, WorkspaceState};
 use crate::terminal::TerminalManager;
 use crate::ui::UiState;
 #[cfg(feature = "native-renderer")]
-use crate::ui::native_terminal::default_unwrapped_terminal_cols;
+use crate::ui::native_terminal::restore_unwrapped_terminal_cols;
 use crate::ui::run_sidebar_panel_host::RunSidebarPanelHost;
 use crate::ui::sidebar_panel_host::SidebarPanelHost;
 use crate::ui::terminal_view::{
@@ -803,15 +803,14 @@ fn WorkspaceTerminalCard(
                             .write()
                             .remove(&session_id);
                         if let Some((rows, viewport_cols)) = viewport_size_for_wrap_toggle {
-                            let default_unwrapped_cols =
-                                default_unwrapped_terminal_cols(viewport_cols);
                             let target_cols = if next {
                                 viewport_cols.max(24)
                             } else {
-                                restored_unwrapped_cols
-                                    .or(snapshot_cols)
-                                    .map(|cols| cols.max(default_unwrapped_cols))
-                                    .unwrap_or(default_unwrapped_cols)
+                                restore_unwrapped_terminal_cols(
+                                    restored_unwrapped_cols,
+                                    snapshot_cols,
+                                    viewport_cols,
+                                )
                             };
                             if !next {
                                 ui_state
