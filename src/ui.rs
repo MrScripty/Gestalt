@@ -40,12 +40,12 @@ use crate::ui::tab_rail::TabRail;
 use crate::ui::terminal_input::{key_event_to_bytes, measure_terminal_viewport};
 #[cfg(feature = "native-renderer")]
 use crate::ui::terminal_input::measure_native_terminal_viewport;
-use crate::ui::terminal_view::{
-    NativeTerminalHorizontalScrollDrag, NativeTerminalScrollDrag, apply_native_scroll_delta,
-};
+use crate::ui::terminal_view::{NativeTerminalHorizontalScrollDrag, NativeTerminalScrollDrag};
 use crate::ui::workspace::WorkspaceMain;
 #[cfg(feature = "native-renderer")]
-use crate::ui::native_terminal::default_unwrapped_terminal_cols;
+use crate::ui::native_terminal::{
+    apply_native_scroll_delta, apply_native_scroll_to, default_unwrapped_terminal_cols,
+};
 #[cfg(feature = "terminal-native-spike")]
 use dioxus::html::Code;
 use dioxus::prelude::*;
@@ -871,7 +871,7 @@ pub fn App() -> Element {
                                 .saturating_sub(delta_offset.unsigned_abs() as usize)
                         }
                         .min(total_scroll_range);
-                        let _ = crate::ui::terminal_view::apply_native_scroll_to(
+                        let _ = apply_native_scroll_to(
                             drag.session_id,
                             desired_offset,
                             hidden_rows,
