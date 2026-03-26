@@ -278,7 +278,10 @@ pub(crate) fn terminal_shell(
         &terminal,
         native_frame.as_deref(),
         terminal_viewport_sizes.read().get(&session_id).copied(),
-        native_terminal_surface_cells.read().get(&session_id).copied(),
+        native_terminal_surface_cells
+            .read()
+            .get(&session_id)
+            .copied(),
         native_terminal_local_offsets
             .read()
             .get(&session_id)
@@ -354,6 +357,11 @@ pub(crate) fn terminal_shell(
         .get(&session_id)
         .map(|selection| selection.rects.clone())
         .unwrap_or_default();
+    #[cfg(feature = "native-renderer")]
+    let native_selection_text_for_copy = native_selection_by_session
+        .read()
+        .get(&session_id)
+        .map(|selection| selection.text.clone());
     #[cfg(feature = "native-renderer")]
     let mut native_input_buffer = use_signal(String::new);
     #[cfg(feature = "native-renderer")]
@@ -539,16 +547,12 @@ pub(crate) fn terminal_shell(
                     eprintln!("[native-input] blur session={}", session_id);
                 }
                 blur_terminal_session(ui_state, session_id);
-                native_selection_by_session.write().remove(&session_id);
-                if native_selection_drag
-                    .read()
-                    .is_some_and(|drag| drag.session_id == session_id)
-                {
-                    native_selection_drag.set(None);
-                }
-                if *native_selection_suppress_click.read() == Some(session_id) {
-                    native_selection_suppress_click.set(None);
-                }
+                clear_native_terminal_selection(
+                    session_id,
+                    &mut native_selection_by_session,
+                    &mut native_selection_drag,
+                    &mut native_selection_suppress_click,
+                );
             },
             onkeydown: move |event: KeyboardEvent| {
                 if native_terminal_input_debug_enabled() {
@@ -566,6 +570,12 @@ pub(crate) fn terminal_shell(
                 if let Some(delta_lines) = page_scroll_delta(&event, native_visible_rows) {
                     event.prevent_default();
                     event.stop_propagation();
+                    clear_native_terminal_selection(
+                        session_id,
+                        &mut native_selection_by_session,
+                        &mut native_selection_drag,
+                        &mut native_selection_suppress_click,
+                    );
                     apply_native_scroll_delta(
                         session_id,
                         delta_lines,
@@ -592,6 +602,7 @@ pub(crate) fn terminal_shell(
                     &native_body_id_for_snippet_capture,
                     &native_body_id_for_round_select,
                     &native_body_id_for_copy,
+                    native_selection_text_for_copy.clone(),
                     round_anchor_row_global,
                     bracketed_paste,
                     false,
@@ -657,6 +668,12 @@ pub(crate) fn terminal_shell(
                     }
                     event.prevent_default();
                     event.stop_propagation();
+                    clear_native_terminal_selection(
+                        session_id,
+                        &mut native_selection_by_session,
+                        &mut native_selection_drag,
+                        &mut native_selection_suppress_click,
+                    );
                     apply_native_scroll_delta(
                         session_id,
                         delta_lines,
@@ -688,17 +705,15 @@ pub(crate) fn terminal_shell(
             "top: {:.4}%; height: {:.4}%;",
             native_thumb_top_pct, native_thumb_height_pct
         );
-        let native_track_height_px =
-            native_terminal_surface_sizes
-                .read()
-                .get(&session_id)
-                .map(|(_, height)| *height)
-                .unwrap_or_else(|| native_scroll_track_height_px(native_visible_rows, ui_scale))
-                .max(1.0);
-        let native_thumb_height_px =
-            (native_track_height_px * (native_thumb_height_pct / 100.0)).clamp(1.0, native_track_height_px);
-        let native_thumb_travel_px =
-            (native_track_height_px - native_thumb_height_px).max(1.0);
+        let native_track_height_px = native_terminal_surface_sizes
+            .read()
+            .get(&session_id)
+            .map(|(_, height)| *height)
+            .unwrap_or_else(|| native_scroll_track_height_px(native_visible_rows, ui_scale))
+            .max(1.0);
+        let native_thumb_height_px = (native_track_height_px * (native_thumb_height_pct / 100.0))
+            .clamp(1.0, native_track_height_px);
+        let native_thumb_travel_px = (native_track_height_px - native_thumb_height_px).max(1.0);
         rsx! {
             div {
                 class: "terminal-native-scrollbar",
@@ -719,6 +734,12 @@ pub(crate) fn terminal_shell(
                             native_track_height_px,
                             native_thumb_height_px,
                             native_total_scroll_range,
+                        );
+                        clear_native_terminal_selection(
+                            session_id,
+                            &mut native_selection_by_session,
+                            &mut native_selection_drag,
+                            &mut native_selection_suppress_click,
                         );
                         let _ = apply_native_scroll_to(
                             session_id,
@@ -744,6 +765,12 @@ pub(crate) fn terminal_shell(
                     onmousedown: move |event| {
                         event.prevent_default();
                         event.stop_propagation();
+                        clear_native_terminal_selection(
+                            session_id,
+                            &mut native_selection_by_session,
+                            &mut native_selection_drag,
+                            &mut native_selection_suppress_click,
+                        );
                         native_scroll_drag.set(Some(NativeTerminalScrollDrag {
                             session_id,
                             start_client_y: event.data().client_coordinates().y,
@@ -783,11 +810,10 @@ pub(crate) fn terminal_shell(
                     f64::from(native_visible_cols.max(1)) * scaled_cell_width_px(ui_scale)
                 })
                 .max(1.0);
-            let native_thumb_width_px =
-                (native_track_width_px * (native_horizontal_thumb_width_pct / 100.0))
-                    .clamp(1.0, native_track_width_px);
-            let native_thumb_travel_px =
-                (native_track_width_px - native_thumb_width_px).max(1.0);
+            let native_thumb_width_px = (native_track_width_px
+                * (native_horizontal_thumb_width_pct / 100.0))
+                .clamp(1.0, native_track_width_px);
+            let native_thumb_travel_px = (native_track_width_px - native_thumb_width_px).max(1.0);
             rsx! {
                 div {
                     class: "terminal-native-hscrollbar",
@@ -805,6 +831,12 @@ pub(crate) fn terminal_shell(
                                 native_track_width_px,
                                 native_thumb_width_px,
                                 native_hidden_cols,
+                            );
+                            clear_native_terminal_selection(
+                                session_id,
+                                &mut native_selection_by_session,
+                                &mut native_selection_drag,
+                                &mut native_selection_suppress_click,
                             );
                             if desired_offset == 0 {
                                 native_terminal_horizontal_offsets.write().remove(&session_id);
@@ -829,6 +861,12 @@ pub(crate) fn terminal_shell(
                         onmousedown: move |event| {
                             event.prevent_default();
                             event.stop_propagation();
+                            clear_native_terminal_selection(
+                                session_id,
+                                &mut native_selection_by_session,
+                                &mut native_selection_drag,
+                                &mut native_selection_suppress_click,
+                            );
                             native_horizontal_scroll_drag.set(Some(
                                 NativeTerminalHorizontalScrollDrag {
                                     session_id,
@@ -886,6 +924,7 @@ pub(crate) fn terminal_shell(
                             &wrapped_shell_body_id_for_snippet_capture,
                             &wrapped_shell_body_id_for_round_select,
                             &wrapped_shell_body_id_for_copy,
+                            None,
                             round_anchor_row_global,
                             bracketed_paste,
                             false,
@@ -977,6 +1016,7 @@ pub(crate) fn terminal_shell(
                     &shell_body_id_for_snippet_capture,
                     &shell_body_id_for_round_select,
                     &shell_body_id_for_copy,
+                    None,
                     round_anchor_row_global,
                     bracketed_paste,
                     false,
@@ -998,6 +1038,7 @@ pub(crate) fn terminal_shell(
                 id: "{terminal_body_id}",
                 style: "{body_style}",
                 onwheel: move |event: WheelEvent| {
+                    #[cfg(feature = "native-renderer")]
                     if native_terminal_active {
                         if native_terminal_scroll_debug_enabled() {
                             eprintln!(
@@ -1018,6 +1059,12 @@ pub(crate) fn terminal_shell(
                             }
                             event.prevent_default();
                             event.stop_propagation();
+                            clear_native_terminal_selection(
+                                session_id,
+                                &mut native_selection_by_session,
+                                &mut native_selection_drag,
+                                &mut native_selection_suppress_click,
+                            );
                             let _ = native_terminal_manager_for_wheel
                                 .scroll_viewport(session_id, delta_lines);
                         }
@@ -1336,6 +1383,25 @@ fn finish_native_terminal_selection_drag(
 }
 
 #[cfg(feature = "native-renderer")]
+fn clear_native_terminal_selection(
+    session_id: SessionId,
+    native_selection_by_session: &mut Signal<HashMap<SessionId, NativeTerminalSelection>>,
+    native_selection_drag: &mut Signal<Option<NativeTerminalSelectionDrag>>,
+    native_selection_suppress_click: &mut Signal<Option<SessionId>>,
+) {
+    native_selection_by_session.write().remove(&session_id);
+    if native_selection_drag
+        .read()
+        .is_some_and(|drag| drag.session_id == session_id)
+    {
+        native_selection_drag.set(None);
+    }
+    if *native_selection_suppress_click.read() == Some(session_id) {
+        native_selection_suppress_click.set(None);
+    }
+}
+
+#[cfg(feature = "native-renderer")]
 fn map_native_pointer_to_terminal_cell(
     x: f64,
     y: f64,
@@ -1593,6 +1659,10 @@ fn is_paste_shortcut(key: &Key, ctrl: bool, alt: bool, shift: bool, meta: bool) 
     }
 }
 
+fn is_copy_shortcut(key: &Key, ctrl: bool, alt: bool, _shift: bool, meta: bool) -> bool {
+    matches!(key, Key::Character(text) if text.eq_ignore_ascii_case("c") && (ctrl || meta) && !alt)
+}
+
 fn is_snippet_hotkey_trigger(key: &Key, ctrl: bool, alt: bool, shift: bool, meta: bool) -> bool {
     matches!(key, Key::Insert) && alt && !ctrl && !shift && !meta
 }
@@ -1683,6 +1753,7 @@ fn handle_terminal_keydown(
     body_id_for_snippet_capture: &str,
     body_id_for_round_select: &str,
     body_id_for_copy: &str,
+    native_selection_text_for_copy: Option<String>,
     round_anchor_row_global: u16,
     bracketed_paste: bool,
     defer_plain_text_to_input: bool,
@@ -1695,12 +1766,7 @@ fn handle_terminal_keydown(
     let shift = modifiers.shift();
     let meta = modifiers.meta();
 
-    if defer_plain_text_to_input
-        && matches!(&key, Key::Character(_))
-        && !ctrl
-        && !alt
-        && !meta
-    {
+    if defer_plain_text_to_input && matches!(&key, Key::Character(_)) && !ctrl && !alt && !meta {
         return;
     }
 
@@ -1882,24 +1948,26 @@ fn handle_terminal_keydown(
             }
             return;
         }
+    }
 
-        if text.eq_ignore_ascii_case("c") {
-            event.prevent_default();
-            event.stop_propagation();
-            let terminal_manager = terminal_manager_for_keydown.clone();
-            let body_id = body_id_for_copy.to_string();
-            spawn(async move {
-                let copied = if let Some(selection) = read_terminal_selection(body_id).await {
-                    write_clipboard_text(selection.text).await
-                } else {
-                    false
-                };
-                if !copied {
-                    send_input_to_session(&terminal_manager, app_state, session_id, &[0x03]);
-                }
-            });
-            return;
-        }
+    if is_copy_shortcut(&key, ctrl, alt, shift, meta) {
+        event.prevent_default();
+        event.stop_propagation();
+        let terminal_manager = terminal_manager_for_keydown.clone();
+        let body_id = body_id_for_copy.to_string();
+        spawn(async move {
+            let copied = if let Some(selection_text) = native_selection_text_for_copy {
+                write_clipboard_text(selection_text).await
+            } else if let Some(selection) = read_terminal_selection(body_id).await {
+                write_clipboard_text(selection.text).await
+            } else {
+                false
+            };
+            if !copied {
+                send_input_to_session(&terminal_manager, app_state, session_id, &[0x03]);
+            }
+        });
+        return;
     }
 
     if let Some(input) = key_event_to_bytes(&event) {
@@ -1951,8 +2019,7 @@ pub(crate) fn wheel_delta_lines(event: &WheelEvent, visible_rows: u16) -> Option
 }
 
 fn page_scroll_step(visible_rows: u16) -> i32 {
-    (i32::from(visible_rows.max(1))) / 2
-        .max(1)
+    (i32::from(visible_rows.max(1)) / 2).max(1)
 }
 
 #[cfg(feature = "terminal-native-spike")]
@@ -2301,7 +2368,9 @@ fn row_char_offset(lines: &[String], row: usize) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::crt_toggle_requested;
-    use super::{is_paste_shortcut, is_snippet_hotkey_trigger, split_prompt_prefix};
+    use super::{
+        is_copy_shortcut, is_paste_shortcut, is_snippet_hotkey_trigger, split_prompt_prefix,
+    };
     use dioxus::prelude::Key;
 
     #[cfg(feature = "native-renderer")]
@@ -2339,6 +2408,28 @@ mod tests {
     #[test]
     fn recognizes_shift_insert_as_paste() {
         assert!(is_paste_shortcut(&Key::Insert, false, false, true, false));
+    }
+
+    #[test]
+    fn recognizes_ctrl_c_as_copy() {
+        assert!(is_copy_shortcut(
+            &Key::Character("c".to_string()),
+            true,
+            false,
+            false,
+            false,
+        ));
+    }
+
+    #[test]
+    fn rejects_ctrl_alt_c_as_copy() {
+        assert!(!is_copy_shortcut(
+            &Key::Character("c".to_string()),
+            true,
+            true,
+            false,
+            false,
+        ));
     }
 
     #[test]
