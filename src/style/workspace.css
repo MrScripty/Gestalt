@@ -642,6 +642,18 @@
   background: transparent;
 }
 
+.terminal-native-selection-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.terminal-native-selection-rect {
+  position: absolute;
+  background: #a8f07a40;
+  box-shadow: inset 0 0 0 1px #cfff9a33;
+}
+
 .terminal-line {
   height: var(--term-line-height);
   line-height: var(--term-line-height);

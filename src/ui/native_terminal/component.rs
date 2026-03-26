@@ -1,5 +1,5 @@
-use crate::terminal::TerminalSnapshot;
 use crate::state::SessionId;
+use crate::terminal::TerminalSnapshot;
 use crate::terminal_native::TerminalFrame;
 use dioxus::prelude::*;
 use dioxus_native::use_wgpu;
@@ -11,7 +11,14 @@ use super::frame::NativeTerminalFrame;
 use super::paint::{NativeTerminalPaintBridge, NativeTerminalPaintSource};
 use super::surface_sync::use_native_surface_metric_sync;
 
-const INPUT_SINK_STYLE: &str = "position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; background: transparent; color: transparent; caret-color: transparent; border: none; outline: none;";
+const INPUT_SINK_STYLE: &str = "position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; pointer-events: none; background: transparent; color: transparent; caret-color: transparent; border: none; outline: none;";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct NativeTerminalSelectionRect {
+    pub row: u16,
+    pub col: u16,
+    pub width: u16,
+}
 
 #[component]
 fn NativeTerminalPaintHost(
@@ -110,7 +117,13 @@ pub(crate) fn NativeTerminalBody(
     native_terminal_surface_cells: Signal<HashMap<SessionId, (u16, u16)>>,
     native_terminal_surface_sizes: Signal<HashMap<SessionId, (f64, f64)>>,
     input_value: String,
+    selection_rects: Vec<NativeTerminalSelectionRect>,
+    cell_width_px: f64,
+    cell_height_px: f64,
     onviewportmounted: EventHandler<Rc<MountedData>>,
+    onmousedown: EventHandler<MouseEvent>,
+    onmousemove: EventHandler<MouseEvent>,
+    onmouseup: EventHandler<MouseEvent>,
     onclick: EventHandler<MouseEvent>,
     onfocus: EventHandler<FocusEvent>,
     onblur: EventHandler<FocusEvent>,
@@ -154,6 +167,9 @@ pub(crate) fn NativeTerminalBody(
                 layer_mount.set(Some(mount.clone()));
                 onviewportmounted.call(mount.clone());
             },
+            onmousedown: move |event| onmousedown.call(event),
+            onmousemove: move |event| onmousemove.call(event),
+            onmouseup: move |event| onmouseup.call(event),
             onclick: move |event| {
                 onclick.call(event);
                 if let Some(input_mount) = input_mount.read().clone() {
@@ -182,6 +198,29 @@ pub(crate) fn NativeTerminalBody(
                 native_terminal_surface_cells: native_terminal_surface_cells,
                 native_terminal_surface_sizes: native_terminal_surface_sizes,
             }
+            if !selection_rects.is_empty() {
+                div {
+                    class: "terminal-native-selection-overlay",
+                    for (rect_index, rect) in selection_rects.iter().copied().enumerate() {
+                        {
+                            let style = format!(
+                                "top: {:.2}px; left: {:.2}px; width: {:.2}px; height: {:.2}px;",
+                                f64::from(rect.row) * cell_height_px,
+                                f64::from(rect.col) * cell_width_px,
+                                f64::from(rect.width) * cell_width_px,
+                                cell_height_px,
+                            );
+                            rsx! {
+                                div {
+                                    key: "native-selection-{session_id}-{rect_index}",
+                                    class: "terminal-native-selection-rect",
+                                    style: "{style}",
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             input {
                 r#type: "text",
                 tabindex: "0",
@@ -195,14 +234,6 @@ pub(crate) fn NativeTerminalBody(
                     if show_caret {
                         spawn(async move {
                             let _ = mount.set_focus(true).await;
-                        });
-                    }
-                },
-                onclick: move |event| {
-                    onclick.call(event);
-                    if let Some(input_mount) = input_mount.read().clone() {
-                        spawn(async move {
-                            let _ = input_mount.set_focus(true).await;
                         });
                     }
                 },

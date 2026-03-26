@@ -15,6 +15,8 @@ use crate::ui::terminal_view::{
     NativeTerminalHorizontalScrollDrag, NativeTerminalScrollDrag, SnippetHotkeyState,
     TerminalInteractionSignals, terminal_shell,
 };
+#[cfg(feature = "native-renderer")]
+use crate::ui::terminal_view::{NativeTerminalSelection, NativeTerminalSelectionDrag};
 use dioxus::html::input_data::MouseButton;
 use dioxus::prelude::*;
 use emily::model::VectorizationStatus;
@@ -233,6 +235,13 @@ pub(crate) fn WorkspaceMain(
     };
     let agent_stack_style = format!("--agent-top-ratio: {:.2}%;", agent_ratio * 100.0);
     let run_sidebar_style = run_sidebar_style(sidebar_ratio);
+    #[cfg(feature = "native-renderer")]
+    let native_selection_by_session =
+        use_signal(|| HashMap::<SessionId, NativeTerminalSelection>::new());
+    #[cfg(feature = "native-renderer")]
+    let mut native_selection_drag = use_signal(|| None::<NativeTerminalSelectionDrag>);
+    #[cfg(feature = "native-renderer")]
+    let native_selection_suppress_click = use_signal(|| None::<SessionId>);
     let interaction = TerminalInteractionSignals {
         app_state,
         ui_state,
@@ -247,6 +256,12 @@ pub(crate) fn WorkspaceMain(
         native_hovered_terminal,
         native_scroll_drag,
         native_horizontal_scroll_drag,
+        #[cfg(feature = "native-renderer")]
+        native_selection_by_session,
+        #[cfg(feature = "native-renderer")]
+        native_selection_drag,
+        #[cfg(feature = "native-renderer")]
+        native_selection_suppress_click,
         snippet_hotkey_state,
     };
     let workspace_class = if runner_drag_start.read().is_some()
@@ -267,6 +282,8 @@ pub(crate) fn WorkspaceMain(
                     runner_drag_start.set(None);
                     agent_drag_start.set(None);
                     sidebar_drag_start.set(None);
+                    #[cfg(feature = "native-renderer")]
+                    native_selection_drag.set(None);
                     side_panel_width_drag_start.set(None);
                     return;
                 }

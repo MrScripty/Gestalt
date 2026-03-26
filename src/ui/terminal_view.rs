@@ -2,6 +2,8 @@ use crate::commands::CommandId;
 use crate::emily_bridge::{EmilyBridge, SnippetIngestRequest};
 use crate::state::{AppState, NewSnippet, SessionId, SessionStatus};
 use crate::terminal::{TerminalManager, TerminalSnapshot};
+#[cfg(feature = "native-renderer")]
+use crate::terminal_native::TerminalFrame;
 use crate::ui::command_palette::{InsertCommandPalette, PaletteRow};
 use crate::ui::insert_command_mode::{
     InsertModeOutcome, InsertModeSelection, InsertModeState, KeyModifiers, TerminalKeyRoute,
@@ -9,9 +11,10 @@ use crate::ui::insert_command_mode::{
 };
 #[cfg(feature = "native-renderer")]
 use crate::ui::native_terminal::{
-    NativeTerminalBody, apply_native_scroll_delta, apply_native_scroll_to,
-    native_offset_from_horizontal_track, native_offset_from_vertical_track,
-    native_scroll_track_height_px, native_terminal_viewport_metrics, scaled_cell_width_px,
+    NativeTerminalBody, NativeTerminalFrame, NativeTerminalSelectionRect,
+    apply_native_scroll_delta, apply_native_scroll_to, native_offset_from_horizontal_track,
+    native_offset_from_vertical_track, native_scroll_track_height_px,
+    native_terminal_viewport_metrics, scaled_cell_height_px, scaled_cell_width_px,
 };
 use crate::ui::terminal_input::{
     cursor_move_bytes, key_event_to_bytes, map_click_to_terminal_cell, read_clipboard_text,
@@ -52,6 +55,29 @@ pub(crate) struct NativeTerminalHorizontalScrollDrag {
     pub thumb_travel_px: f64,
 }
 
+#[cfg(feature = "native-renderer")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct NativeTerminalSelectionCell {
+    pub row: u16,
+    pub col: u16,
+}
+
+#[cfg(feature = "native-renderer")]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct NativeTerminalSelection {
+    pub text: String,
+    pub rects: Vec<NativeTerminalSelectionRect>,
+}
+
+#[cfg(feature = "native-renderer")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct NativeTerminalSelectionDrag {
+    pub session_id: SessionId,
+    pub anchor: NativeTerminalSelectionCell,
+    pub current: NativeTerminalSelectionCell,
+    pub moved: bool,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) struct TerminalInteractionSignals {
     pub app_state: Signal<AppState>,
@@ -67,6 +93,12 @@ pub(crate) struct TerminalInteractionSignals {
     pub native_hovered_terminal: Signal<Option<SessionId>>,
     pub native_scroll_drag: Signal<Option<NativeTerminalScrollDrag>>,
     pub native_horizontal_scroll_drag: Signal<Option<NativeTerminalHorizontalScrollDrag>>,
+    #[cfg(feature = "native-renderer")]
+    pub native_selection_by_session: Signal<HashMap<SessionId, NativeTerminalSelection>>,
+    #[cfg(feature = "native-renderer")]
+    pub native_selection_drag: Signal<Option<NativeTerminalSelectionDrag>>,
+    #[cfg(feature = "native-renderer")]
+    pub native_selection_suppress_click: Signal<Option<SessionId>>,
     pub snippet_hotkey_state: Signal<Option<SnippetHotkeyState>>,
 }
 
@@ -93,6 +125,12 @@ pub(crate) fn terminal_shell(
     let mut native_hovered_terminal = interaction.native_hovered_terminal;
     let mut native_scroll_drag = interaction.native_scroll_drag;
     let mut native_horizontal_scroll_drag = interaction.native_horizontal_scroll_drag;
+    #[cfg(feature = "native-renderer")]
+    let mut native_selection_by_session = interaction.native_selection_by_session;
+    #[cfg(feature = "native-renderer")]
+    let mut native_selection_drag = interaction.native_selection_drag;
+    #[cfg(feature = "native-renderer")]
+    let mut native_selection_suppress_click = interaction.native_selection_suppress_click;
     let snippet_hotkey_state = interaction.snippet_hotkey_state;
     let mut shell_mount = use_signal(|| None::<Rc<MountedData>>);
     #[cfg(feature = "native-renderer")]
@@ -298,6 +336,25 @@ pub(crate) fn terminal_shell(
     #[cfg(feature = "native-renderer")]
     let native_horizontal_thumb_width_pct = native_viewport.horizontal_thumb_width_pct;
     #[cfg(feature = "native-renderer")]
+    let native_surface_size = native_terminal_surface_sizes
+        .read()
+        .get(&session_id)
+        .copied();
+    #[cfg(feature = "native-renderer")]
+    let native_cell_width_px = native_surface_size
+        .map(|(width, _)| width / f64::from(native_visible_cols.max(1)))
+        .unwrap_or_else(|| scaled_cell_width_px(ui_scale));
+    #[cfg(feature = "native-renderer")]
+    let native_cell_height_px = native_surface_size
+        .map(|(_, height)| height / f64::from(native_visible_rows.max(1)))
+        .unwrap_or_else(|| scaled_cell_height_px(ui_scale));
+    #[cfg(feature = "native-renderer")]
+    let native_selection_rects = native_selection_by_session
+        .read()
+        .get(&session_id)
+        .map(|selection| selection.rects.clone())
+        .unwrap_or_default();
+    #[cfg(feature = "native-renderer")]
     let mut native_input_buffer = use_signal(String::new);
     #[cfg(feature = "native-renderer")]
     let native_input_value = native_input_buffer.read().clone();
@@ -332,6 +389,8 @@ pub(crate) fn terminal_shell(
     let native_emily_bridge_for_snippet = shell_emily_bridge_for_snippet.clone();
     let shell_terminal_snapshot = terminal.clone();
     let native_terminal_snapshot = shell_terminal_snapshot.clone();
+    #[cfg(feature = "native-renderer")]
+    let native_terminal_snapshot_for_selection = native_terminal_snapshot.clone();
     let shell_source_cwd = source_cwd.clone();
     let native_source_cwd = shell_source_cwd.clone();
     let shell_body_id_for_snippet_capture = body_id_for_snippet_capture.clone();
@@ -351,6 +410,8 @@ pub(crate) fn terminal_shell(
     let wrapped_shell_emily_bridge_for_snippet = shell_emily_bridge_for_snippet.clone();
     #[cfg(feature = "native-renderer")]
     let wrapped_shell_terminal_snapshot = shell_terminal_snapshot.clone();
+    #[cfg(feature = "native-renderer")]
+    let native_frame_for_selection = native_frame.clone();
     #[cfg(feature = "native-renderer")]
     let wrapped_shell_source_cwd = shell_source_cwd.clone();
     #[cfg(feature = "native-renderer")]
@@ -395,12 +456,62 @@ pub(crate) fn terminal_shell(
             native_terminal_surface_cells: native_terminal_surface_cells,
             native_terminal_surface_sizes: native_terminal_surface_sizes,
             input_value: native_input_value.clone(),
+            selection_rects: native_selection_rects,
+            cell_width_px: native_cell_width_px,
+            cell_height_px: native_cell_height_px,
             onviewportmounted: move |mount: Rc<MountedData>| {
                 native_terminal_viewport_mounts
                     .write()
                     .insert(session_id, mount);
             },
+            onmousedown: move |event: MouseEvent| {
+                if !matches!(
+                    event.data().trigger_button(),
+                    Some(dioxus::html::input_data::MouseButton::Primary)
+                ) {
+                    return;
+                }
+                focus_terminal_session(ui_state, session_id);
+                native_selection_suppress_click.set(None);
+                start_native_terminal_selection_drag(
+                    event,
+                    session_id,
+                    native_visible_rows,
+                    native_visible_cols,
+                    native_surface_size,
+                    ui_scale,
+                    &mut native_selection_by_session,
+                    &mut native_selection_drag,
+                );
+            },
+            onmousemove: move |event: MouseEvent| {
+                update_native_terminal_selection_drag(
+                    event,
+                    session_id,
+                    &native_terminal_snapshot_for_selection,
+                    native_frame_for_selection.as_deref(),
+                    native_visible_rows,
+                    native_visible_cols,
+                    native_local_offset as u16,
+                    native_horizontal_offset as u16,
+                    native_surface_size,
+                    ui_scale,
+                    &mut native_selection_by_session,
+                    &mut native_selection_drag,
+                );
+            },
+            onmouseup: move |_: MouseEvent| {
+                finish_native_terminal_selection_drag(
+                    session_id,
+                    &mut native_selection_drag,
+                    &mut native_selection_suppress_click,
+                );
+            },
             onclick: move |event| {
+                if *native_selection_suppress_click.read() == Some(session_id) {
+                    native_selection_suppress_click.set(None);
+                    return;
+                }
                 handle_terminal_click(
                     event,
                     session_id,
@@ -428,6 +539,16 @@ pub(crate) fn terminal_shell(
                     eprintln!("[native-input] blur session={}", session_id);
                 }
                 blur_terminal_session(ui_state, session_id);
+                native_selection_by_session.write().remove(&session_id);
+                if native_selection_drag
+                    .read()
+                    .is_some_and(|drag| drag.session_id == session_id)
+                {
+                    native_selection_drag.set(None);
+                }
+                if *native_selection_suppress_click.read() == Some(session_id) {
+                    native_selection_suppress_click.set(None);
+                }
             },
             onkeydown: move |event: KeyboardEvent| {
                 if native_terminal_input_debug_enabled() {
@@ -1081,6 +1202,258 @@ pub(crate) fn terminal_shell(
                 }
             }
         }
+    }
+}
+
+#[cfg(feature = "native-renderer")]
+fn start_native_terminal_selection_drag(
+    event: MouseEvent,
+    session_id: SessionId,
+    visible_rows: u16,
+    visible_cols: u16,
+    surface_size: Option<(f64, f64)>,
+    ui_scale: f64,
+    native_selection_by_session: &mut Signal<HashMap<SessionId, NativeTerminalSelection>>,
+    native_selection_drag: &mut Signal<Option<NativeTerminalSelectionDrag>>,
+) {
+    event.prevent_default();
+    event.stop_propagation();
+    let point = event.data().element_coordinates();
+    let Some(anchor) = map_native_pointer_to_terminal_cell(
+        point.x,
+        point.y,
+        visible_rows,
+        visible_cols,
+        surface_size,
+        ui_scale,
+    ) else {
+        return;
+    };
+
+    native_selection_by_session.write().remove(&session_id);
+    native_selection_drag.set(Some(NativeTerminalSelectionDrag {
+        session_id,
+        anchor,
+        current: anchor,
+        moved: false,
+    }));
+}
+
+#[cfg(feature = "native-renderer")]
+#[allow(clippy::too_many_arguments)]
+fn update_native_terminal_selection_drag(
+    event: MouseEvent,
+    session_id: SessionId,
+    terminal: &Arc<TerminalSnapshot>,
+    native_frame: Option<&TerminalFrame>,
+    visible_rows: u16,
+    visible_cols: u16,
+    local_scroll_offset: u16,
+    horizontal_scroll_offset: u16,
+    surface_size: Option<(f64, f64)>,
+    ui_scale: f64,
+    native_selection_by_session: &mut Signal<HashMap<SessionId, NativeTerminalSelection>>,
+    native_selection_drag: &mut Signal<Option<NativeTerminalSelectionDrag>>,
+) {
+    use dioxus::html::input_data::MouseButton;
+
+    if !event.data().held_buttons().contains(MouseButton::Primary) {
+        if native_selection_drag
+            .read()
+            .is_some_and(|drag| drag.session_id == session_id)
+        {
+            native_selection_drag.set(None);
+        }
+        return;
+    }
+
+    let Some(mut drag) = *native_selection_drag.read() else {
+        return;
+    };
+    if drag.session_id != session_id {
+        return;
+    }
+
+    let point = event.data().element_coordinates();
+    let Some(current) = map_native_pointer_to_terminal_cell(
+        point.x,
+        point.y,
+        visible_rows,
+        visible_cols,
+        surface_size,
+        ui_scale,
+    ) else {
+        return;
+    };
+    if current == drag.current {
+        return;
+    }
+
+    event.prevent_default();
+    event.stop_propagation();
+    drag.current = current;
+    drag.moved = drag.current != drag.anchor;
+    native_selection_drag.set(Some(drag));
+
+    let mut selections = native_selection_by_session.write();
+    if !drag.moved {
+        selections.remove(&session_id);
+        return;
+    }
+
+    let frame = build_native_selection_frame(
+        terminal,
+        native_frame,
+        visible_rows,
+        visible_cols,
+        local_scroll_offset,
+        horizontal_scroll_offset,
+    );
+    if let Some(selection) = build_native_terminal_selection(&frame, drag.anchor, drag.current) {
+        selections.insert(session_id, selection);
+    } else {
+        selections.remove(&session_id);
+    }
+}
+
+#[cfg(feature = "native-renderer")]
+fn finish_native_terminal_selection_drag(
+    session_id: SessionId,
+    native_selection_drag: &mut Signal<Option<NativeTerminalSelectionDrag>>,
+    native_selection_suppress_click: &mut Signal<Option<SessionId>>,
+) {
+    let Some(drag) = *native_selection_drag.read() else {
+        return;
+    };
+    if drag.session_id != session_id {
+        return;
+    }
+
+    if drag.moved {
+        native_selection_suppress_click.set(Some(session_id));
+    }
+    native_selection_drag.set(None);
+}
+
+#[cfg(feature = "native-renderer")]
+fn map_native_pointer_to_terminal_cell(
+    x: f64,
+    y: f64,
+    visible_rows: u16,
+    visible_cols: u16,
+    surface_size: Option<(f64, f64)>,
+    ui_scale: f64,
+) -> Option<NativeTerminalSelectionCell> {
+    let width = surface_size
+        .map(|(width, _)| width)
+        .unwrap_or_else(|| f64::from(visible_cols.max(1)) * scaled_cell_width_px(ui_scale))
+        .max(1.0);
+    let height = surface_size
+        .map(|(_, height)| height)
+        .unwrap_or_else(|| f64::from(visible_rows.max(1)) * scaled_cell_height_px(ui_scale))
+        .max(1.0);
+    let cell_width = (width / f64::from(visible_cols.max(1))).max(1.0);
+    let cell_height = (height / f64::from(visible_rows.max(1))).max(1.0);
+    let clamped_x = x.clamp(0.0, (width - 1.0).max(0.0));
+    let clamped_y = y.clamp(0.0, (height - 1.0).max(0.0));
+
+    Some(NativeTerminalSelectionCell {
+        row: ((clamped_y / cell_height).floor() as u16).min(visible_rows.saturating_sub(1)),
+        col: ((clamped_x / cell_width).floor() as u16).min(visible_cols.saturating_sub(1)),
+    })
+}
+
+#[cfg(feature = "native-renderer")]
+fn build_native_selection_frame(
+    terminal: &Arc<TerminalSnapshot>,
+    native_frame: Option<&TerminalFrame>,
+    visible_rows: u16,
+    visible_cols: u16,
+    local_scroll_offset: u16,
+    horizontal_scroll_offset: u16,
+) -> NativeTerminalFrame {
+    native_frame
+        .map(|frame| {
+            NativeTerminalFrame::from_native_or_snapshot(
+                frame,
+                terminal,
+                false,
+                visible_rows,
+                local_scroll_offset,
+                visible_cols,
+                horizontal_scroll_offset,
+            )
+        })
+        .unwrap_or_else(|| {
+            NativeTerminalFrame::from_snapshot(
+                terminal,
+                false,
+                visible_rows,
+                local_scroll_offset,
+                visible_cols,
+                horizontal_scroll_offset,
+            )
+        })
+}
+
+#[cfg(feature = "native-renderer")]
+fn build_native_terminal_selection(
+    frame: &NativeTerminalFrame,
+    anchor: NativeTerminalSelectionCell,
+    current: NativeTerminalSelectionCell,
+) -> Option<NativeTerminalSelection> {
+    let (start, end) = ordered_native_selection_cells(anchor, current);
+    if start == end {
+        return None;
+    }
+
+    let mut rects = Vec::new();
+    let mut lines = Vec::new();
+
+    for row in start.row..=end.row {
+        let left = if row == start.row { start.col } else { 0 };
+        let right = if row == end.row {
+            end.col
+        } else {
+            frame.cols.saturating_sub(1)
+        };
+        if left > right {
+            continue;
+        }
+
+        rects.push(NativeTerminalSelectionRect {
+            row,
+            col: left,
+            width: right.saturating_sub(left).saturating_add(1),
+        });
+
+        let mut line = String::new();
+        for col in left..=right {
+            line.push(frame.cell(row, col).codepoint);
+        }
+        while line.ends_with(' ') {
+            line.pop();
+        }
+        lines.push(line);
+    }
+
+    let text = lines.join("\n");
+    if text.chars().all(|ch| ch == '\n') {
+        return None;
+    }
+
+    Some(NativeTerminalSelection { text, rects })
+}
+
+#[cfg(feature = "native-renderer")]
+fn ordered_native_selection_cells(
+    a: NativeTerminalSelectionCell,
+    b: NativeTerminalSelectionCell,
+) -> (NativeTerminalSelectionCell, NativeTerminalSelectionCell) {
+    if (a.row, a.col) <= (b.row, b.col) {
+        (a, b)
+    } else {
+        (b, a)
     }
 }
 
@@ -1931,6 +2304,16 @@ mod tests {
     use super::{is_paste_shortcut, is_snippet_hotkey_trigger, split_prompt_prefix};
     use dioxus::prelude::Key;
 
+    #[cfg(feature = "native-renderer")]
+    use super::{
+        NativeTerminalSelectionCell, build_native_terminal_selection,
+        ordered_native_selection_cells,
+    };
+    #[cfg(feature = "native-renderer")]
+    use crate::terminal::TerminalSnapshot;
+    #[cfg(feature = "native-renderer")]
+    use crate::ui::native_terminal::NativeTerminalFrame;
+
     #[test]
     fn recognizes_ctrl_v_as_paste() {
         assert!(is_paste_shortcut(
@@ -1997,5 +2380,43 @@ mod tests {
             false,
             false
         ));
+    }
+
+    #[cfg(feature = "native-renderer")]
+    #[test]
+    fn orders_native_selection_cells_by_row_then_col() {
+        let a = NativeTerminalSelectionCell { row: 4, col: 2 };
+        let b = NativeTerminalSelectionCell { row: 2, col: 5 };
+        assert_eq!(ordered_native_selection_cells(a, b), (b, a),);
+    }
+
+    #[cfg(feature = "native-renderer")]
+    #[test]
+    fn builds_native_selection_text_and_rects() {
+        let snapshot = TerminalSnapshot {
+            lines: vec!["abc ".to_string(), "defg".to_string()],
+            rows: 2,
+            cols: 4,
+            cursor_row: 0,
+            cursor_col: 0,
+            hide_cursor: true,
+            bracketed_paste: false,
+        };
+        let frame = NativeTerminalFrame::from_snapshot(&snapshot, false, 2, 0, 4, 0);
+        let selection = build_native_terminal_selection(
+            &frame,
+            NativeTerminalSelectionCell { row: 0, col: 1 },
+            NativeTerminalSelectionCell { row: 1, col: 2 },
+        )
+        .expect("selection should exist");
+
+        assert_eq!(selection.text, "bc\ndef");
+        assert_eq!(selection.rects.len(), 2);
+        assert_eq!(selection.rects[0].row, 0);
+        assert_eq!(selection.rects[0].col, 1);
+        assert_eq!(selection.rects[0].width, 3);
+        assert_eq!(selection.rects[1].row, 1);
+        assert_eq!(selection.rects[1].col, 0);
+        assert_eq!(selection.rects[1].width, 3);
     }
 }

@@ -10,7 +10,8 @@ mod surface_sync;
 mod viewport;
 mod wrap_policy;
 
-pub(crate) use component::NativeTerminalBody;
+pub(crate) use component::{NativeTerminalBody, NativeTerminalSelectionRect};
+pub(crate) use frame::NativeTerminalFrame;
 pub(crate) use scene::scaled_cell_height_px;
 pub(crate) use scene::scaled_cell_width_px;
 pub(crate) use scroll::{
