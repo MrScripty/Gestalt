@@ -92,11 +92,17 @@ GESTALT_NATIVE_SPIKE_PANES=6 cargo run --features terminal-native-spike --bin te
   summary card and resume rendering when re-selected.
 - The standalone spike now supports an arbitrary pane count through
   `GESTALT_NATIVE_SPIKE_PANES`, defaulting to `4`.
-- Selection, mouse reporting, clipboard integration, and IME are intentionally
-  out of scope for this spike.
-- Keyboard capture still relies on an invisible full-surface input overlay
-  because direct terminal-surface focus handling in `dioxus-native` is not yet
-  reliable enough for this spike.
+- The default launcher `--run` and `--run-release` paths enable the native
+  terminal backend, so the native pane path must stay usable for basic
+  day-to-day interactions.
+- Native panes now support app-owned drag selection plus shortcut-driven
+  clipboard copy/paste (`Ctrl/Cmd+C`, `Ctrl/Cmd+V`, and `Shift+Insert`).
+- Mouse reporting, shell-native clipboard protocols, and IME remain out of
+  scope for this spike.
+- Keyboard capture still relies on an invisible input sink because direct
+  terminal-surface focus handling in `dioxus-native` is not yet reliable
+  enough for this spike; pointer selection is handled by the terminal surface
+  above that sink.
 - Binary build verification is complete, focused GPU-scene tests pass, and the
   replay benchmark now breaks native snapshot cost into damage collection,
   projection update, and publication build in addition to GPU scene
