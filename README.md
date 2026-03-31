@@ -108,6 +108,21 @@ If PTY access is unavailable in your environment:
 GESTALT_SKIP_PERF_GATE=1 ./launcher.sh --perf
 ```
 
+## Current Milestone
+
+Current focus is defining the smallest daily-driver milestone for the native terminal workspace.
+
+Done for this milestone means:
+
+- One workspace group can be used for a real multi-pane coding session without falling back to an external terminal.
+- Native selection, copy, resizing, and scrolling all feel reliable enough for repeated daily use.
+- The wrap and viewport rules are predictable enough that terminal layout bugs no longer dominate the session.
+- The current interaction limits are documented clearly enough that testing the native path does not require tribal knowledge.
+
+Current known limitation:
+
+- The spike branch is moving quickly, so UI polish can outpace a crisp statement of what "usable now" actually means.
+
 ## Current Limitations
 
 - Session status is runtime-activity derived (terminal I/O), not full process/job derived.
